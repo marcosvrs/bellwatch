@@ -40,8 +40,7 @@ const numberValue = (record: JsonRecord | undefined, key: string): number | unde
   return undefined;
 };
 
-const parsePrice = (value: string | undefined): number | undefined => {
-  if (!value) return undefined;
+const parsePrice = (value: string): number | undefined => {
   const match = value.match(/€\s*([\d,.]+)/);
   if (!match) return undefined;
   const numeric = Number(match[1].replace(/,/g, ""));

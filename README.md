@@ -204,3 +204,14 @@ The tests cover every Daft filter, all property/media values, URL encoding,
 invalid filter ranges, Next data parsing, SQLite persistence, ntfy headers and
 failures, first-run seeding, retry behavior, and local/external browser mode
 selection.
+
+`npm run coverage` runs c8 with `--all` and enforces 100% statements and
+functions coverage. Lines and branches are reported but have no threshold.
+The deterministic monitor core is covered: configuration, Daft URL/parser
+logic, polling, and ntfy formatting. Browser, database, Redis, process-entry,
+and healthcheck adapters remain outside this unit threshold because they
+require external runtimes; they are exercised by the integration and container
+smokes described above.
+
+`npm run mutation` runs Stryker against the same deterministic core and fails
+when the mutation score is below 90%.

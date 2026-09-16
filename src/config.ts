@@ -79,17 +79,12 @@ const required = (env: NodeJS.ProcessEnv, name: string): string => {
 const integer = (
   env: NodeJS.ProcessEnv,
   name: string,
-  defaultValue: number | undefined,
+  defaultValue: number,
   min: number,
   max: number,
 ): number => {
   const raw = trimmed(env, name);
-  if (raw === undefined) {
-    if (defaultValue === undefined) {
-      throw new ConfigurationError(`${name} is required`);
-    }
-    return defaultValue;
-  }
+  if (raw === undefined) return defaultValue;
   if (!/^-?\d+$/.test(raw)) {
     throw new ConfigurationError(`${name} must be an integer`);
   }
@@ -108,7 +103,7 @@ const optionalInteger = (
 ): number | undefined => {
   const raw = trimmed(env, name);
   if (raw === undefined) return undefined;
-  return integer(env, name, undefined, min, max);
+  return integer(env, name, 0, min, max);
 };
 
 const choice = <T extends string | number>(

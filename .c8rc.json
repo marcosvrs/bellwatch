@@ -1,0 +1,17 @@
+{
+  "all": true,
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "src/browser.ts",
+    "src/healthcheck.ts",
+    "src/lease.ts",
+    "src/main.ts",
+    "src/state.ts"
+  ],
+  "extension": [".ts"],
+  "exclude-after-remap": true,
+  "reporter": ["text", "lcov"],
+  "check-coverage": true,
+  "statements": 100,
+  "functions": 100
+}

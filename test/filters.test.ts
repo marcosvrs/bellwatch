@@ -8,8 +8,11 @@ import {
   addedInLastDateValue,
   type DaftFilters,
 } from "../src/daft/filters.js";
-import { buildDaftSearchUrl } from "../src/daft/url.js";
-import { parseEnvironment } from "../src/config.js";
+import { buildDaftSearchUrls, buildDaftSearchUrl } from "../src/daft/url.js";
+import {
+  ConfigurationError,
+  parseEnvironment,
+} from "../src/config.js";
 
 const baseFilters: DaftFilters = {
   locationPath: "dublin-city-centre-dublin",
@@ -101,6 +104,41 @@ test("maps available Added In Last choices", () => {
   );
 });
 
+test("handles empty optional filters and rejects invalid page counts", () => {
+  const filters: DaftFilters = {
+    ...baseFilters,
+    radiusKm: 0,
+    priceMinEur: undefined,
+    priceMaxEur: undefined,
+    bedsMin: undefined,
+    bedsMax: undefined,
+    propertyTypes: [],
+    bathsMin: undefined,
+    bathsMax: undefined,
+    mediaTypes: [],
+    keyword: undefined,
+    availability: "published",
+    addedInLastDays: 0,
+    openViewingsFrom: undefined,
+  };
+  const request = {
+    baseUrl: "https://www.daft.ie",
+    sectionPath: "new-homes-for-sale",
+    filters,
+  };
+  const url = new URL(buildDaftSearchUrl(request));
+  assert.equal(url.pathname, "/new-homes-for-sale/dublin-city-centre-dublin");
+  assert.deepEqual([...url.searchParams.keys()], ["sort"]);
+  assert.deepEqual(buildDaftSearchUrls(request, 1), [buildDaftSearchUrl(request)]);
+  assert.equal(
+    buildDaftSearchUrls(request, 2)[1].endsWith("&page=2"),
+    true,
+  );
+  assert.throws(() => buildDaftSearchUrl(request, 0), /positive integer/);
+  assert.throws(() => buildDaftSearchUrl(request, 1.5), /positive integer/);
+  assert.throws(() => buildDaftSearchUrls(request, 0), /positive integer/);
+});
+
 test("accepts Daft web filters from environment variables", () => {
   const config = parseEnvironment({
     NTFY_URL: "https://ntfy.example/daft",
@@ -166,5 +204,296 @@ test("rejects invalid or contradictory filter configuration", () => {
         DAFT_MEDIA_TYPES: "any,video",
       }),
     /DAFT_MEDIA_TYPES cannot combine any/,
+  );
+});
+
+test("parses optional resource settings and rejects malformed environment values", () => {
+  const configured = parseEnvironment({
+    NTFY_URL: "https://ntfy.example/daft/",
+    DAFT_BASE_URL: "https://www.daft.ie/",
+    DAFT_SECTION_PATH: "new-homes-for-sale/",
+    BROWSER_MODE: "external",
+    PLAYWRIGHT_WS_ENDPOINT: "wss://browser.example/playwright",
+    CHROMIUM_HEADLESS: "yes",
+    CHROMIUM_NO_SANDBOX: "on",
+    DATABASE_URL: "postgresql://user:password@db.example/daft",
+    REDIS_URL: "rediss://redis.example",
+    REDIS_LOCK_KEY: "test-lock",
+    REDIS_LOCK_TTL_SECONDS: "60",
+    NTFY_TAGS: "house,house,new-home",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  assert.equal(configured.ntfy.url, "https://ntfy.example/daft");
+  assert.equal(configured.daft.baseUrl, "https://www.daft.ie");
+  assert.equal(configured.daft.sectionPath, "new-homes-for-sale");
+  assert.equal(configured.browser.mode, "external");
+  assert.equal(configured.browser.headless, true);
+  assert.equal(configured.browser.noSandbox, true);
+  assert.equal(
+    configured.state.databaseUrl,
+    "postgresql://user:password@db.example/daft",
+  );
+  assert.deepEqual(configured.redis, {
+    url: "rediss://redis.example",
+    lockKey: "test-lock",
+    lockTtlMs: 60_000,
+  });
+  assert.deepEqual(configured.ntfy.tags, ["house", "new-home"]);
+  assert.equal(configured.polling.notifyExistingOnFirstRun, true);
+
+  assert.throws(() => parseEnvironment({}), /NTFY_URL is required/);
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_LOCATION_PATH: "/dublin",
+      }),
+    /DAFT_LOCATION_PATH must be a Daft URL path/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_OPEN_VIEWINGS_FROM: "2026-02",
+      }),
+    /DAFT_OPEN_VIEWINGS_FROM must use YYYY-MM-DD/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_KEYWORD: "x".repeat(51),
+      }),
+    /DAFT_KEYWORD cannot exceed 50 characters/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DATABASE_URL: "mysql://db.example/daft",
+      }),
+    /DATABASE_URL must use postgres/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        REDIS_URL: "https://redis.example",
+      }),
+    /REDIS_URL must use redis/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        BROWSER_MODE: "external",
+      }),
+    /PLAYWRIGHT_WS_ENDPOINT is required/,
+  );
+  assert.deepEqual(
+    parseEnvironment({
+      NTFY_URL: "https://ntfy.example/daft",
+      DAFT_PROPERTY_TYPES: "any",
+      DAFT_MEDIA_TYPES: "any",
+    }).daft.filters,
+    {
+      locationPath: "dublin-city-centre-dublin",
+      radiusKm: 20,
+      priceMinEur: undefined,
+      priceMaxEur: 499_999,
+      bedsMin: 3,
+      bedsMax: undefined,
+      propertyTypes: [],
+      bathsMin: undefined,
+      bathsMax: undefined,
+      mediaTypes: [],
+      keyword: undefined,
+      availability: "published",
+      addedInLastDays: 0,
+      openViewingsFrom: undefined,
+      sort: "priceAsc",
+    },
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_PRICE_MIN_EUR: "three",
+      }),
+    /DAFT_PRICE_MIN_EUR must be an integer/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_BEDS_MIN: "-1",
+      }),
+    /DAFT_BEDS_MIN must be between/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_PROPERTY_TYPES: "caves",
+      }),
+    /DAFT_PROPERTY_TYPES contains unsupported values/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_MEDIA_TYPES: "photo",
+      }),
+    /DAFT_MEDIA_TYPES contains unsupported values/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_BASE_URL: "not a url",
+      }),
+    /DAFT_BASE_URL must be a valid URL/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_BASE_URL: "ftp://daft.example",
+      }),
+    /DAFT_BASE_URL must use http or https/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        PLAYWRIGHT_WS_ENDPOINT: "http://browser.example",
+      }),
+    /PLAYWRIGHT_WS_ENDPOINT must use ws or wss/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        CHROMIUM_HEADLESS: "sometimes",
+      }),
+    /CHROMIUM_HEADLESS must be a boolean/,
+  );
+});
+
+test("covers trimming, defaults, and boundary validation", () => {
+  const defaults = parseEnvironment({
+    NTFY_URL: "  https://ntfy.example/daft/  ",
+  });
+  assert.equal(defaults.browser.headless, true);
+  assert.equal(defaults.browser.noSandbox, false);
+  assert.equal(defaults.ntfy.titlePrefix, "Daft new home");
+  assert.equal(defaults.ntfy.priority, "default");
+  assert.equal(defaults.state.file, "/data/state.sqlite");
+  assert.equal(defaults.state.heartbeatFile, "/data/heartbeat");
+  assert.equal(new ConfigurationError("bad").name, "ConfigurationError");
+  assert.equal(new ConfigurationError("bad")._tag, "ConfigurationError");
+
+  const trimmed = parseEnvironment({
+    NTFY_URL: " https://ntfy.example/daft/ ",
+    DAFT_LOCATION_PATH: " dublin-city-centre-dublin/ ",
+    DAFT_SECTION_PATH: " new-homes-for-sale/ ",
+    DAFT_KEYWORD: " garage ",
+    NTFY_TITLE_PREFIX: " Custom ",
+    NTFY_PRIORITY: " high ",
+    NTFY_TAGS: " house, new-home ",
+    STATE_FILE: " /tmp/state.sqlite ",
+    HEARTBEAT_FILE: " /tmp/heartbeat ",
+    BROWSER_USER_AGENT: " agent ",
+  });
+  assert.equal(trimmed.daft.filters.locationPath, "dublin-city-centre-dublin");
+  assert.equal(trimmed.daft.sectionPath, "new-homes-for-sale");
+  assert.equal(trimmed.daft.filters.keyword, "garage");
+  assert.equal(trimmed.ntfy.titlePrefix, "Custom");
+  assert.equal(trimmed.ntfy.priority, "high");
+  assert.deepEqual(trimmed.ntfy.tags, ["house", "new-home"]);
+  assert.equal(trimmed.state.file, "/tmp/state.sqlite");
+  assert.equal(trimmed.state.heartbeatFile, "/tmp/heartbeat");
+  assert.equal(trimmed.browser.userAgent, "agent");
+
+  const falseBooleans = parseEnvironment({
+    NTFY_URL: "https://ntfy.example/daft",
+    CHROMIUM_HEADLESS: "off",
+    CHROMIUM_NO_SANDBOX: "0",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "no",
+  });
+  assert.equal(falseBooleans.browser.headless, false);
+  assert.equal(falseBooleans.browser.noSandbox, false);
+  assert.equal(falseBooleans.polling.notifyExistingOnFirstRun, false);
+
+  const equalRange = parseEnvironment({
+    NTFY_URL: "https://ntfy.example/daft",
+    DAFT_PRICE_MIN_EUR: "100",
+    DAFT_PRICE_MAX_EUR: "100",
+  });
+  assert.equal(equalRange.daft.filters.priceMinEur, 100);
+  assert.equal(equalRange.daft.filters.priceMaxEur, 100);
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_MAX_PAGES: "1x",
+      }),
+    /DAFT_MAX_PAGES must be an integer/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_MAX_PAGES: "x1",
+      }),
+    /DAFT_MAX_PAGES must be an integer/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_BEDS_MAX: "16",
+      }),
+    /DAFT_BEDS_MAX must be between/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_OPEN_VIEWINGS_FROM: "x2026-02-01",
+      }),
+    /DAFT_OPEN_VIEWINGS_FROM must use YYYY-MM-DD/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DAFT_OPEN_VIEWINGS_FROM: "2026-02-01x",
+      }),
+    /DAFT_OPEN_VIEWINGS_FROM must use YYYY-MM-DD/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        PLAYWRIGHT_WS_ENDPOINT: "xws://browser.example",
+      }),
+    /PLAYWRIGHT_WS_ENDPOINT must use ws or wss/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        DATABASE_URL: "xpostgresql://db.example/daft",
+      }),
+    /DATABASE_URL must use postgres/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        NTFY_URL: "https://ntfy.example/daft",
+        REDIS_URL: "xredis://redis.example",
+      }),
+    /REDIS_URL must use redis/,
   );
 });
