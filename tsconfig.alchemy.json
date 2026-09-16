@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist-alchemy",
+    "noEmit": true
+  },
+  "include": ["alchemy.run.ts"]
+}

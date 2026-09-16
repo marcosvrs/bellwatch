@@ -1,0 +1,40 @@
+{
+  "name": "daft-house-search",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Effect monitor for new Daft.ie homes with ntfy notifications",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.alchemy.json",
+    "test": "tsx --test \"test/*.test.ts\"",
+    "check": "npm run typecheck && npm run build && npm test",
+    "start": "node dist/main.js",
+    "healthcheck": "node dist/healthcheck.js",
+    "alchemy:plan": "alchemy plan",
+    "alchemy:deploy": "alchemy deploy",
+    "alchemy:destroy": "alchemy destroy"
+  },
+  "dependencies": {
+    "effect": "4.0.0-rc.112",
+    "playwright": "1.63.0",
+    "postgres": "3.4.9",
+    "redis": "6.2.1"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "4.0.0-rc.112",
+    "@types/node": "24.10.7",
+    "alchemy": "2.0.0-beta.77",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.0-rc.112",
+    "@effect/sql-d1": "4.0.0-rc.112",
+    "@effect/sql-sqlite-do": "4.0.0-rc.112",
+    "@effect/vitest": "4.0.0-rc.112"
+  }
+}

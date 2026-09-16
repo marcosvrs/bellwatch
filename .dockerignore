@@ -1,0 +1,12 @@
+.git
+.alchemy
+.env
+.env.*
+node_modules
+dist
+dist-alchemy
+coverage
+.venv
+__pycache__
+test
+README.md
