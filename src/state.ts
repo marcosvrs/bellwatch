@@ -15,7 +15,8 @@ export class StateError extends Error {
 }
 
 export interface StateStore {
-  readonly hasAny: () => Effect.Effect<boolean, StateError>;
+  readonly isInitialized: () => Effect.Effect<boolean, StateError>;
+  readonly markInitialized: () => Effect.Effect<void, StateError>;
   readonly isSeen: (id: string) => Effect.Effect<boolean, StateError>;
   readonly markSeen: (finding: DaftFinding) => Effect.Effect<void, StateError>;
   readonly close: () => Effect.Effect<void, never>;
@@ -26,6 +27,10 @@ const SCHEMA = `
     id TEXT PRIMARY KEY,
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS monitor_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    initialized_at TEXT NOT NULL
   )
 `;
 
@@ -48,11 +53,25 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
   }
 
   return {
-    hasAny: () =>
-      withStateError("hasAny", () =>
-        database.prepare("SELECT 1 AS present FROM seen_listings LIMIT 1").get() !==
-        undefined,
+    isInitialized: () =>
+      withStateError(
+        "isInitialized",
+        () =>
+          database
+            .prepare("SELECT 1 AS present FROM monitor_state WHERE id = 1")
+            .get() !== undefined,
       ),
+    markInitialized: () =>
+      withStateError("markInitialized", () => {
+        const now = new Date().toISOString();
+        database
+          .prepare(
+            `INSERT INTO monitor_state (id, initialized_at)
+             VALUES (1, ?)
+             ON CONFLICT(id) DO UPDATE SET initialized_at = excluded.initialized_at`,
+          )
+          .run(now);
+      }),
     isSeen: (id) =>
       withStateError(
         "isSeen",
@@ -89,10 +108,23 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
   }
 
   return {
-    hasAny: () =>
+    isInitialized: () =>
       Effect.tryPromise({
-        try: async () => (await sql`SELECT 1 FROM seen_listings LIMIT 1`).length > 0,
-        catch: (cause) => new StateError("State hasAny failed", { cause }),
+        try: async () =>
+          (await sql`SELECT 1 FROM monitor_state WHERE id = 1`).length > 0,
+        catch: (cause) => new StateError("State isInitialized failed", { cause }),
+      }),
+    markInitialized: () =>
+      Effect.tryPromise({
+        try: async () => {
+          const now = new Date().toISOString();
+          await sql`
+            INSERT INTO monitor_state (id, initialized_at)
+            VALUES (1, ${now})
+            ON CONFLICT (id) DO UPDATE SET initialized_at = EXCLUDED.initialized_at
+          `;
+        },
+        catch: (cause) => new StateError("State markInitialized failed", { cause }),
       }),
     isSeen: (id) =>
       Effect.tryPromise({

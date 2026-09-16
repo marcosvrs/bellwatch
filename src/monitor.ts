@@ -66,11 +66,11 @@ const runWithLease = (
 ): Effect.Effect<MonitorStats, Error> =>
   Effect.gen(function* () {
     const collected = yield* collectFindings(config, dependencies);
-    const existingState = yield* dependencies.state.hasAny();
+    const initialized = yield* dependencies.state.isInitialized();
     let notified = 0;
     let seeded = 0;
 
-    if (!existingState && !config.polling.notifyExistingOnFirstRun) {
+    if (!initialized && !config.polling.notifyExistingOnFirstRun) {
       for (const finding of collected.findings) {
         yield* dependencies.state.markSeen(finding);
         seeded += 1;
@@ -84,6 +84,7 @@ const runWithLease = (
       }
     }
 
+    yield* dependencies.state.markInitialized();
     yield* dependencies.heartbeat();
     return {
       pages: collected.pages,

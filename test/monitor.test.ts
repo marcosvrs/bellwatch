@@ -18,8 +18,13 @@ const makeFinding = (id: string): DaftFinding => ({
 
 const makeState = (): StateStore => {
   const seen = new Set<string>();
+  let initialized = false;
   return {
-    hasAny: () => Effect.succeed(seen.size > 0),
+    isInitialized: () => Effect.succeed(initialized),
+    markInitialized: () =>
+      Effect.sync(() => {
+        initialized = true;
+      }),
     isSeen: (id) => Effect.succeed(seen.has(id)),
     markSeen: (finding) =>
       Effect.sync(() => {
@@ -87,6 +92,31 @@ test("seeds first results and notifies only later unseen findings", async () => 
   const third = await Effect.runPromise(runOnce(config, dependencies));
   assert.equal(third.notified, 1);
   assert.deepEqual(sent, ["103"]);
+});
+
+test("notifies a finding that appears after an empty first poll", async () => {
+  const state = makeState();
+  const sent: string[] = [];
+  let current: DaftFinding[] = [];
+  const dependencies = {
+    fetchPage: () => Effect.succeed(payload(current)),
+    publish: (finding: DaftFinding) =>
+      Effect.sync(() => {
+        sent.push(finding.id);
+      }),
+    state,
+    lease,
+    heartbeat: () => Effect.void,
+  };
+
+  const first = await Effect.runPromise(runOnce(config, dependencies));
+  assert.equal(first.findings, 0);
+  assert.equal(first.seeded, 0);
+  current = [makeFinding("301")];
+
+  const second = await Effect.runPromise(runOnce(config, dependencies));
+  assert.equal(second.notified, 1);
+  assert.deepEqual(sent, ["301"]);
 });
 
 test("keeps an id unseen when notification delivery fails", async () => {

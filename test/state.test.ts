@@ -15,19 +15,22 @@ const finding = {
   source: "unit" as const,
 };
 
-test("SQLite state survives reopening and suppresses duplicate ids", async () => {
+test("SQLite state survives reopening and persists initialization separately", async () => {
   const directory = await mkdtemp(join(tmpdir(), "daft-house-search-"));
   const file = join(directory, "state.sqlite");
   try {
     const first = await Effect.runPromise(createStateStore({ file }));
-    assert.equal(await Effect.runPromise(first.hasAny()), false);
+    assert.equal(await Effect.runPromise(first.isInitialized()), false);
     await Effect.runPromise(first.markSeen(finding));
-    assert.equal(await Effect.runPromise(first.hasAny()), true);
+    assert.equal(await Effect.runPromise(first.isInitialized()), false);
     assert.equal(await Effect.runPromise(first.isSeen("101")), true);
     assert.equal(await Effect.runPromise(first.isSeen("102")), false);
+    await Effect.runPromise(first.markInitialized());
+    assert.equal(await Effect.runPromise(first.isInitialized()), true);
     await Effect.runPromise(first.close());
 
     const second = await Effect.runPromise(createStateStore({ file }));
+    assert.equal(await Effect.runPromise(second.isInitialized()), true);
     assert.equal(await Effect.runPromise(second.isSeen("101")), true);
     await Effect.runPromise(second.close());
   } finally {
