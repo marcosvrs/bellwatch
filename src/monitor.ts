@@ -4,7 +4,6 @@ import * as Effect from "effect/Effect";
 import type { MonitorConfig } from "./config.js";
 import { buildDaftSearchUrl } from "./daft/url.js";
 import { parseDaftPage, type DaftFinding } from "./daft/parser.js";
-import type { Lease } from "./lease.js";
 import type { StateStore } from "./state.js";
 
 export class MonitorError extends Error {
@@ -20,7 +19,6 @@ export interface MonitorDependencies {
   readonly fetchPage: (url: string) => Effect.Effect<unknown, Error>;
   readonly publish: (finding: DaftFinding) => Effect.Effect<void, Error>;
   readonly state: StateStore;
-  readonly lease: Lease;
   readonly heartbeat: () => Effect.Effect<void, Error>;
 }
 
@@ -29,7 +27,6 @@ export interface MonitorStats {
   readonly findings: number;
   readonly notified: number;
   readonly seeded: number;
-  readonly skipped: boolean;
 }
 
 const collectFindings = (
@@ -67,7 +64,7 @@ const collectFindings = (
     return { findings: [...byId.values()], pages };
   });
 
-const runWithLease = (
+const runPoll = (
   config: MonitorConfig,
   dependencies: MonitorDependencies,
 ): Effect.Effect<MonitorStats, Error> =>
@@ -98,29 +95,13 @@ const runWithLease = (
       findings: collected.findings.length,
       notified,
       seeded,
-      skipped: false,
     };
   });
 
 export const runOnce = (
   config: MonitorConfig,
   dependencies: MonitorDependencies,
-): Effect.Effect<MonitorStats, Error> =>
-  Effect.gen(function* () {
-    const acquired = yield* dependencies.lease.acquire();
-    if (!acquired) {
-      return {
-        pages: 0,
-        findings: 0,
-        notified: 0,
-        seeded: 0,
-        skipped: true,
-      } satisfies MonitorStats;
-    }
-    return yield* runWithLease(config, dependencies).pipe(
-      Effect.ensuring(dependencies.lease.release()),
-    );
-  });
+): Effect.Effect<MonitorStats, Error> => runPoll(config, dependencies);
 
 export const writeHeartbeat = (
   file: string,

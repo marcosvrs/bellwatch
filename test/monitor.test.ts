@@ -7,7 +7,6 @@ import * as Effect from "effect/Effect";
 import { parseEnvironment } from "../src/config.js";
 import { MonitorError, runOnce, writeHeartbeat } from "../src/monitor.js";
 import type { DaftFinding } from "../src/daft/parser.js";
-import type { Lease } from "../src/lease.js";
 import type { StateStore } from "../src/state.js";
 
 const makeFinding = (id: string): DaftFinding => ({
@@ -37,11 +36,6 @@ const makeState = (): StateStore => {
   };
 };
 
-const lease: Lease = {
-  acquire: () => Effect.succeed(true),
-  release: () => Effect.void,
-  close: () => Effect.void,
-};
 
 const payload = (findings: readonly DaftFinding[]) => ({
   props: {
@@ -77,7 +71,6 @@ test("seeds first results and notifies only later unseen findings", async () => 
         sent.push(finding.id);
       }),
     state,
-    lease,
     heartbeat: () => Effect.void,
   };
 
@@ -87,7 +80,6 @@ test("seeds first results and notifies only later unseen findings", async () => 
     findings: 2,
     notified: 0,
     seeded: 2,
-    skipped: false,
   });
   const second = await Effect.runPromise(runOnce(config, dependencies));
   assert.equal(second.notified, 0);
@@ -108,7 +100,6 @@ test("notifies a finding that appears after an empty first poll", async () => {
         sent.push(finding.id);
       }),
     state,
-    lease,
     heartbeat: () => Effect.void,
   };
 
@@ -122,29 +113,6 @@ test("notifies a finding that appears after an empty first poll", async () => {
   assert.deepEqual(sent, ["301"]);
 });
 
-test("skips a poll when the distributed lease is unavailable", async () => {
-  const skippedLease: Lease = {
-    acquire: () => Effect.succeed(false),
-    release: () => Effect.void,
-    close: () => Effect.void,
-  };
-  const result = await Effect.runPromise(
-    runOnce(config, {
-      fetchPage: () => Effect.fail(new Error("fetchPage must not run")),
-      publish: () => Effect.fail(new Error("publish must not run")),
-      state: makeState(),
-      lease: skippedLease,
-      heartbeat: () => Effect.fail(new Error("heartbeat must not run")),
-    }),
-  );
-  assert.deepEqual(result, {
-    pages: 0,
-    findings: 0,
-    notified: 0,
-    seeded: 0,
-    skipped: true,
-  });
-});
 
 test("writes a heartbeat and reports filesystem failures", async () => {
   const directory = await mkdtemp(join(tmpdir(), "bellwatch-heartbeat-"));
@@ -199,7 +167,6 @@ test("collects multiple Daft pages and deduplicates findings", async () => {
         sent.push(finding.id);
       }),
     state,
-    lease,
     heartbeat: () => Effect.void,
   };
   const multiPageConfig = parseEnvironment({
@@ -237,7 +204,6 @@ test("searches every configured location and deduplicates shared findings", asyn
         sent.push(finding.id);
       }),
     state,
-    lease,
     heartbeat: () => Effect.void,
   };
   const multiLocationConfig = parseEnvironment({
@@ -277,7 +243,6 @@ test("wraps a Daft parsing failure with its cause", async () => {
         fetchPage: () => Effect.succeed(badPayload),
         publish: () => Effect.void,
         state: makeState(),
-        lease,
         heartbeat: () => Effect.void,
       }),
     ),
@@ -302,7 +267,6 @@ test("keeps an id unseen when notification delivery fails", async () => {
         : Effect.void;
     },
     state,
-    lease,
     heartbeat: () => Effect.void,
   };
   const notifyingConfig = parseEnvironment({

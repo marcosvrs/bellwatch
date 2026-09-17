@@ -250,9 +250,6 @@ test("parses optional resource settings and rejects malformed environment values
     CHROMIUM_HEADLESS: "yes",
     CHROMIUM_NO_SANDBOX: "on",
     DATABASE_URL: "postgresql://user:password@db.example/daft",
-    REDIS_URL: "rediss://redis.example",
-    REDIS_LOCK_KEY: "test-lock",
-    REDIS_LOCK_TTL_SECONDS: "60",
     SHOUTRRR_TITLE_PREFIX: "Custom title",
     SHOUTRRR_BINARY: "/opt/shoutrrr",
     SHOUTRRR_TIMEOUT_MS: "60000",
@@ -267,25 +264,6 @@ test("parses optional resource settings and rejects malformed environment values
   assert.equal(
     configured.state.databaseUrl,
     "postgresql://user:password@db.example/daft",
-  );
-  assert.deepEqual(configured.redis, {
-    url: "rediss://redis.example",
-    lockKey: "test-lock",
-    lockTtlMs: 60_000,
-  });
-  assert.equal(
-    parseEnvironment({
-      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
-      REDIS_URL: "redis://redis.example",
-    }).redis?.lockKey,
-    "bellwatch:monitor",
-  );
-  assert.equal(
-    parseEnvironment({
-      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
-      REDIS_URL: "redis://redis.example",
-    }).redis?.lockTtlMs,
-    300_000,
   );
   assert.equal(configured.polling.notifyExistingOnFirstRun, true);
 
@@ -321,14 +299,6 @@ test("parses optional resource settings and rejects malformed environment values
         DATABASE_URL: "mysql://db.example/daft",
       }),
     /DATABASE_URL must use postgres/,
-  );
-  assert.throws(
-    () =>
-      parseEnvironment({
-        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
-        REDIS_URL: "https://redis.example",
-      }),
-    /REDIS_URL must use redis/,
   );
   assert.throws(
     () =>
@@ -534,13 +504,5 @@ test("covers trimming, defaults, and boundary validation", () => {
         DATABASE_URL: "xpostgresql://db.example/daft",
       }),
     /DATABASE_URL must use postgres/,
-  );
-  assert.throws(
-    () =>
-      parseEnvironment({
-        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
-        REDIS_URL: "xredis://redis.example",
-      }),
-    /REDIS_URL must use redis/,
   );
 });

@@ -48,7 +48,6 @@ RUN npm run build \
     --platform=node \
     --target=node22 \
     --external:playwright-core \
-    --external:@redis/client \
     --external:postgres \
     --outfile=dist/main.js \
   && find dist -type f -name '*.map' -delete
@@ -67,7 +66,8 @@ RUN npm ci \
   --fetch-retry-mintimeout=1000 \
   --fetch-retry-maxtimeout=60000 \
   --fetch-timeout=120000
-RUN test ! -e node_modules/effect \
+RUN test ! -e node_modules/@redis/client \
+  && test ! -e node_modules/effect \
   && test ! -e node_modules/tsx \
   && test ! -e node_modules/typescript
 

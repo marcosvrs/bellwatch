@@ -56,8 +56,8 @@ immediately instead.
   notification independent.
 - **Existing browser infrastructure:** connect to a Playwright/CDP browser
   service instead of launching Chromium in this container.
-- **Shared or redundant deployment:** use Postgres for shared seen-listing state
-  and Redis for a distributed lease when more than one monitor instance runs.
+- **Durable external state:** use Postgres when listing history must live
+  outside the container; a single monitor can use the default SQLite volume.
 - **Remote Docker host:** run the same published image on a home server, VPS,
   or managed Docker host with its own persistent `/data` volume.
 
@@ -70,8 +70,8 @@ immediately instead.
 - Outbound HTTPS access to Daft.ie and network access to the configured
   notification backend.
 - A persistent container volume mounted at `/data`.
-- Optional: a Postgres database, Redis server, or external Playwright/CDP
-  endpoint when you need them.
+- Optional: a Postgres database or external Playwright/CDP endpoint when you
+  need them.
 
 ## Quick start with Docker
 
@@ -197,8 +197,7 @@ Use the included [`docker-compose.yml`](docker-compose.yml) when you want the
 monitor and its optional external services in one Docker network. It starts:
 
 - the published `bellwatch` image;
-- Postgres for shared listing state;
-- Redis for the distributed polling lease; and
+- Postgres for persistent listing state; and
 - Browserless Chromium for external Playwright/CDP connections.
 
 The monitor container is configured automatically with:
@@ -206,7 +205,6 @@ The monitor container is configured automatically with:
 ```text
 SHOUTRRR_URL=ntfy://ntfy.sh/bellwatch
 DATABASE_URL=postgresql://...@postgres:5432/daft
-REDIS_URL=redis://redis:6379/0
 PLAYWRIGHT_WS_ENDPOINT=ws://browserless:3000?token=...
 BROWSER_TIMEOUT_MS=120000
 DAFT_ADDED_IN_LAST_DAYS=1
@@ -238,11 +236,11 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io --username YOUR_GITHUB_USER --passwo
 ```
 
 The host exposes the Browserless debugger at `http://127.0.0.1:3000` by default.
-Postgres and Redis are reachable only inside the Compose network.
+Postgres is reachable only inside the Compose network.
 
 `docker compose down` stops the services but keeps named volumes. Do not use
 `docker compose down --volumes` unless you intentionally want to delete the
-Postgres, Redis, and listing-history data.
+Postgres and listing-history data.
 
 To change a non-secret stack default, edit and uncomment the corresponding
 entry in `docker-compose.yml`. Edit `.env` for the required secrets, then
@@ -412,9 +410,6 @@ listing IDs it has already reported.
 | `DATABASE_URL` | Optional `postgres://` or `postgresql://` state backend | unset |
 | `HEARTBEAT_FILE` | File updated after a successful poll | `/data/heartbeat` |
 | `HEALTHCHECK_MAX_AGE_SECONDS` | Maximum heartbeat age before healthcheck failure | derived from polling interval, minimum 300 seconds |
-| `REDIS_URL` | Optional `redis://` or `rediss://` coordination lease | unset |
-| `REDIS_LOCK_KEY` | Redis key used by the lease | `bellwatch:monitor` |
-| `REDIS_LOCK_TTL_SECONDS` | Lease lifetime, from 10 to 86,400 seconds | `300` |
 
 ### SQLite (recommended for one container)
 
@@ -422,23 +417,11 @@ SQLite is the default and requires no extra service. Mount `/data` to a named
 volume, as shown in the quick start. Losing that volume resets the seen-listing
 history.
 
-### Postgres (shared state)
+### Postgres (external state)
 
 Set `DATABASE_URL` when state must be shared across deployments or stored
 outside the container. The monitor creates its required tables automatically.
 The database must be reachable from the monitor container.
-
-### Redis (multiple instances)
-
-Set `REDIS_URL` to serialize polling between instances. For reliable multiple
-instances, use Redis together with one shared Postgres database; Redis alone
-prevents overlapping polls but does not share each instance's SQLite history.
-Use the same `REDIS_LOCK_KEY` for instances that should coordinate.
-
-Compose leaves `REDIS_LOCK_KEY` and `REDIS_LOCK_TTL_SECONDS` unset because the
-parser defaults (`bellwatch:monitor` and `300` seconds) are sufficient. Set a
-different lock key only when separate monitor groups share Redis but should not
-coordinate with one another.
 
 ## Operate the container
 
@@ -519,9 +502,9 @@ history.
 
 ### Notifications are duplicated
 
-Keep the `/data` volume across restarts. If more than one instance runs, use
-one shared Postgres database and Redis lease as described in
-[Choose where state is stored](#choose-where-state-is-stored).
+Keep the `/data` volume across restarts. A single monitor container does not
+need a distributed lease. If using external Postgres, keep the database
+available so listing history remains durable.
 
 ### Startup rejects an environment variable
 
@@ -535,8 +518,8 @@ ranges, min/max ordering, date format (`YYYY-MM-DD`), URL schemes, and the
   and the Daft link to your configured notification backend.
 - Listing IDs and timestamps are stored in SQLite or Postgres so notifications
   are not repeated.
-- Shoutrrr, Hermes, Postgres, Redis, and browser credentials are supplied
-  through environment variables. Keep env files, webhook secrets, and
-  notification URLs private.
+- Shoutrrr, Hermes, Postgres, and browser credentials are supplied through
+  environment variables. Keep env files, webhook secrets, and notification
+  URLs private.
 - The container exposes no inbound application port. External services must be
   reachable from the container's network.

@@ -66,11 +66,6 @@ export interface MonitorConfig {
     readonly databaseUrl?: string;
     readonly heartbeatFile: string;
   };
-  readonly redis?: {
-    readonly url: string;
-    readonly lockKey: string;
-    readonly lockTtlMs: number;
-  };
   readonly polling: {
     readonly intervalSeconds: number;
     readonly notifyExistingOnFirstRun: boolean;
@@ -383,11 +378,6 @@ export const parseEnvironment = (
     sort: choice<DaftSort>(env, "DAFT_SORT", "priceAsc", DAFT_SORTS),
   };
 
-  const redisUrl = trimmed(env, "REDIS_URL");
-  if (redisUrl && !/^rediss?:\/\//.test(redisUrl)) {
-    throw new ConfigurationError("REDIS_URL must use redis:// or rediss://");
-  }
-
   return {
     notificationBackend,
     daft: {
@@ -430,14 +420,6 @@ export const parseEnvironment = (
       databaseUrl: databaseUrl(env),
       heartbeatFile: trimmed(env, "HEARTBEAT_FILE") ?? "/data/heartbeat",
     },
-    redis: redisUrl
-      ? {
-          url: redisUrl,
-          lockKey:
-            trimmed(env, "REDIS_LOCK_KEY") ?? "bellwatch:monitor",
-          lockTtlMs: integer(env, "REDIS_LOCK_TTL_SECONDS", 300, 10, 86_400) * 1_000,
-        }
-      : undefined,
     polling: {
       intervalSeconds: integer(env, "POLL_INTERVAL_SECONDS", 900, 1, 86_400),
       notifyExistingOnFirstRun: boolean(

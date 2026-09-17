@@ -4,7 +4,6 @@
   "exclude": [
     "src/browser.ts",
     "src/healthcheck.ts",
-    "src/lease.ts",
     "src/main.ts",
     "src/runtime-metrics.ts",
     "src/state.ts"

@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
 import { parseEnvironment, ConfigurationError } from "./config.js";
 import { fetchDaftPayload } from "./browser.js";
-import { createLease } from "./lease.js";
 import { runOnce, writeHeartbeat } from "./monitor.js";
 import { publishFinding } from "./shoutrrr.js";
 import { publishHermesFinding } from "./hermes.js";
@@ -51,7 +50,6 @@ const program = Effect.gen(function* () {
           }),
   });
   const state = yield* createStateStore(config.state);
-  const lease = yield* createLease(config.redis);
   const dependencies = {
     fetchPage: (url: string) => fetchDaftPayload(config, url),
     publish: (finding: Parameters<typeof publishFinding>[1]) =>
@@ -63,7 +61,6 @@ const program = Effect.gen(function* () {
             )
         : publishFinding(config.shoutrrr, finding),
     state,
-    lease,
     heartbeat: () => writeHeartbeat(config.state.heartbeatFile),
   };
 
@@ -75,7 +72,7 @@ const program = Effect.gen(function* () {
         const stats = yield* runOnce(config, dependencies);
         const runtime = yield* Effect.sync(() => metrics.snapshot());
         yield* Effect.logInfo(
-          `Daft poll complete: pages=${stats.pages} findings=${stats.findings} notified=${stats.notified} seeded=${stats.seeded} skipped=${stats.skipped} ${formatRuntimeMetrics(runtime, performance.now() - cycleStartedAt)}`,
+          `Daft poll complete: pages=${stats.pages} findings=${stats.findings} notified=${stats.notified} seeded=${stats.seeded} ${formatRuntimeMetrics(runtime, performance.now() - cycleStartedAt)}`,
         );
       }),
       (error: unknown) =>
@@ -93,7 +90,7 @@ const program = Effect.gen(function* () {
       Schedule.spaced(`${config.polling.intervalSeconds} seconds`),
     ),
     Effect.all(
-      [state.close(), lease.close(), Effect.sync(() => metrics.close())],
+      [state.close(), Effect.sync(() => metrics.close())],
       { discard: true },
     ),
   );

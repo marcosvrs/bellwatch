@@ -29,7 +29,6 @@
     "pre-push": "npm run scan:secrets && npm run check:changed"
   },
   "dependencies": {
-    "@redis/client": "6.2.1",
     "playwright-core": "1.63.0",
     "postgres": "3.4.9"
   },

@@ -39,8 +39,6 @@ const RUNTIME_ENVIRONMENT_KEYS = [
   "HEALTHCHECK_MAX_AGE_SECONDS",
   "POLL_INTERVAL_SECONDS",
   "NOTIFY_EXISTING_ON_FIRST_RUN",
-  "REDIS_LOCK_KEY",
-  "REDIS_LOCK_TTL_SECONDS",
 ] as const;
 
 const plainRuntimeEnvironment = (): Record<string, string> => {
@@ -89,12 +87,10 @@ export default Alchemy.Stack(
       SHOUTRRR_URL: yield* Config.redacted("SHOUTRRR_URL"),
     };
     const databaseUrl = yield* Config.option(Config.redacted("DATABASE_URL"));
-    const redisUrl = yield* Config.option(Config.redacted("REDIS_URL"));
     const browserEndpoint = yield* Config.option(
       Config.redacted("PLAYWRIGHT_WS_ENDPOINT"),
     );
     if (Option.isSome(databaseUrl)) environment.DATABASE_URL = databaseUrl.value;
-    if (Option.isSome(redisUrl)) environment.REDIS_URL = redisUrl.value;
     if (Option.isSome(browserEndpoint)) {
       environment.PLAYWRIGHT_WS_ENDPOINT = browserEndpoint.value;
     }

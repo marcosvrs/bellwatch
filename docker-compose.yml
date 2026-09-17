@@ -7,8 +7,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
       browserless:
         condition: service_started
     environment:
@@ -29,11 +27,6 @@ services:
       # Active for this Compose stack: use shared Postgres state.
       DATABASE_URL: "postgresql://daft:${POSTGRES_PASSWORD}@postgres:5432/daft"
       # STATE_FILE: "/data/state.sqlite" # default when DATABASE_URL is omitted
-
-      # Active for this Compose stack: serialize monitor instances with Redis.
-      REDIS_URL: "redis://redis:6379/0"
-      # REDIS_LOCK_KEY: "bellwatch:monitor"
-      # REDIS_LOCK_TTL_SECONDS: "300"
 
       # Optional state and healthcheck overrides.
       # HEARTBEAT_FILE: "/data/heartbeat"
@@ -80,7 +73,7 @@ services:
     networks:
       - bellwatch
 
-  # Shared listing state for one or more monitor instances.
+  # Persistent listing state for the monitor.
   postgres:
     image: postgres:17-alpine
     # POSTGRES_DB and POSTGRES_USER default to daft in this stack so they
@@ -98,22 +91,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    restart: unless-stopped
-    networks:
-      - bellwatch
-
-  # Distributed poll lease. Postgres remains the source of shared listing state.
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
     restart: unless-stopped
     networks:
       - bellwatch
