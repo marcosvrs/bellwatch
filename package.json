@@ -45,6 +45,9 @@
     "@effect/platform-node-shared": "4.0.0-rc.112",
     "@effect/sql-d1": "4.0.0-rc.112",
     "@effect/sql-sqlite-do": "4.0.0-rc.112",
-    "@effect/vitest": "4.0.0-rc.112"
+    "@effect/vitest": "4.0.0-rc.112",
+    "alchemy": {
+      "@prisma/dev": "0.25.2"
+    }
   }
 }
