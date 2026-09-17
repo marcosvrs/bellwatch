@@ -12,17 +12,63 @@ services:
       browserless:
         condition: service_started
     environment:
-      # The monitor sends notifications through the configured Shoutrrr URL.
+      # Required notification destination.
       SHOUTRRR_URL: "${SHOUTRRR_URL:?Set SHOUTRRR_URL in .env}"
-      # Auto mode detects the endpoint and uses the external Browserless service.
-      PLAYWRIGHT_WS_ENDPOINT: "${PLAYWRIGHT_WS_ENDPOINT:-ws://browserless:3000?token=${BROWSERLESS_TOKEN}}"
-      # Match Browserless's 120-second session timeout.
-      BROWSER_TIMEOUT_MS: "${BROWSER_TIMEOUT_MS:-120000}"
-      # Compose's search profile intentionally differs from parser defaults.
-      DAFT_ADDED_IN_LAST_DAYS: "${DAFT_ADDED_IN_LAST_DAYS:-1}"
-      DAFT_SORT: "${DAFT_SORT:-publishDateDesc}"
+
+      # Optional notification overrides. Defaults are owned by src/config.ts.
+      # SHOUTRRR_BINARY: "${SHOUTRRR_BINARY:-shoutrrr}"
+      # SHOUTRRR_TITLE_PREFIX: "${SHOUTRRR_TITLE_PREFIX:-Bellwatch new home}"
+      # SHOUTRRR_TIMEOUT_MS: "${SHOUTRRR_TIMEOUT_MS:-15000}"
+
+      # Active for this Compose stack: use shared Postgres state.
       DATABASE_URL: "${DATABASE_URL:-postgresql://${POSTGRES_USER:-daft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-daft}}"
+      # STATE_FILE: "/data/state.sqlite" # default when DATABASE_URL is omitted
+
+      # Active for this Compose stack: serialize monitor instances with Redis.
       REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      # REDIS_LOCK_KEY: "${REDIS_LOCK_KEY:-bellwatch:monitor}"
+      # REDIS_LOCK_TTL_SECONDS: "${REDIS_LOCK_TTL_SECONDS:-300}"
+
+      # Optional state and healthcheck overrides.
+      # HEARTBEAT_FILE: "/data/heartbeat"
+      # HEALTHCHECK_MAX_AGE_SECONDS: "" # derived: max(POLL_INTERVAL_SECONDS * 3, 300)
+      # POLL_INTERVAL_SECONDS: "${POLL_INTERVAL_SECONDS:-900}"
+      # NOTIFY_EXISTING_ON_FIRST_RUN: "${NOTIFY_EXISTING_ON_FIRST_RUN:-false}"
+
+      # Active for this Compose stack: use the Browserless service.
+      # BROWSER_MODE: "${BROWSER_MODE:-auto}" # endpoint selection is automatic
+      PLAYWRIGHT_WS_ENDPOINT: "${PLAYWRIGHT_WS_ENDPOINT:-ws://browserless:3000?token=${BROWSERLESS_TOKEN}}"
+      # CHROMIUM_EXECUTABLE_PATH: "" # unset; uses bundled Chromium
+      # CHROMIUM_HEADLESS: "${CHROMIUM_HEADLESS:-true}"
+      # CHROMIUM_NO_SANDBOX: "${CHROMIUM_NO_SANDBOX:-false}"
+      # Parser default is 60000; Compose uses 120000 to match Browserless.
+      BROWSER_TIMEOUT_MS: "${BROWSER_TIMEOUT_MS:-120000}"
+      # BROWSER_USER_AGENT: "" # unset
+
+      # Compose's search profile intentionally differs from two parser defaults.
+      # The other search defaults remain available below as commented overrides.
+      # DAFT_BASE_URL: "${DAFT_BASE_URL:-https://www.daft.ie}"
+      # DAFT_SECTION_PATH: "${DAFT_SECTION_PATH:-new-homes-for-sale}"
+      # DAFT_LOCATION_PATH: "${DAFT_LOCATION_PATH:-dublin-city-centre-dublin}"
+      # DAFT_RADIUS_KM: "${DAFT_RADIUS_KM:-20}"
+      # DAFT_PRICE_MIN_EUR: "" # unset; no minimum
+      # DAFT_PRICE_MAX_EUR: "${DAFT_PRICE_MAX_EUR:-499999}"
+      # DAFT_BEDS_MIN: "${DAFT_BEDS_MIN:-3}"
+      # DAFT_BEDS_MAX: "" # unset
+      # DAFT_PROPERTY_TYPES: "${DAFT_PROPERTY_TYPES:-houses}"
+      # DAFT_BATHS_MIN: "" # unset
+      # DAFT_BATHS_MAX: "" # unset
+      # DAFT_MEDIA_TYPES: "" # unset; equivalent to any
+      # DAFT_KEYWORD: "" # unset
+      # DAFT_AVAILABILITY: "${DAFT_AVAILABILITY:-published}"
+      DAFT_ADDED_IN_LAST_DAYS: "${DAFT_ADDED_IN_LAST_DAYS:-1}"
+      # DAFT_OPEN_VIEWINGS_FROM: "" # unset
+      DAFT_SORT: "${DAFT_SORT:-publishDateDesc}"
+      # DAFT_MAX_PAGES: "${DAFT_MAX_PAGES:-1}"
+
+      # Image defaults already supplied by Dockerfile.
+      # NODE_ENV: "production"
+      # PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
     volumes:
       - bellwatch-data:/data
     networks:
@@ -31,6 +77,9 @@ services:
   # Shared listing state for one or more monitor instances.
   postgres:
     image: postgres:17-alpine
+    # POSTGRES_DB and POSTGRES_USER default to daft in this stack so they
+    # match the monitor's active DATABASE_URL default.
+    # POSTGRES_PASSWORD is required.
     environment:
       POSTGRES_DB: "${POSTGRES_DB:-daft}"
       POSTGRES_USER: "${POSTGRES_USER:-daft}"
@@ -63,15 +112,22 @@ services:
     networks:
       - bellwatch
 
+  # Optional image override; defaults to the published Browserless image.
+  # Optional resource settings below are active deployment policy, not
+  # Bellwatch parser variables.
   # Dedicated Chromium/CDP service. The monitor connects over the internal
   # network; the host port is localhost-only for optional debugging.
   browserless:
     image: ${BROWSERLESS_IMAGE:-ghcr.io/browserless/chromium:latest}
     environment:
+      # Required Browserless authentication token.
+      # CONCURRENT, QUEUED, and TIMEOUT are deliberate resource defaults.
       TOKEN: "${BROWSERLESS_TOKEN:?Set BROWSERLESS_TOKEN in .env}"
       CONCURRENT: "${BROWSERLESS_CONCURRENT:-2}"
       QUEUED: "${BROWSERLESS_QUEUED:-4}"
       TIMEOUT: "${BROWSERLESS_TIMEOUT_MS:-120000}"
+    # BROWSERLESS_PORT defaults to 3000 and only controls the localhost
+    # debugging port; the monitor uses the internal service name.
     ports:
       - "127.0.0.1:${BROWSERLESS_PORT:-3000}:3000"
     shm_size: "2g"
@@ -83,5 +139,6 @@ volumes:
   bellwatch-data:
 
 networks:
+  # COMPOSE_NETWORK defaults to bellwatch.
   bellwatch:
     name: ${COMPOSE_NETWORK:-bellwatch}
