@@ -6,6 +6,7 @@
     "src/healthcheck.ts",
     "src/lease.ts",
     "src/main.ts",
+    "src/runtime-metrics.ts",
     "src/state.ts"
   ],
   "extension": [".ts"],

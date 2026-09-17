@@ -159,8 +159,11 @@ docker logs --follow bellwatch
 ```
 
 A successful cycle logs the number of pages, findings, notifications, and
-first-run seedings. The image healthcheck runs automatically against the
-heartbeat file:
+first-run seedings, plus low-overhead Node.js runtime metrics: RSS and heap
+memory, CPU time, event-loop utilization, and garbage-collection counts and
+duration. These metrics cover the Bellwatch Node.js process; local Chromium
+and external Browserless resources must be measured at the container/service
+level. The image healthcheck runs automatically against the heartbeat file:
 
 ```bash
 docker exec bellwatch node dist/healthcheck.js
