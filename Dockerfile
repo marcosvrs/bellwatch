@@ -5,7 +5,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build && npm prune --omit=dev
+RUN npm run build && npm ci --omit=dev --legacy-peer-deps --ignore-scripts --no-audit --no-fund
 
 # The pinned Playwright image supplies Chromium and its Linux dependencies.
 FROM mcr.microsoft.com/playwright:v1.63.0-noble
