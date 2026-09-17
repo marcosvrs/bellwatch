@@ -151,6 +151,27 @@ matching browser with `npx playwright install chromium`, or set
 `mcr.microsoft.com/playwright:v1.63.0-noble` image, which supplies Chromium and
 its Linux dependencies.
 
+### Hooks and CI
+
+`npm ci` installs the local Git hooks through `simple-git-hooks`:
+
+- `pre-commit` runs `npm run typecheck`, covering strict Effect code, tests,
+  and `alchemy.run.ts` without starting external services.
+- `pre-push` runs `npm run check`, which adds the production build and the
+  100% statement/function coverage gate.
+
+GitHub Actions keeps the same layers without duplicating expensive work:
+
+- Pull requests run `npm run check`.
+- Pushes to `master` run `npm run check` once, then the 90% mutation gate.
+- Stale pull-request runs are cancelled; protected-branch push runs are not.
+
+Mutation testing is intentionally absent from local hooks and pull-request
+validation because it is substantially slower than the compile/build/coverage
+gate. Alchemy plan/deploy are also manual: their Docker context and deployment
+secrets are environment-specific, while `npm run typecheck` still validates
+the Alchemy stack source.
+
 ## Container and Alchemy
 
 The repository contains one Alchemy Stack. It builds the image, creates one

@@ -14,11 +14,16 @@
     "coverage": "c8 npm test",
     "mutation": "stryker run",
     "check": "npm run typecheck && npm run build && npm run coverage",
+    "prepare": "simple-git-hooks",
     "start": "node dist/main.js",
     "healthcheck": "node dist/healthcheck.js",
     "alchemy:plan": "alchemy plan",
     "alchemy:deploy": "alchemy deploy",
     "alchemy:destroy": "alchemy destroy"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "git diff --cached --check && npm run typecheck",
+    "pre-push": "npm run check"
   },
   "dependencies": {
     "effect": "4.0.0-rc.112",
@@ -32,6 +37,7 @@
     "@types/node": "24.10.7",
     "alchemy": "2.0.0-beta.77",
     "c8": "^12.0.0",
+    "simple-git-hooks": "^2.11.1",
     "tsx": "4.23.13",
     "typescript": "5.9.3"
   },
