@@ -18,7 +18,6 @@ const finding = {
   bathrooms: 2,
   propertyType: "Terrace",
   url: "https://www.daft.ie/new-home-for-sale/example/101",
-  source: "unit" as const,
 };
 
 const config: HermesConfig = {

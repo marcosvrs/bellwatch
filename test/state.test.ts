@@ -12,7 +12,6 @@ const finding = {
   developmentTitle: "Example",
   priceText: "€315,000",
   url: "https://www.daft.ie/new-home-for-sale/example/101",
-  source: "unit" as const,
 };
 
 test("SQLite state survives reopening and persists initialization separately", async () => {

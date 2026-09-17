@@ -1,7 +1,7 @@
 import type { DaftFilters } from "./filters.js";
 import { addedInLastDateValue } from "./filters.js";
 
-export interface DaftSearchRequest {
+interface DaftSearchRequest {
   readonly baseUrl: string;
   readonly sectionPath: string;
   readonly locationPath: string;
@@ -71,16 +71,4 @@ export const buildDaftSearchUrl = (
 
   base.search = params.toString();
   return base.toString();
-};
-
-export const buildDaftSearchUrls = (
-  request: DaftSearchRequest,
-  maxPages: number,
-): string[] => {
-  if (!Number.isInteger(maxPages) || maxPages < 1) {
-    throw new Error(`Daft max pages must be a positive integer: ${maxPages}`);
-  }
-  return Array.from({ length: maxPages }, (_, index) =>
-    buildDaftSearchUrl(request, index + 1),
-  );
 };

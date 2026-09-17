@@ -3,20 +3,16 @@ export interface DaftFinding {
   readonly title: string;
   readonly developmentTitle: string;
   readonly priceText: string;
-  readonly priceEur?: number;
   readonly bedrooms?: number;
   readonly bathrooms?: number;
   readonly propertyType?: string;
   readonly url: string;
-  readonly publishedAt?: string;
-  readonly source: "development" | "unit";
 }
 
-export interface DaftPageResult {
+interface DaftPageResult {
   readonly findings: readonly DaftFinding[];
   readonly currentPage: number;
   readonly totalPages: number;
-  readonly totalResults?: number;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -40,13 +36,6 @@ const numberValue = (record: JsonRecord | undefined, key: string): number | unde
   return undefined;
 };
 
-const parsePrice = (value: string): number | undefined => {
-  const match = value.match(/€\s*([\d,.]+)/);
-  if (!match) return undefined;
-  const numeric = Number(match[1].replace(/,/g, ""));
-  return Number.isFinite(numeric) ? numeric : undefined;
-};
-
 const parseCount = (value: string | undefined): number | undefined => {
   if (!value) return undefined;
   const match = value.match(/\d+/);
@@ -56,13 +45,6 @@ const parseCount = (value: string | undefined): number | undefined => {
 const absoluteUrl = (baseUrl: string, path: string | undefined, id: string): string => {
   const fallback = `/new-home-for-sale/listing/${id}`;
   return new URL(path ?? fallback, baseUrl).toString();
-};
-
-const publishedAt = (listing: JsonRecord): string | undefined => {
-  const timestamp = numberValue(listing, "publishDate");
-  if (timestamp === undefined) return undefined;
-  const date = new Date(timestamp);
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 };
 
 const unitTitle = (
@@ -109,12 +91,9 @@ const parseListing = (
         title: developmentTitle,
         developmentTitle,
         priceText,
-        priceEur: parsePrice(priceText),
         bedrooms: parseCount(stringValue(listing, "numBedrooms")),
         propertyType: stringValue(listing, "propertyType"),
         url: absoluteUrl(baseUrl, path, parentIdText),
-        publishedAt: publishedAt(listing),
-        source: "development",
       },
     ];
   }
@@ -130,7 +109,6 @@ const parseListing = (
         title: unitTitle(developmentTitle, unit),
         developmentTitle,
         priceText,
-        priceEur: parsePrice(priceText),
         bedrooms: parseCount(stringValue(unit, "numBedrooms")),
         bathrooms: parseCount(stringValue(unit, "numBathrooms")),
         propertyType: stringValue(unit, "propertyType"),
@@ -139,23 +117,9 @@ const parseListing = (
           stringValue(unit, "seoFriendlyPath"),
           idText,
         ),
-        publishedAt: publishedAt(listing),
-        source: "unit",
       },
     ];
   });
-};
-
-export const parseNextDataScript = (html: string): unknown => {
-  const match = html.match(
-    /<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i,
-  );
-  if (!match) throw new Error("Daft page did not contain __NEXT_DATA__");
-  try {
-    return JSON.parse(match[1]);
-  } catch (error) {
-    throw new Error("Daft __NEXT_DATA__ was not valid JSON", { cause: error });
-  }
 };
 
 export const parseDaftPage = (
@@ -183,6 +147,5 @@ export const parseDaftPage = (
     findings,
     currentPage,
     totalPages,
-    totalResults: numberValue(paging, "totalResults"),
   };
 };

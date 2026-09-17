@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import postgres from "postgres";
 import type { DaftFinding } from "./daft/parser.js";
 
-export class StateError extends Error {
+class StateError extends Error {
   readonly _tag = "StateError";
 
   constructor(message: string, options?: ErrorOptions) {
@@ -170,7 +170,7 @@ export const createStateStore = (
             : new StateError("Could not open SQLite state", { cause }),
       });
 
-export interface MonitorConfigLike {
+interface MonitorConfigLike {
   readonly file: string;
   readonly databaseUrl?: string;
 }

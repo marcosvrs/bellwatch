@@ -2,13 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DAFT_ADDED_IN_LAST_DAYS,
-  DAFT_FILTER_ENV_VARS,
   DAFT_MEDIA_TYPES,
   DAFT_PROPERTY_TYPES,
   addedInLastDateValue,
   type DaftFilters,
 } from "../src/daft/filters.js";
-import { buildDaftSearchUrls, buildDaftSearchUrl } from "../src/daft/url.js";
+import { buildDaftSearchUrl } from "../src/daft/url.js";
 import {
   ConfigurationError,
   parseEnvironment,
@@ -134,14 +133,8 @@ test("handles empty optional filters and rejects invalid page counts", () => {
   const url = new URL(buildDaftSearchUrl(request));
   assert.equal(url.pathname, "/new-homes-for-sale/dublin-city-centre-dublin");
   assert.deepEqual([...url.searchParams.keys()], ["sort"]);
-  assert.deepEqual(buildDaftSearchUrls(request, 1), [buildDaftSearchUrl(request)]);
-  assert.equal(
-    buildDaftSearchUrls(request, 2)[1].endsWith("&page=2"),
-    true,
-  );
   assert.throws(() => buildDaftSearchUrl(request, 0), /positive integer/);
   assert.throws(() => buildDaftSearchUrl(request, 1.5), /positive integer/);
-  assert.throws(() => buildDaftSearchUrls(request, 0), /positive integer/);
 });
 
 test("accepts Daft web filters from environment variables", () => {
@@ -163,7 +156,6 @@ test("accepts Daft web filters from environment variables", () => {
     DAFT_OPEN_VIEWINGS_FROM: "2026-08-01",
     DAFT_SORT: "publishDateDesc",
   });
-  assert.equal(DAFT_FILTER_ENV_VARS.length, 15);
   assert.deepEqual(config.daft.locationPaths, ["drogheda-louth", "navan-meath"]);
   assert.equal(config.daft.filters.radiusKm, 5);
   assert.deepEqual(config.daft.filters.propertyTypes, ["houses", "apartments"]);

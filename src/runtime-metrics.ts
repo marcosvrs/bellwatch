@@ -48,7 +48,7 @@ export interface RuntimeMetrics {
   readonly gc: GcCounters;
 }
 
-export interface RuntimeMetricsCollector {
+interface RuntimeMetricsCollector {
   readonly snapshot: () => RuntimeMetrics;
   readonly close: () => void;
 }

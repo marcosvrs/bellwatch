@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDaftPage, parseNextDataScript } from "../src/daft/parser.js";
+import { parseDaftPage } from "../src/daft/parser.js";
 
 const payload = {
   props: {
@@ -11,7 +11,6 @@ const payload = {
             id: 100,
             title: "Example Development, Dublin",
             price: "From €300,000",
-            publishDate: 1_700_000_000_000,
             seoFriendlyPath: "/new-home-for-sale/example-development/100",
             newHome: {
               developmentName: "Example Development",
@@ -38,7 +37,7 @@ const payload = {
           },
         },
       ],
-      paging: { currentPage: 1, totalPages: 2, totalResults: 21 },
+      paging: { currentPage: 1, totalPages: 2 },
     },
   },
 };
@@ -47,24 +46,18 @@ test("parses unit findings and development fallbacks", () => {
   const result = parseDaftPage(payload, "https://www.daft.ie");
   assert.equal(result.currentPage, 1);
   assert.equal(result.totalPages, 2);
-  assert.equal(result.totalResults, 21);
   assert.equal(result.findings.length, 2);
   assert.deepEqual(result.findings[0], {
     id: "101",
     title: "Example Development — 3 Bed · 2 Bath · Terrace",
     developmentTitle: "Example Development",
     priceText: "€315,000",
-    priceEur: 315000,
     bedrooms: 3,
     bathrooms: 2,
     propertyType: "Terrace",
     url: "https://www.daft.ie/new-home-for-sale/3-bed-example/101",
-    publishedAt: "2023-11-14T22:13:20.000Z",
-    source: "unit",
   });
   assert.equal(result.findings[1].id, "200");
-  assert.equal(result.findings[1].source, "development");
-  assert.equal(result.findings[1].priceEur, 400000);
 });
 
 test("handles malformed and string-valued listing data", () => {
@@ -78,7 +71,6 @@ test("handles malformed and string-valued listing data", () => {
             {
               listing: {
                 id: "300",
-                publishDate: "1700000000000",
                 newHome: {
                   developmentName: "String-valued Development",
                   subUnits: [{}, { id: "301" }],
@@ -102,7 +94,6 @@ test("handles malformed and string-valued listing data", () => {
   assert.equal(result.findings.length, 2);
   assert.equal(result.findings[0].id, "301");
   assert.equal(result.findings[0].title, "String-valued Development");
-  assert.equal(result.findings[0].publishedAt, "2023-11-14T22:13:20.000Z");
   assert.equal(result.findings[0].priceText, "Price unavailable");
   assert.equal(result.findings[1].id, "302");
   assert.equal(result.findings[1].title, "Daft development 302");
@@ -111,24 +102,8 @@ test("handles malformed and string-valued listing data", () => {
     findings: [],
     currentPage: 1,
     totalPages: 1,
-    totalResults: undefined,
   });
 });
-
-test("rejects malformed Next data JSON with its cause", () => {
-  assert.throws(
-    () =>
-      parseNextDataScript(
-        `<script id="__NEXT_DATA__" type="application/json">{oops}</script>`,
-      ),
-    (error: unknown) => {
-      assert.match(String(error), /__NEXT_DATA__ was not valid JSON/);
-      assert.equal((error as Error).cause instanceof Error, true);
-      return true;
-    },
-  );
-});
-
 
 test("preserves fallback fields and deduplicates unit ids", () => {
   const result = parseDaftPage(
@@ -172,7 +147,7 @@ test("preserves fallback fields and deduplicates unit ids", () => {
               },
             },
           ],
-          paging: { currentPage: 2, totalPages: 2, totalResults: "3" },
+          paging: { currentPage: 2, totalPages: 2 },
         },
       },
     },
@@ -180,19 +155,15 @@ test("preserves fallback fields and deduplicates unit ids", () => {
   );
   assert.equal(result.currentPage, 2);
   assert.equal(result.totalPages, 2);
-  assert.equal(result.totalResults, 3);
   assert.equal(result.findings.length, 2);
   assert.deepEqual(result.findings[0], {
     id: "303",
     title: "Listing Title",
     developmentTitle: "Listing Title",
     priceText: "TBC",
-    priceEur: undefined,
     bedrooms: 12,
     propertyType: "Semi",
     url: "https://www.daft.ie/new-home-for-sale/listing/303",
-    publishedAt: undefined,
-    source: "development",
   });
   assert.equal(result.findings[1].title, "Daft development 304 — 2 Bed · 1 Bath · Flat");
   assert.equal(result.findings[1].url, "https://www.daft.ie/new-home-for-sale/listing/305");
@@ -235,7 +206,6 @@ test("handles missing parent data and custom fallback paths", () => {
               listing: {
                 id: "310",
                 title: "Missing New Home",
-                publishDate: " ",
               },
             },
             {
@@ -259,12 +229,5 @@ test("handles missing parent data and custom fallback paths", () => {
   assert.equal(result.findings[1].propertyType, "Flat");
   assert.equal(result.findings[2].title, "Missing New Home");
   assert.equal(result.findings[2].url, "https://www.daft.ie/new-home-for-sale/listing/310");
-  assert.equal(result.findings[2].publishedAt, undefined);
   assert.equal(result.findings[3].title, "Daft development 311");
-});
-
-test("extracts Next data from the rendered HTML shell", () => {
-  const html = `<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(payload)}</script></html>`;
-  assert.deepEqual(parseNextDataScript(html), payload);
-  assert.throws(() => parseNextDataScript("<html></html>"), /did not contain/);
 });

@@ -7,7 +7,7 @@ import {
 } from "playwright-core";
 import type { MonitorConfig } from "./config.js";
 
-export class BrowserError extends Error {
+class BrowserError extends Error {
   readonly _tag = "BrowserError";
 
   constructor(message: string, options?: ErrorOptions) {
@@ -16,7 +16,7 @@ export class BrowserError extends Error {
   }
 }
 
-export type BrowserStrategy = "external" | "local";
+type BrowserStrategy = "external" | "local";
 
 export const resolveBrowserStrategy = (
   browser: MonitorConfig["browser"],

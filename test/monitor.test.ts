@@ -15,7 +15,6 @@ const makeFinding = (id: string): DaftFinding => ({
   developmentTitle: `Development ${id}`,
   priceText: "€315,000",
   url: `https://www.daft.ie/new-home-for-sale/example/${id}`,
-  source: "development",
 });
 
 const makeState = (): StateStore => {
@@ -49,7 +48,7 @@ const payload = (findings: readonly DaftFinding[]) => ({
           newHome: { subUnits: [] },
         },
       })),
-      paging: { currentPage: 1, totalPages: 1, totalResults: findings.length },
+      paging: { currentPage: 1, totalPages: 1 },
     },
   },
 });
@@ -146,13 +145,11 @@ test("collects multiple Daft pages and deduplicates findings", async () => {
   firstPage.props.pageProps.paging = {
     currentPage: 1,
     totalPages: 2,
-    totalResults: 2,
   };
   const secondPage = payload([makeFinding("402")]);
   secondPage.props.pageProps.paging = {
     currentPage: 2,
     totalPages: 2,
-    totalResults: 2,
   };
   const urls: string[] = [];
   const dependencies = {

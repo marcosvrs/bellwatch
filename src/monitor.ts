@@ -15,14 +15,14 @@ export class MonitorError extends Error {
   }
 }
 
-export interface MonitorDependencies {
+interface MonitorDependencies {
   readonly fetchPage: (url: string) => Effect.Effect<unknown, Error>;
   readonly publish: (finding: DaftFinding) => Effect.Effect<void, Error>;
   readonly state: StateStore;
   readonly heartbeat: () => Effect.Effect<void, Error>;
 }
 
-export interface MonitorStats {
+interface MonitorStats {
   readonly pages: number;
   readonly findings: number;
   readonly notified: number;

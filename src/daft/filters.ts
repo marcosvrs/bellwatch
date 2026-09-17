@@ -49,24 +49,6 @@ export interface DaftFilters {
   readonly sort: DaftSort;
 }
 
-export const DAFT_FILTER_ENV_VARS = [
-  "DAFT_LOCATION_PATH",
-  "DAFT_RADIUS_KM",
-  "DAFT_PRICE_MIN_EUR",
-  "DAFT_PRICE_MAX_EUR",
-  "DAFT_BEDS_MIN",
-  "DAFT_BEDS_MAX",
-  "DAFT_PROPERTY_TYPES",
-  "DAFT_BATHS_MIN",
-  "DAFT_BATHS_MAX",
-  "DAFT_MEDIA_TYPES",
-  "DAFT_KEYWORD",
-  "DAFT_AVAILABILITY",
-  "DAFT_ADDED_IN_LAST_DAYS",
-  "DAFT_OPEN_VIEWINGS_FROM",
-  "DAFT_SORT",
-] as const;
-
 export const addedInLastDateValue = (
   days: DaftAddedInLastDays,
 ): string | undefined => (days === 0 ? undefined : `now-${days}d/d`);
