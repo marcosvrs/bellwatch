@@ -230,9 +230,9 @@ Postgres and Redis are reachable only inside the Compose network.
 `docker compose down --volumes` unless you intentionally want to delete the
 Postgres, Redis, and listing-history data.
 
-To change the Compose-exposed search overrides or service credentials, edit
-`.env` and recreate the monitor. Add other supported monitor variables to the
-`bellwatch.environment` section when needed:
+To change a non-secret stack default, edit and uncomment the corresponding
+entry in `docker-compose.yml`. Edit `.env` for the required secrets, then
+recreate the monitor:
 
 ```bash
 docker compose up --detach --force-recreate bellwatch
