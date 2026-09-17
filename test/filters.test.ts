@@ -173,6 +173,25 @@ test("accepts Daft web filters from environment variables", () => {
   assert.equal(config.daft.filters.sort, "publishDateDesc");
 });
 
+test("accepts Hermes notification settings", () => {
+  const config = parseEnvironment({
+    NOTIFICATION_BACKEND: "hermes",
+    HERMES_WEBHOOK_URL: "http://hermes:8644/webhooks/ha-notify",
+    HERMES_WEBHOOK_SECRET: "test-secret",
+    HERMES_CHAT_ID: "test-whatsapp-group",
+    HERMES_TIMEOUT_MS: "10000",
+  });
+
+  assert.equal(config.notificationBackend, "hermes");
+  assert.deepEqual(config.hermes, {
+    url: "http://hermes:8644/webhooks/ha-notify",
+    secret: "test-secret",
+    chatId: "test-whatsapp-group",
+    timeoutMs: 10_000,
+  });
+  assert.equal(config.shoutrrr.url, "");
+});
+
 test("rejects invalid or contradictory filter configuration", () => {
   assert.throws(
     () => parseEnvironment({ SHOUTRRR_URL: "ntfy://ntfy.sh/daft", DAFT_RADIUS_KM: "2" }),

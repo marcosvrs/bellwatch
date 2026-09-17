@@ -12,10 +12,16 @@ services:
       browserless:
         condition: service_started
     environment:
-      # Required notification destination.
-      SHOUTRRR_URL: "${SHOUTRRR_URL:?Set SHOUTRRR_URL in .env}"
+      # Default backend: Shoutrrr. Set NOTIFICATION_BACKEND=hermes below for
+      # direct signed delivery to a Hermes WhatsApp chat or group.
+      NOTIFICATION_BACKEND: "${NOTIFICATION_BACKEND:-shoutrrr}"
+      SHOUTRRR_URL: "${SHOUTRRR_URL:-}"
+      HERMES_WEBHOOK_URL: "${HERMES_WEBHOOK_URL:-}"
+      HERMES_WEBHOOK_SECRET: "${HERMES_WEBHOOK_SECRET:-}"
+      HERMES_CHAT_ID: "${HERMES_CHAT_ID:-}"
+      HERMES_TIMEOUT_MS: "${HERMES_TIMEOUT_MS:-20000}"
 
-      # Optional notification overrides. Defaults are owned by src/config.ts.
+      # Shoutrrr notification overrides. Defaults are owned by src/config.ts.
       # SHOUTRRR_BINARY: "shoutrrr"
       # SHOUTRRR_TITLE_PREFIX: "Bellwatch new home"
       # SHOUTRRR_TIMEOUT_MS: "15000"

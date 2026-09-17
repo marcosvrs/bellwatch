@@ -1,13 +1,13 @@
 # Bellwatch
 
-Get a notification through any Shoutrrr-supported service when a new home
-matching your Daft.ie search appears.
+Get a notification through Shoutrrr or Hermes when a new home matching your
+Daft.ie search appears.
 The monitor runs continuously in one container, remembers listings it has
 already reported, and sends only unseen findings.
 
 It is a background service, not a website: there is no HTTP server, web UI, or
 dashboard. The container has no inbound port. It only needs outbound access to
-Daft.ie, your configured notification service, and any optional external services
+Daft.ie, your configured notification backend, and any optional external services
 you configure.
 
 ## Contents
@@ -35,8 +35,8 @@ Each polling cycle the monitor:
    no unit data, it becomes one fallback finding.
 4. Removes duplicate findings across pages.
 5. Compares findings with persistent state.
-6. Publishes unseen findings through Shoutrrr and marks them seen only after the
-   notification service accepts the notification.
+6. Publishes unseen findings through the configured notification backend and
+   marks them seen only after the notification service accepts the notification.
 7. Writes a heartbeat for the container healthcheck.
 
 A notification includes the listing title, price, bedrooms, bathrooms, property
@@ -52,8 +52,8 @@ immediately instead.
 - **Personal home alerts:** monitor one search on a home server or Mac and
   receive new-listing notifications through your configured service.
 - **Different searches:** run separate containers, each with its own env file,
-  state volume, and Shoutrrr service URL. This keeps searches and notification
-  independent.
+  state volume, and notification backend configuration. This keeps searches and
+  notification independent.
 - **Existing browser infrastructure:** connect to a Playwright/CDP browser
   service instead of launching Chromium in this container.
 - **Shared or redundant deployment:** use Postgres for shared seen-listing state
@@ -63,11 +63,12 @@ immediately instead.
 
 ## Requirements
 
-- A Shoutrrr service URL, such as ntfy, Discord, Gotify, Slack, or any other
-  service supported by [Shoutrrr](https://shoutrrr.nickfedor.com/dev/services/overview/).
+- A notification backend: either a Shoutrrr service URL, such as ntfy, Discord,
+  Gotify, or Slack, or a Hermes webhook URL, secret, and WhatsApp chat ID.
 - A Docker Engine or compatible OCI runtime. The production examples below use
   Docker.
-- Outbound HTTPS access to Daft.ie and the configured notification service.
+- Outbound HTTPS access to Daft.ie and network access to the configured
+  notification backend.
 - A persistent container volume mounted at `/data`.
 - Optional: a Postgres database, Redis server, or external Playwright/CDP
   endpoint when you need them.
@@ -85,14 +86,21 @@ authenticate Docker to GitHub Container Registry before pulling it.
 ### 1. Create the notification configuration
 
 Create an env file outside the repository. Keep it private because it may
-contain your Shoutrrr service URL or database credentials.
+contain notification credentials, a Shoutrrr service URL, or database credentials.
 
 ```bash
 umask 077
 mkdir -p "$HOME/.config/bellwatch"
 cat > "$HOME/.config/bellwatch/monitor.env" <<'EOF'
-# Required Shoutrrr URL. This example uses the public ntfy service.
+# Default backend: Shoutrrr with the public ntfy service.
+NOTIFICATION_BACKEND=shoutrrr
 SHOUTRRR_URL=ntfy://ntfy.sh/replace-with-a-long-random-topic
+
+# Hermes alternative:
+# NOTIFICATION_BACKEND=hermes
+# HERMES_WEBHOOK_URL=http://hermes:8644/webhooks/ha-notify
+# HERMES_WEBHOOK_SECRET=replace-with-the-Hermes-webhook-secret
+# HERMES_CHAT_ID=replace-with-the-WhatsApp-chat-id
 
 # Optional: put service credentials in the Shoutrrr URL when required.
 # SHOUTRRR_TITLE_PREFIX=Bellwatch new home
@@ -105,8 +113,9 @@ SHOUTRRR_URL=ntfy://ntfy.sh/replace-with-a-long-random-topic
 EOF
 ```
 
-`SHOUTRRR_URL` is a Shoutrrr service URL. This example uses ntfy; replace it
-with a URL for Discord, Gotify, Slack, email, or another supported service.
+`NOTIFICATION_BACKEND=shoutrrr` uses the configured Shoutrrr service URL. For
+direct Hermes WhatsApp delivery, set `NOTIFICATION_BACKEND=hermes` and provide
+the `HERMES_*` variables documented below.
 
 ### 2. Pull the published image
 
@@ -319,14 +328,23 @@ ranges, invalid dates, unsupported filter choices, and malformed URLs.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `SHOUTRRR_URL` | Complete Shoutrrr service URL | **Required** |
+| `NOTIFICATION_BACKEND` | `shoutrrr` or `hermes` | `shoutrrr` |
+| `SHOUTRRR_URL` | Complete Shoutrrr service URL when using `shoutrrr` | Required for `shoutrrr` |
 | `SHOUTRRR_BINARY` | Shoutrrr executable path or command | `shoutrrr` |
 | `SHOUTRRR_TITLE_PREFIX` | Notification title prefix for services that support titles | `Bellwatch new home` |
-| `SHOUTRRR_TIMEOUT_MS` | Notification timeout, from 1,000 to 120,000 ms | `15000` |
+| `SHOUTRRR_TIMEOUT_MS` | Shoutrrr notification timeout, from 1,000 to 120,000 ms | `15000` |
+| `HERMES_WEBHOOK_URL` | Hermes webhook endpoint, normally `/webhooks/ha-notify` | Required for `hermes` |
+| `HERMES_WEBHOOK_SECRET` | Secret used to sign Hermes webhook requests | Required for `hermes` |
+| `HERMES_CHAT_ID` | Raw WhatsApp chat or group ID; do not base64-encode it | Required for `hermes` |
+| `HERMES_TIMEOUT_MS` | Hermes request timeout per attempt, from 1,000 to 120,000 ms | `20000` |
 | `POLL_INTERVAL_SECONDS` | Delay between completed polls, from 1 to 86,400 seconds | `900` |
 | `NOTIFY_EXISTING_ON_FIRST_RUN` | Send the current results on first run instead of silently seeding them | `false` |
 
-A failed Shoutrrr command does not mark a finding as seen. It is retried on a
+Hermes requests use the `X-Webhook-Timestamp` and
+`X-Webhook-Signature-V2` headers required by the Hermes webhook. HTTP 5xx and
+network failures are retried twice; client errors are not retried.
+
+A failed notification does not mark a finding as seen. It is retried on a
 later poll. Multiple new findings can be sent during the same poll.
 
 ## Use a different browser
@@ -471,8 +489,9 @@ history.
 
 1. Check `docker logs bellwatch` for configuration or browser
    errors.
-2. Confirm `SHOUTRRR_URL` is a valid Shoutrrr service URL and that the target
-   service accepts a test notification.
+2. Confirm the selected notification backend is configured correctly. For
+   Shoutrrr, validate `SHOUTRRR_URL`; for Hermes, validate
+   `HERMES_WEBHOOK_URL`, `HERMES_WEBHOOK_SECRET`, and `HERMES_CHAT_ID`.
 3. Remember that the first successful poll seeds existing results silently
    unless `NOTIFY_EXISTING_ON_FIRST_RUN=true`.
 4. Confirm the search filters still return results on Daft.ie.
@@ -508,12 +527,11 @@ ranges, min/max ordering, date format (`YYYY-MM-DD`), URL schemes, and the
 ## Privacy and security
 
 - The monitor reads public Daft listing pages and sends selected listing data
-  and the Daft link to your configured Shoutrrr service.
+  and the Daft link to your configured notification backend.
 - Listing IDs and timestamps are stored in SQLite or Postgres so notifications
   are not repeated.
-- Shoutrrr, Postgres, Redis, and browser credentials are supplied through
-  environment variables. Keep env files and Shoutrrr URLs private.
+- Shoutrrr, Hermes, Postgres, Redis, and browser credentials are supplied
+  through environment variables. Keep env files, webhook secrets, and
+  notification URLs private.
 - The container exposes no inbound application port. External services must be
   reachable from the container's network.
-- A Shoutrrr URL may contain service credentials. Treat it as a secret and
-  do not commit it or expose it in logs.

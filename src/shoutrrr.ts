@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import * as Effect from "effect/Effect";
-import type { MonitorConfig } from "./config.js";
+import type { ShoutrrrConfig } from "./config.js";
 import type { DaftFinding } from "./daft/parser.js";
 
 export class ShoutrrrError extends Error {
@@ -87,7 +87,7 @@ export const formatFindingMessage = (finding: DaftFinding): string => {
 };
 
 export const publishFinding = (
-  config: MonitorConfig["shoutrrr"],
+  config: ShoutrrrConfig,
   finding: DaftFinding,
   run: ShoutrrrRunner = runShoutrrr,
 ): Effect.Effect<void, ShoutrrrError> =>

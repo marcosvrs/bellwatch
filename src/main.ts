@@ -5,6 +5,7 @@ import { fetchDaftPayload } from "./browser.js";
 import { createLease } from "./lease.js";
 import { runOnce, writeHeartbeat } from "./monitor.js";
 import { publishFinding } from "./shoutrrr.js";
+import { publishHermesFinding } from "./hermes.js";
 import { createStateStore } from "./state.js";
 
 const program = Effect.gen(function* () {
@@ -22,7 +23,13 @@ const program = Effect.gen(function* () {
   const dependencies = {
     fetchPage: (url: string) => fetchDaftPayload(config, url),
     publish: (finding: Parameters<typeof publishFinding>[1]) =>
-      publishFinding(config.shoutrrr, finding),
+      config.notificationBackend === "hermes"
+        ? config.hermes
+          ? publishHermesFinding(config.hermes, finding)
+          : Effect.fail(
+              new ConfigurationError("Hermes notification configuration is missing"),
+            )
+        : publishFinding(config.shoutrrr, finding),
     state,
     lease,
     heartbeat: () => writeHeartbeat(config.state.heartbeatFile),

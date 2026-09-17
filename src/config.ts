@@ -25,6 +25,22 @@ export class ConfigurationError extends Error {
 
 export type BrowserMode = "auto" | "external" | "local";
 
+export type NotificationBackend = "shoutrrr" | "hermes";
+
+export interface ShoutrrrConfig {
+  readonly url: string;
+  readonly binary: string;
+  readonly titlePrefix: string;
+  readonly timeoutMs: number;
+}
+
+export interface HermesConfig {
+  readonly url: string;
+  readonly secret: string;
+  readonly chatId: string;
+  readonly timeoutMs: number;
+}
+
 export interface MonitorConfig {
   readonly daft: {
     readonly baseUrl: string;
@@ -33,6 +49,7 @@ export interface MonitorConfig {
     readonly filters: DaftFilters;
     readonly maxPages: number;
   };
+  readonly notificationBackend: NotificationBackend;
   readonly browser: {
     readonly mode: BrowserMode;
     readonly externalEndpoint?: string;
@@ -42,12 +59,8 @@ export interface MonitorConfig {
     readonly timeoutMs: number;
     readonly userAgent?: string;
   };
-  readonly shoutrrr: {
-    readonly url: string;
-    readonly binary: string;
-    readonly titlePrefix: string;
-    readonly timeoutMs: number;
-  };
+  readonly shoutrrr: ShoutrrrConfig;
+  readonly hermes?: HermesConfig;
   readonly state: {
     readonly file: string;
     readonly databaseUrl?: string;
@@ -303,7 +316,16 @@ export const parseEnvironment = (
   env: NodeJS.ProcessEnv = process.env,
 ): MonitorConfig => {
   const baseUrl = httpUrl(env, "DAFT_BASE_URL", false) ?? "https://www.daft.ie";
-  const shoutrrrUrl = required(env, "SHOUTRRR_URL");
+  const notificationBackend = choice<NotificationBackend>(
+    env,
+    "NOTIFICATION_BACKEND",
+    "shoutrrr",
+    ["shoutrrr", "hermes"],
+  );
+  const shoutrrrUrl =
+    notificationBackend === "shoutrrr"
+      ? required(env, "SHOUTRRR_URL")
+      : trimmed(env, "SHOUTRRR_URL");
   const browserMode = choice<BrowserMode>(env, "BROWSER_MODE", "auto", [
     "auto",
     "external",
@@ -367,6 +389,7 @@ export const parseEnvironment = (
   }
 
   return {
+    notificationBackend,
     daft: {
       baseUrl,
       sectionPath: validatePath(
@@ -387,12 +410,21 @@ export const parseEnvironment = (
       userAgent: trimmed(env, "BROWSER_USER_AGENT"),
     },
     shoutrrr: {
-      url: shoutrrrUrl,
+      url: shoutrrrUrl ?? "",
       binary: trimmed(env, "SHOUTRRR_BINARY") ?? "shoutrrr",
       titlePrefix:
         trimmed(env, "SHOUTRRR_TITLE_PREFIX") ?? "Bellwatch new home",
       timeoutMs: integer(env, "SHOUTRRR_TIMEOUT_MS", 15_000, 1_000, 120_000),
     },
+    hermes:
+      notificationBackend === "hermes"
+        ? {
+            url: httpUrl(env, "HERMES_WEBHOOK_URL", true)!,
+            secret: required(env, "HERMES_WEBHOOK_SECRET"),
+            chatId: required(env, "HERMES_CHAT_ID"),
+            timeoutMs: integer(env, "HERMES_TIMEOUT_MS", 20_000, 1_000, 120_000),
+          }
+        : undefined,
     state: {
       file: trimmed(env, "STATE_FILE") ?? "/data/state.sqlite",
       databaseUrl: databaseUrl(env),
