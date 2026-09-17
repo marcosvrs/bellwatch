@@ -141,7 +141,7 @@ test("handles empty optional filters and rejects invalid page counts", () => {
 
 test("accepts Daft web filters from environment variables", () => {
   const config = parseEnvironment({
-    NTFY_URL: "https://ntfy.example/daft",
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_LOCATION_PATH: "dublin-city-centre-dublin",
     DAFT_RADIUS_KM: "5",
     DAFT_PRICE_MIN_EUR: "300000",
@@ -169,13 +169,13 @@ test("accepts Daft web filters from environment variables", () => {
 
 test("rejects invalid or contradictory filter configuration", () => {
   assert.throws(
-    () => parseEnvironment({ NTFY_URL: "https://ntfy.example/daft", DAFT_RADIUS_KM: "2" }),
+    () => parseEnvironment({ SHOUTRRR_URL: "ntfy://ntfy.sh/daft", DAFT_RADIUS_KM: "2" }),
     /DAFT_RADIUS_KM must be one of/,
   );
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_PRICE_MIN_EUR: "500000",
         DAFT_PRICE_MAX_EUR: "400000",
       }),
@@ -184,7 +184,7 @@ test("rejects invalid or contradictory filter configuration", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_OPEN_VIEWINGS_FROM: "2026-02-30",
       }),
     /DAFT_OPEN_VIEWINGS_FROM must be a real calendar date/,
@@ -192,7 +192,7 @@ test("rejects invalid or contradictory filter configuration", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_PROPERTY_TYPES: "any,apartments",
       }),
     /DAFT_PROPERTY_TYPES cannot combine any/,
@@ -200,7 +200,7 @@ test("rejects invalid or contradictory filter configuration", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_MEDIA_TYPES: "any,video",
       }),
     /DAFT_MEDIA_TYPES cannot combine any/,
@@ -209,7 +209,7 @@ test("rejects invalid or contradictory filter configuration", () => {
 
 test("parses optional resource settings and rejects malformed environment values", () => {
   const configured = parseEnvironment({
-    NTFY_URL: "https://ntfy.example/daft/",
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_BASE_URL: "https://www.daft.ie/",
     DAFT_SECTION_PATH: "new-homes-for-sale/",
     BROWSER_MODE: "external",
@@ -220,13 +220,15 @@ test("parses optional resource settings and rejects malformed environment values
     REDIS_URL: "rediss://redis.example",
     REDIS_LOCK_KEY: "test-lock",
     REDIS_LOCK_TTL_SECONDS: "60",
-    NTFY_TAGS: "house,house,new-home",
+    SHOUTRRR_TITLE_PREFIX: "Custom title",
+    SHOUTRRR_BINARY: "/opt/shoutrrr",
+    SHOUTRRR_TIMEOUT_MS: "60000",
     NOTIFY_EXISTING_ON_FIRST_RUN: "true",
   });
-  assert.equal(configured.ntfy.url, "https://ntfy.example/daft");
-  assert.equal(configured.daft.baseUrl, "https://www.daft.ie");
-  assert.equal(configured.daft.sectionPath, "new-homes-for-sale");
-  assert.equal(configured.browser.mode, "external");
+  assert.equal(configured.shoutrrr.url, "ntfy://ntfy.sh/daft");
+  assert.equal(configured.shoutrrr.binary, "/opt/shoutrrr");
+  assert.equal(configured.shoutrrr.titlePrefix, "Custom title");
+  assert.equal(configured.shoutrrr.timeoutMs, 60_000);
   assert.equal(configured.browser.headless, true);
   assert.equal(configured.browser.noSandbox, true);
   assert.equal(
@@ -240,19 +242,18 @@ test("parses optional resource settings and rejects malformed environment values
   });
   assert.equal(
     parseEnvironment({
-      NTFY_URL: "https://ntfy.example/daft",
+      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
       REDIS_URL: "redis://redis.example",
     }).redis?.lockKey,
     "bellwatch:monitor",
   );
-  assert.deepEqual(configured.ntfy.tags, ["house", "new-home"]);
   assert.equal(configured.polling.notifyExistingOnFirstRun, true);
 
-  assert.throws(() => parseEnvironment({}), /NTFY_URL is required/);
+  assert.throws(() => parseEnvironment({}), /SHOUTRRR_URL is required/);
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_LOCATION_PATH: "/dublin",
       }),
     /DAFT_LOCATION_PATH must be a Daft URL path/,
@@ -260,7 +261,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_OPEN_VIEWINGS_FROM: "2026-02",
       }),
     /DAFT_OPEN_VIEWINGS_FROM must use YYYY-MM-DD/,
@@ -268,7 +269,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_KEYWORD: "x".repeat(51),
       }),
     /DAFT_KEYWORD cannot exceed 50 characters/,
@@ -276,7 +277,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DATABASE_URL: "mysql://db.example/daft",
       }),
     /DATABASE_URL must use postgres/,
@@ -284,7 +285,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         REDIS_URL: "https://redis.example",
       }),
     /REDIS_URL must use redis/,
@@ -292,14 +293,14 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         BROWSER_MODE: "external",
       }),
     /PLAYWRIGHT_WS_ENDPOINT is required/,
   );
   assert.deepEqual(
     parseEnvironment({
-      NTFY_URL: "https://ntfy.example/daft",
+      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
       DAFT_PROPERTY_TYPES: "any",
       DAFT_MEDIA_TYPES: "any",
     }).daft.filters,
@@ -324,7 +325,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_PRICE_MIN_EUR: "three",
       }),
     /DAFT_PRICE_MIN_EUR must be an integer/,
@@ -332,7 +333,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_BEDS_MIN: "-1",
       }),
     /DAFT_BEDS_MIN must be between/,
@@ -340,7 +341,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_PROPERTY_TYPES: "caves",
       }),
     /DAFT_PROPERTY_TYPES contains unsupported values/,
@@ -348,7 +349,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_MEDIA_TYPES: "photo",
       }),
     /DAFT_MEDIA_TYPES contains unsupported values/,
@@ -356,7 +357,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_BASE_URL: "not a url",
       }),
     /DAFT_BASE_URL must be a valid URL/,
@@ -364,7 +365,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_BASE_URL: "ftp://daft.example",
       }),
     /DAFT_BASE_URL must use http or https/,
@@ -372,7 +373,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         PLAYWRIGHT_WS_ENDPOINT: "http://browser.example",
       }),
     /PLAYWRIGHT_WS_ENDPOINT must use ws or wss/,
@@ -380,7 +381,7 @@ test("parses optional resource settings and rejects malformed environment values
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         CHROMIUM_HEADLESS: "sometimes",
       }),
     /CHROMIUM_HEADLESS must be a boolean/,
@@ -389,25 +390,25 @@ test("parses optional resource settings and rejects malformed environment values
 
 test("covers trimming, defaults, and boundary validation", () => {
   const defaults = parseEnvironment({
-    NTFY_URL: "  https://ntfy.example/daft/  ",
+    SHOUTRRR_URL: "  ntfy://ntfy.sh/daft/  ",
   });
   assert.equal(defaults.browser.headless, true);
   assert.equal(defaults.browser.noSandbox, false);
-  assert.equal(defaults.ntfy.titlePrefix, "Daft new home");
-  assert.equal(defaults.ntfy.priority, "default");
+  assert.equal(defaults.shoutrrr.titlePrefix, "Bellwatch new home");
+  assert.equal(defaults.shoutrrr.binary, "shoutrrr");
   assert.equal(defaults.state.file, "/data/state.sqlite");
   assert.equal(defaults.state.heartbeatFile, "/data/heartbeat");
   assert.equal(new ConfigurationError("bad").name, "ConfigurationError");
   assert.equal(new ConfigurationError("bad")._tag, "ConfigurationError");
 
   const trimmed = parseEnvironment({
-    NTFY_URL: " https://ntfy.example/daft/ ",
+    SHOUTRRR_URL: " ntfy://ntfy.sh/daft/ ",
     DAFT_LOCATION_PATH: " dublin-city-centre-dublin/ ",
     DAFT_SECTION_PATH: " new-homes-for-sale/ ",
     DAFT_KEYWORD: " garage ",
-    NTFY_TITLE_PREFIX: " Custom ",
-    NTFY_PRIORITY: " high ",
-    NTFY_TAGS: " house, new-home ",
+    SHOUTRRR_TITLE_PREFIX: " Custom ",
+    SHOUTRRR_BINARY: " /usr/local/bin/shoutrrr ",
+    SHOUTRRR_TIMEOUT_MS: "60000",
     STATE_FILE: " /tmp/state.sqlite ",
     HEARTBEAT_FILE: " /tmp/heartbeat ",
     BROWSER_USER_AGENT: " agent ",
@@ -415,15 +416,15 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.equal(trimmed.daft.filters.locationPath, "dublin-city-centre-dublin");
   assert.equal(trimmed.daft.sectionPath, "new-homes-for-sale");
   assert.equal(trimmed.daft.filters.keyword, "garage");
-  assert.equal(trimmed.ntfy.titlePrefix, "Custom");
-  assert.equal(trimmed.ntfy.priority, "high");
-  assert.deepEqual(trimmed.ntfy.tags, ["house", "new-home"]);
+  assert.equal(trimmed.shoutrrr.titlePrefix, "Custom");
+  assert.equal(trimmed.shoutrrr.binary, "/usr/local/bin/shoutrrr");
+  assert.equal(trimmed.shoutrrr.timeoutMs, 60_000);
   assert.equal(trimmed.state.file, "/tmp/state.sqlite");
   assert.equal(trimmed.state.heartbeatFile, "/tmp/heartbeat");
   assert.equal(trimmed.browser.userAgent, "agent");
 
   const falseBooleans = parseEnvironment({
-    NTFY_URL: "https://ntfy.example/daft",
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     CHROMIUM_HEADLESS: "off",
     CHROMIUM_NO_SANDBOX: "0",
     NOTIFY_EXISTING_ON_FIRST_RUN: "no",
@@ -433,7 +434,7 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.equal(falseBooleans.polling.notifyExistingOnFirstRun, false);
 
   const equalRange = parseEnvironment({
-    NTFY_URL: "https://ntfy.example/daft",
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_PRICE_MIN_EUR: "100",
     DAFT_PRICE_MAX_EUR: "100",
   });
@@ -442,7 +443,7 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_MAX_PAGES: "1x",
       }),
     /DAFT_MAX_PAGES must be an integer/,
@@ -450,7 +451,7 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_MAX_PAGES: "x1",
       }),
     /DAFT_MAX_PAGES must be an integer/,
@@ -458,7 +459,7 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_BEDS_MAX: "16",
       }),
     /DAFT_BEDS_MAX must be between/,
@@ -466,7 +467,7 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_OPEN_VIEWINGS_FROM: "x2026-02-01",
       }),
     /DAFT_OPEN_VIEWINGS_FROM must use YYYY-MM-DD/,
@@ -474,7 +475,7 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DAFT_OPEN_VIEWINGS_FROM: "2026-02-01x",
       }),
     /DAFT_OPEN_VIEWINGS_FROM must use YYYY-MM-DD/,
@@ -482,7 +483,7 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         PLAYWRIGHT_WS_ENDPOINT: "xws://browser.example",
       }),
     /PLAYWRIGHT_WS_ENDPOINT must use ws or wss/,
@@ -490,7 +491,7 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         DATABASE_URL: "xpostgresql://db.example/daft",
       }),
     /DATABASE_URL must use postgres/,
@@ -498,7 +499,7 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.throws(
     () =>
       parseEnvironment({
-        NTFY_URL: "https://ntfy.example/daft",
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
         REDIS_URL: "xredis://redis.example",
       }),
     /REDIS_URL must use redis/,

@@ -11,7 +11,7 @@ const config = {
     "src/config.ts",
     "src/daft/**/*.ts",
     "src/monitor.ts",
-    "src/ntfy.ts",
+    "src/shoutrrr.ts",
   ],
   reporters: ["clear-text", "json"],
   jsonReporter: {

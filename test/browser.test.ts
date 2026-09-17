@@ -3,7 +3,7 @@ import test from "node:test";
 import { parseEnvironment } from "../src/config.js";
 import { resolveBrowserStrategy } from "../src/browser.js";
 
-const base = { NTFY_URL: "https://ntfy.example/daft" };
+const base = { SHOUTRRR_URL: "ntfy://ntfy.sh/daft" };
 
 test("auto browser mode uses bundled Chromium without an endpoint", () => {
   const browser = parseEnvironment(base).browser;

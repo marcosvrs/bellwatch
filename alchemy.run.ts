@@ -31,10 +31,9 @@ const RUNTIME_ENVIRONMENT_KEYS = [
   "CHROMIUM_NO_SANDBOX",
   "BROWSER_TIMEOUT_MS",
   "BROWSER_USER_AGENT",
-  "NTFY_TITLE_PREFIX",
-  "NTFY_PRIORITY",
-  "NTFY_TAGS",
-  "NTFY_TIMEOUT_MS",
+  "SHOUTRRR_BINARY",
+  "SHOUTRRR_TITLE_PREFIX",
+  "SHOUTRRR_TIMEOUT_MS",
   "STATE_FILE",
   "HEARTBEAT_FILE",
   "HEALTHCHECK_MAX_AGE_SECONDS",
@@ -87,15 +86,13 @@ export default Alchemy.Stack(
 
     const environment: Record<string, string | Redacted.Redacted<string>> = {
       ...plainRuntimeEnvironment(),
-      NTFY_URL: yield* Config.string("NTFY_URL"),
+      SHOUTRRR_URL: yield* Config.redacted("SHOUTRRR_URL"),
     };
-    const ntfyToken = yield* Config.option(Config.redacted("NTFY_TOKEN"));
     const databaseUrl = yield* Config.option(Config.redacted("DATABASE_URL"));
     const redisUrl = yield* Config.option(Config.redacted("REDIS_URL"));
     const browserEndpoint = yield* Config.option(
       Config.redacted("PLAYWRIGHT_WS_ENDPOINT"),
     );
-    if (Option.isSome(ntfyToken)) environment.NTFY_TOKEN = ntfyToken.value;
     if (Option.isSome(databaseUrl)) environment.DATABASE_URL = databaseUrl.value;
     if (Option.isSome(redisUrl)) environment.REDIS_URL = redisUrl.value;
     if (Option.isSome(browserEndpoint)) {

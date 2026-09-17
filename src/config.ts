@@ -41,12 +41,10 @@ export interface MonitorConfig {
     readonly timeoutMs: number;
     readonly userAgent?: string;
   };
-  readonly ntfy: {
+  readonly shoutrrr: {
     readonly url: string;
-    readonly token?: string;
+    readonly binary: string;
     readonly titlePrefix: string;
-    readonly priority: string;
-    readonly tags: readonly string[];
     readonly timeoutMs: number;
   };
   readonly state: {
@@ -286,7 +284,7 @@ export const parseEnvironment = (
   env: NodeJS.ProcessEnv = process.env,
 ): MonitorConfig => {
   const baseUrl = httpUrl(env, "DAFT_BASE_URL", false) ?? "https://www.daft.ie";
-  const ntfyUrl = httpUrl(env, "NTFY_URL", true)!;
+  const shoutrrrUrl = required(env, "SHOUTRRR_URL");
   const browserMode = choice<BrowserMode>(env, "BROWSER_MODE", "auto", [
     "auto",
     "external",
@@ -370,18 +368,12 @@ export const parseEnvironment = (
       timeoutMs: integer(env, "BROWSER_TIMEOUT_MS", 60_000, 1_000, 300_000),
       userAgent: trimmed(env, "BROWSER_USER_AGENT"),
     },
-    ntfy: {
-      url: ntfyUrl,
-      token: trimmed(env, "NTFY_TOKEN"),
-      titlePrefix: trimmed(env, "NTFY_TITLE_PREFIX") ?? "Daft new home",
-      priority: trimmed(env, "NTFY_PRIORITY") ?? "default",
-      tags: unique(
-        (trimmed(env, "NTFY_TAGS") ?? "house,new-home")
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean),
-      ),
-      timeoutMs: integer(env, "NTFY_TIMEOUT_MS", 15_000, 1_000, 120_000),
+    shoutrrr: {
+      url: shoutrrrUrl,
+      binary: trimmed(env, "SHOUTRRR_BINARY") ?? "shoutrrr",
+      titlePrefix:
+        trimmed(env, "SHOUTRRR_TITLE_PREFIX") ?? "Bellwatch new home",
+      timeoutMs: integer(env, "SHOUTRRR_TIMEOUT_MS", 15_000, 1_000, 120_000),
     },
     state: {
       file: trimmed(env, "STATE_FILE") ?? "/data/state.sqlite",

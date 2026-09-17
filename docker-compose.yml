@@ -1,12 +1,10 @@
-name: ${COMPOSE_PROJECT_NAME:-bellwatch}
+name: bellwatch
 services:
   bellwatch:
-    image: ${BELLWATCH_IMAGE:-ghcr.io/marcosvrs/bellwatch:latest}
+    image: ghcr.io/marcosvrs/bellwatch
     init: true
     restart: unless-stopped
     depends_on:
-      ntfy:
-        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -14,61 +12,38 @@ services:
       browserless:
         condition: service_started
     environment:
-      # The monitor talks to the Compose services by service name.
-      NTFY_URL: "${NTFY_URL:-http://ntfy/bellwatch}"
-      NTFY_TOKEN: "${NTFY_TOKEN:-}"
-      DATABASE_URL: "${DATABASE_URL:-postgresql://${POSTGRES_USER:-daft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-daft}}"
-      REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
-      REDIS_LOCK_KEY: "${REDIS_LOCK_KEY:-bellwatch:monitor}"
-      REDIS_LOCK_TTL_SECONDS: "${REDIS_LOCK_TTL_SECONDS:-300}"
-      BROWSER_MODE: "${BROWSER_MODE:-external}"
-      PLAYWRIGHT_WS_ENDPOINT: "${PLAYWRIGHT_WS_ENDPOINT-ws://browserless:3000?token=${BROWSERLESS_TOKEN}}"
-      BROWSER_TIMEOUT_MS: "${BROWSER_TIMEOUT_MS:-120000}"
-      CHROMIUM_HEADLESS: "${CHROMIUM_HEADLESS:-true}"
-      CHROMIUM_NO_SANDBOX: "${CHROMIUM_NO_SANDBOX:-false}"
+      # The monitor sends notifications through the configured Shoutrrr URL.
+      SHOUTRRR_URL: "${SHOUTRRR_URL:?Set SHOUTRRR_URL in .env}"
+      SHOUTRRR_TITLE_PREFIX: "${SHOUTRRR_TITLE_PREFIX:-Bellwatch new home}"
+      SHOUTRRR_TIMEOUT_MS: "${SHOUTRRR_TIMEOUT_MS:-15000}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-daft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-daft}"
+      REDIS_URL: "redis://redis:6379/0"
+      REDIS_LOCK_KEY: "bellwatch:monitor"
+      REDIS_LOCK_TTL_SECONDS: "300"
+      BROWSER_MODE: "external"
+      PLAYWRIGHT_WS_ENDPOINT: "ws://browserless:3000?token=${BROWSERLESS_TOKEN}"
+      BROWSER_TIMEOUT_MS: "120000"
+      CHROMIUM_HEADLESS: "true"
+      CHROMIUM_NO_SANDBOX: "false"
       STATE_FILE: /data/state.sqlite
       HEARTBEAT_FILE: /data/heartbeat
-      HEALTHCHECK_MAX_AGE_SECONDS: "${HEALTHCHECK_MAX_AGE_SECONDS:-3600}"
-      POLL_INTERVAL_SECONDS: "${POLL_INTERVAL_SECONDS:-900}"
-      NOTIFY_EXISTING_ON_FIRST_RUN: "${NOTIFY_EXISTING_ON_FIRST_RUN:-false}"
-      DAFT_BASE_URL: "${DAFT_BASE_URL:-https://www.daft.ie}"
-      DAFT_SECTION_PATH: "${DAFT_SECTION_PATH:-new-homes-for-sale}"
-      DAFT_LOCATION_PATH: "${DAFT_LOCATION_PATH:-dublin-city-centre-dublin}"
-      DAFT_RADIUS_KM: "${DAFT_RADIUS_KM:-20}"
-      DAFT_PRICE_MAX_EUR: "${DAFT_PRICE_MAX_EUR:-499999}"
-      DAFT_BEDS_MIN: "${DAFT_BEDS_MIN:-3}"
-      DAFT_PROPERTY_TYPES: "${DAFT_PROPERTY_TYPES:-houses}"
-      DAFT_MEDIA_TYPES: "${DAFT_MEDIA_TYPES:-any}"
-      DAFT_AVAILABILITY: "${DAFT_AVAILABILITY:-published}"
-      DAFT_ADDED_IN_LAST_DAYS: "${DAFT_ADDED_IN_LAST_DAYS:-0}"
-      DAFT_SORT: "${DAFT_SORT:-priceAsc}"
-      DAFT_MAX_PAGES: "${DAFT_MAX_PAGES:-1}"
+      HEALTHCHECK_MAX_AGE_SECONDS: "3600"
+      POLL_INTERVAL_SECONDS: "900"
+      NOTIFY_EXISTING_ON_FIRST_RUN: "false"
+      # DAFT_BASE_URL: "https://www.daft.ie"
+      DAFT_SECTION_PATH: "new-homes-for-sale"
+      DAFT_LOCATION_PATH: "dublin-city-centre-dublin"
+      DAFT_RADIUS_KM: 20
+      DAFT_PRICE_MAX_EUR: 499999
+      DAFT_BEDS_MIN: "3"
+      DAFT_PROPERTY_TYPES: "houses"
+      # DAFT_MEDIA_TYPES: "any"
+      DAFT_AVAILABILITY: "published"
+      DAFT_ADDED_IN_LAST_DAYS: "1"
+      DAFT_SORT: "publishDateDesc"
+      DAFT_MAX_PAGES: "1"
     volumes:
       - bellwatch-data:/data
-    networks:
-      - bellwatch
-
-  # Self-hosted ntfy. Bind it to localhost by default; put it behind HTTPS
-  # and configure authentication before exposing it beyond the host.
-  ntfy:
-    image: binwiederhier/ntfy:v2.28.0
-    command: ["serve"]
-    environment:
-      TZ: "${TZ:-UTC}"
-      NTFY_BASE_URL: "${NTFY_PUBLIC_URL:-http://localhost:8080}"
-    volumes:
-      - ntfy-cache:/var/cache/ntfy
-      - ntfy-config:/etc/ntfy
-    ports:
-      - "127.0.0.1:${NTFY_PORT:-8080}:80"
-    healthcheck:
-      test:
-        ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/v1/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
     networks:
       - bellwatch
 
@@ -125,10 +100,6 @@ services:
 
 volumes:
   bellwatch-data:
-  ntfy-cache:
-  ntfy-config:
-  postgres-data:
-  redis-data:
 
 networks:
   bellwatch:

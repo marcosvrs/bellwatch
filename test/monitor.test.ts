@@ -61,7 +61,7 @@ const payload = (findings: readonly DaftFinding[]) => ({
 });
 
 const config = parseEnvironment({
-  NTFY_URL: "https://ntfy.example/daft",
+  SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
   DAFT_MAX_PAGES: "1",
   NOTIFY_EXISTING_ON_FIRST_RUN: "false",
 });
@@ -203,7 +203,7 @@ test("collects multiple Daft pages and deduplicates findings", async () => {
     heartbeat: () => Effect.void,
   };
   const multiPageConfig = parseEnvironment({
-    NTFY_URL: "https://ntfy.example/daft",
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_MAX_PAGES: "3",
     NOTIFY_EXISTING_ON_FIRST_RUN: "true",
   });
@@ -254,7 +254,7 @@ test("keeps an id unseen when notification delivery fails", async () => {
     publish: () => {
       attempts += 1;
       return attempts === 1
-        ? Effect.fail(new Error("temporary ntfy failure"))
+        ? Effect.fail(new Error("temporary notification failure"))
         : Effect.void;
     },
     state,
@@ -262,7 +262,7 @@ test("keeps an id unseen when notification delivery fails", async () => {
     heartbeat: () => Effect.void,
   };
   const notifyingConfig = parseEnvironment({
-    NTFY_URL: "https://ntfy.example/daft",
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     NOTIFY_EXISTING_ON_FIRST_RUN: "true",
   });
 

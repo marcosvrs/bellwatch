@@ -89,7 +89,8 @@ container build -t bellwatch:local .
 ```
 
 Run the resulting image with a private env file and a persistent `/data` volume.
-Do not commit the env file. The image's healthcheck is defined in `Dockerfile`.
+The image installs the pinned Shoutrrr CLI used for notification delivery. Do
+not commit the env file. The image's healthcheck is defined in `Dockerfile`.
 
 ## Alchemy deployment
 
@@ -102,7 +103,7 @@ apply the deployment:
 
 ```bash
 npm ci --legacy-peer-deps
-export NTFY_URL=https://ntfy.example/bellwatch
+export SHOUTRRR_URL=ntfy://ntfy.sh/bellwatch
 export ALCHEMY_DOCKER_HOST='host=ssh://user@remote-host'
 export MONITOR_DOCKER_NETWORK='the-existing-browser-network'
 export PLAYWRIGHT_WS_ENDPOINT='ws://browser-sockpuppet-chrome:3000/?--window-size=1920,1080'

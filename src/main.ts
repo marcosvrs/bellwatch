@@ -4,7 +4,7 @@ import { parseEnvironment, ConfigurationError } from "./config.js";
 import { fetchDaftPayload } from "./browser.js";
 import { createLease } from "./lease.js";
 import { runOnce, writeHeartbeat } from "./monitor.js";
-import { publishFinding } from "./ntfy.js";
+import { publishFinding } from "./shoutrrr.js";
 import { createStateStore } from "./state.js";
 
 const program = Effect.gen(function* () {
@@ -22,7 +22,7 @@ const program = Effect.gen(function* () {
   const dependencies = {
     fetchPage: (url: string) => fetchDaftPayload(config, url),
     publish: (finding: Parameters<typeof publishFinding>[1]) =>
-      publishFinding(config.ntfy, finding),
+      publishFinding(config.shoutrrr, finding),
     state,
     lease,
     heartbeat: () => writeHeartbeat(config.state.heartbeatFile),

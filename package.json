@@ -2,7 +2,7 @@
   "name": "bellwatch",
   "version": "0.1.0",
   "private": true,
-  "description": "Effect monitor for new Daft.ie homes with ntfy notifications",
+  "description": "Bellwatch Daft.ie monitor with Shoutrrr notifications",
   "type": "module",
   "engines": {
     "node": ">=22"

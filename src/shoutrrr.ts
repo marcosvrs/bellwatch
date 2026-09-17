@@ -1,0 +1,116 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import * as Effect from "effect/Effect";
+import type { MonitorConfig } from "./config.js";
+import type { DaftFinding } from "./daft/parser.js";
+
+export class ShoutrrrError extends Error {
+  readonly _tag = "ShoutrrrError";
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ShoutrrrError";
+  }
+}
+
+export type ShoutrrrRunner = (
+  binary: string,
+  args: readonly string[],
+  message: string,
+  timeoutMs: number,
+) => Promise<void>;
+
+const runShoutrrr: ShoutrrrRunner = (
+  binary,
+  args,
+  message,
+  timeoutMs,
+) => {
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const child = spawn(binary, [...args], {
+    stdio: ["pipe", "ignore", "pipe"],
+  });
+
+  let stderr = "";
+  let timer: NodeJS.Timeout;
+  const finish = (error?: ShoutrrrError) => {
+    clearTimeout(timer);
+    if (error) reject(error);
+    else resolve();
+  };
+
+  timer = setTimeout(() => {
+    child.kill("SIGTERM");
+    finish(
+      new ShoutrrrError(`Shoutrrr timed out after ${timeoutMs} milliseconds`),
+    );
+  }, timeoutMs);
+
+  child.stderr!.on("data", (chunk: string | Buffer) => {
+    stderr = (stderr + chunk).slice(0, 500);
+  });
+
+  child.on("error", (cause) =>
+    finish(
+      new ShoutrrrError("Could not start Shoutrrr notification", { cause }),
+    ),
+  );
+  child.on("close", (code, signal) => {
+    if (code === 0) {
+      finish();
+      return;
+    }
+    const detail = stderr.trim();
+    finish(
+      new ShoutrrrError(
+        `Shoutrrr exited with ${
+          signal ? `signal ${signal}` : `code ${code ?? "unknown"}`
+        }${detail ? `: ${detail}` : ""}`,
+      ),
+    );
+  });
+  child.stdin!.end(message);
+  return promise;
+};
+
+export const formatFindingMessage = (finding: DaftFinding): string => {
+  const details = [
+    `Price: ${finding.priceText}`,
+    finding.bedrooms === undefined ? undefined : `Beds: ${finding.bedrooms}`,
+    finding.bathrooms === undefined
+      ? undefined
+      : `Baths: ${finding.bathrooms}`,
+    finding.propertyType ? `Type: ${finding.propertyType}` : undefined,
+    `Development: ${finding.developmentTitle}`,
+    `Daft: ${finding.url}`,
+  ].filter((line): line is string => line !== undefined);
+  return [finding.title, ...details].join("\n");
+};
+
+export const publishFinding = (
+  config: MonitorConfig["shoutrrr"],
+  finding: DaftFinding,
+  run: ShoutrrrRunner = runShoutrrr,
+): Effect.Effect<void, ShoutrrrError> =>
+  Effect.tryPromise({
+    try: () =>
+      run(
+        config.binary,
+        [
+          "send",
+          "--url",
+          config.url,
+          "--message",
+          "-",
+          "--title",
+          `${config.titlePrefix}: ${finding.title}`,
+        ],
+        formatFindingMessage(finding),
+        config.timeoutMs,
+      ),
+    catch: (cause) =>
+      cause instanceof ShoutrrrError
+        ? cause
+        : new ShoutrrrError("Could not publish Shoutrrr notification", {
+            cause,
+          }),
+  });

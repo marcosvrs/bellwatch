@@ -1,12 +1,14 @@
 # Bellwatch
 
-Get an ntfy notification when a new home matching your Daft.ie search appears.
+Get a notification through any Shoutrrr-supported service when a new home
+matching your Daft.ie search appears.
 The monitor runs continuously in one container, remembers listings it has
 already reported, and sends only unseen findings.
 
 It is a background service, not a website: there is no HTTP server, web UI, or
 dashboard. The container has no inbound port. It only needs outbound access to
-Daft.ie, your ntfy server, and any optional external services you configure.
+Daft.ie, your configured notification service, and any optional external services
+you configure.
 
 ## Contents
 
@@ -33,8 +35,8 @@ Each polling cycle the monitor:
    no unit data, it becomes one fallback finding.
 4. Removes duplicate findings across pages.
 5. Compares findings with persistent state.
-6. Publishes unseen findings to ntfy and marks them seen only after ntfy accepts
-   the notification.
+6. Publishes unseen findings through Shoutrrr and marks them seen only after the
+   notification service accepts the notification.
 7. Writes a heartbeat for the container healthcheck.
 
 A notification includes the listing title, price, bedrooms, bathrooms, property
@@ -48,9 +50,9 @@ immediately instead.
 ## Useful ways to run it
 
 - **Personal home alerts:** monitor one search on a home server or Mac and
-  receive new-listing notifications on your phone through ntfy.
+  receive new-listing notifications through your configured service.
 - **Different searches:** run separate containers, each with its own env file,
-  state volume, and ntfy topic. This keeps searches and notification history
+  state volume, and Shoutrrr service URL. This keeps searches and notification
   independent.
 - **Existing browser infrastructure:** connect to a Playwright/CDP browser
   service instead of launching Chromium in this container.
@@ -61,11 +63,11 @@ immediately instead.
 
 ## Requirements
 
-- An ntfy topic URL. This can be an ntfy.sh topic or a topic on your own ntfy
-  server. Choose a hard-to-guess topic name when using a public ntfy service.
+- A Shoutrrr service URL, such as ntfy, Discord, Gotify, Slack, or any other
+  service supported by [Shoutrrr](https://shoutrrr.nickfedor.com/dev/services/overview/).
 - A Docker Engine or compatible OCI runtime. The production examples below use
   Docker.
-- Outbound HTTPS access to Daft.ie and the configured ntfy endpoint.
+- Outbound HTTPS access to Daft.ie and the configured notification service.
 - A persistent container volume mounted at `/data`.
 - Optional: a Postgres database, Redis server, or external Playwright/CDP
   endpoint when you need them.
@@ -76,24 +78,24 @@ This is the normal production setup. The maintained image is published to
 GitHub Container Registry, so users pull it instead of building the repository.
 The image includes Chromium and declares `/data` as its persistent volume.
 
-The first pull needs access to `ghcr.io`. Runtime access to Daft and ntfy is
-also required. If the package is private, authenticate Docker to GitHub
-Container Registry before pulling it.
+The first pull needs access to `ghcr.io`. Runtime access to Daft and the
+configured notification service is also required. If the package is private,
+authenticate Docker to GitHub Container Registry before pulling it.
 
 ### 1. Create the notification configuration
 
 Create an env file outside the repository. Keep it private because it may
-contain your ntfy token or database credentials.
+contain your Shoutrrr service URL or database credentials.
 
 ```bash
 umask 077
 mkdir -p "$HOME/.config/bellwatch"
 cat > "$HOME/.config/bellwatch/monitor.env" <<'EOF'
-# Required: use a private/random topic or your own ntfy server.
-NTFY_URL=https://ntfy.sh/replace-with-a-long-random-topic
+# Required Shoutrrr URL. This example uses the public ntfy service.
+SHOUTRRR_URL=ntfy://ntfy.sh/replace-with-a-long-random-topic
 
-# Optional token for a protected ntfy topic.
-# NTFY_TOKEN=replace-with-your-ntfy-token
+# Optional: put service credentials in the Shoutrrr URL when required.
+# SHOUTRRR_TITLE_PREFIX=Bellwatch new home
 
 # Optional search overrides. The defaults are shown in the reference below.
 # DAFT_LOCATION_PATH=dublin-city-centre-dublin
@@ -103,9 +105,8 @@ NTFY_URL=https://ntfy.sh/replace-with-a-long-random-topic
 EOF
 ```
 
-`NTFY_URL` must be the complete topic endpoint, for example
-`https://ntfy.example/bellwatch`. Do not put a trailing slash in a
-value unless your ntfy server requires it.
+`SHOUTRRR_URL` is a Shoutrrr service URL. This example uses ntfy; replace it
+with a URL for Discord, Gotify, Slack, email, or another supported service.
 
 ### 2. Pull the published image
 
@@ -115,7 +116,7 @@ docker pull "$IMAGE"
 ```
 
 The image runs as the non-root `pwuser`, exposes no application port, and
-contains the pinned Playwright/Chromium runtime.
+contains the pinned Playwright/Chromium runtime and Shoutrrr CLI.
 
 ### 3. Create storage and start the monitor
 
@@ -182,7 +183,6 @@ Use the included [`docker-compose.yml`](docker-compose.yml) when you want the
 monitor and its optional external services in one Docker network. It starts:
 
 - the published `bellwatch` image;
-- a self-hosted ntfy server;
 - Postgres for shared listing state;
 - Redis for the distributed polling lease; and
 - Browserless Chromium for external Playwright/CDP connections.
@@ -190,7 +190,8 @@ monitor and its optional external services in one Docker network. It starts:
 The monitor container is configured automatically with:
 
 ```text
-NTFY_URL=http://ntfy/bellwatch
+SHOUTRRR_URL=ntfy://ntfy.sh/bellwatch
+SHOUTRRR_TITLE_PREFIX=Bellwatch new home
 DATABASE_URL=postgresql://...@postgres:5432/daft
 REDIS_URL=redis://redis:6379/0
 BROWSER_MODE=external
@@ -218,14 +219,12 @@ authenticate first:
 echo "$GITHUB_TOKEN" | docker login ghcr.io --username YOUR_GITHUB_USER --password-stdin
 ```
 
-The host exposes ntfy at `http://127.0.0.1:8080` and the Browserless debugger
-at `http://127.0.0.1:3000` by default. Postgres and Redis are reachable only
-inside the Compose network. Do not bind ntfy beyond localhost without adding
-authentication and HTTPS.
+The host exposes the Browserless debugger at `http://127.0.0.1:3000` by default.
+Postgres and Redis are reachable only inside the Compose network.
 
 `docker compose down` stops the services but keeps named volumes. Do not use
 `docker compose down --volumes` unless you intentionally want to delete the
-Postgres, Redis, ntfy, and listing-history data.
+Postgres, Redis, and listing-history data.
 
 To change search filters or service credentials, edit `.env` and recreate the
 monitor:
@@ -310,17 +309,15 @@ ranges, invalid dates, unsupported filter choices, and malformed URLs.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `NTFY_URL` | Complete ntfy topic endpoint | **Required** |
-| `NTFY_TOKEN` | Optional ntfy bearer token | unset |
-| `NTFY_TITLE_PREFIX` | Prefix in the ntfy title | `Daft new home` |
-| `NTFY_PRIORITY` | ntfy priority header | `default` |
-| `NTFY_TAGS` | Comma-separated ntfy tags | `house,new-home` |
-| `NTFY_TIMEOUT_MS` | Notification timeout, from 1,000 to 120,000 ms | `15000` |
+| `SHOUTRRR_URL` | Complete Shoutrrr service URL | **Required** |
+| `SHOUTRRR_BINARY` | Shoutrrr executable path or command | `shoutrrr` |
+| `SHOUTRRR_TITLE_PREFIX` | Notification title prefix for services that support titles | `Bellwatch new home` |
+| `SHOUTRRR_TIMEOUT_MS` | Notification timeout, from 1,000 to 120,000 ms | `15000` |
 | `POLL_INTERVAL_SECONDS` | Delay between completed polls, from 1 to 86,400 seconds | `900` |
 | `NOTIFY_EXISTING_ON_FIRST_RUN` | Send the current results on first run instead of silently seeding them | `false` |
 
-A failed ntfy request does not mark a finding as seen. It is retried on a later
-poll. Multiple new findings can be sent during the same poll.
+A failed Shoutrrr command does not mark a finding as seen. It is retried on a
+later poll. Multiple new findings can be sent during the same poll.
 
 ## Use a different browser
 
@@ -456,8 +453,8 @@ history.
 
 1. Check `docker logs bellwatch` for configuration or browser
    errors.
-2. Confirm `NTFY_URL` is the complete topic endpoint and that the topic can
-   receive a test message.
+2. Confirm `SHOUTRRR_URL` is a valid Shoutrrr service URL and that the target
+   service accepts a test notification.
 3. Remember that the first successful poll seeds existing results silently
    unless `NOTIFY_EXISTING_ON_FIRST_RUN=true`.
 4. Confirm the search filters still return results on Daft.ie.
@@ -493,13 +490,12 @@ ranges, min/max ordering, date format (`YYYY-MM-DD`), URL schemes, and the
 ## Privacy and security
 
 - The monitor reads public Daft listing pages and sends selected listing data
-  and the Daft link to your configured ntfy endpoint.
+  and the Daft link to your configured Shoutrrr service.
 - Listing IDs and timestamps are stored in SQLite or Postgres so notifications
   are not repeated.
-- ntfy, Postgres, Redis, and browser credentials are supplied through
-  environment variables. Keep env files private and do not commit them.
+- Shoutrrr, Postgres, Redis, and browser credentials are supplied through
+  environment variables. Keep env files and Shoutrrr URLs private.
 - The container exposes no inbound application port. External services must be
   reachable from the container's network.
-- A public ntfy topic can be read by anyone who knows its name. Use a random
-  topic name, a protected topic with `NTFY_TOKEN`, or a private ntfy server for
-  sensitive searches.
+- A Shoutrrr URL may contain service credentials. Treat it as a secret and
+  do not commit it or expose it in logs.
