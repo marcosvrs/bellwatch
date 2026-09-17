@@ -15,7 +15,6 @@ import {
 } from "../src/config.js";
 
 const baseFilters: DaftFilters = {
-  locationPath: "dublin-city-centre-dublin",
   radiusKm: 20,
   priceMinEur: 300_000,
   priceMaxEur: 499_999,
@@ -32,12 +31,17 @@ const baseFilters: DaftFilters = {
   sort: "priceDesc",
 };
 
-const searchUrl = (filters: DaftFilters = baseFilters, page = 1) =>
+const searchUrl = (
+  filters: DaftFilters = baseFilters,
+  page = 1,
+  locationPath = "dublin-city-centre-dublin",
+) =>
   new URL(
     buildDaftSearchUrl(
       {
         baseUrl: "https://www.daft.ie",
         sectionPath: "new-homes-for-sale",
+        locationPath,
         filters,
       },
       page,
@@ -124,6 +128,7 @@ test("handles empty optional filters and rejects invalid page counts", () => {
   const request = {
     baseUrl: "https://www.daft.ie",
     sectionPath: "new-homes-for-sale",
+    locationPath: "dublin-city-centre-dublin",
     filters,
   };
   const url = new URL(buildDaftSearchUrl(request));
@@ -142,7 +147,7 @@ test("handles empty optional filters and rejects invalid page counts", () => {
 test("accepts Daft web filters from environment variables", () => {
   const config = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
-    DAFT_LOCATION_PATH: "dublin-city-centre-dublin",
+    DAFT_LOCATION_PATH: " drogheda-louth, navan-meath, drogheda-louth ",
     DAFT_RADIUS_KM: "5",
     DAFT_PRICE_MIN_EUR: "300000",
     DAFT_PRICE_MAX_EUR: "499999",
@@ -159,6 +164,7 @@ test("accepts Daft web filters from environment variables", () => {
     DAFT_SORT: "publishDateDesc",
   });
   assert.equal(DAFT_FILTER_ENV_VARS.length, 15);
+  assert.deepEqual(config.daft.locationPaths, ["drogheda-louth", "navan-meath"]);
   assert.equal(config.daft.filters.radiusKm, 5);
   assert.deepEqual(config.daft.filters.propertyTypes, ["houses", "apartments"]);
   assert.deepEqual(config.daft.filters.mediaTypes, ["video", "virtual-tour"]);
@@ -204,6 +210,14 @@ test("rejects invalid or contradictory filter configuration", () => {
         DAFT_MEDIA_TYPES: "any,video",
       }),
     /DAFT_MEDIA_TYPES cannot combine any/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_LOCATION_PATH: ",",
+      }),
+    /DAFT_LOCATION_PATH must contain at least one location path/,
   );
 });
 
@@ -312,7 +326,6 @@ test("parses optional resource settings and rejects malformed environment values
       DAFT_MEDIA_TYPES: "any",
     }).daft.filters,
     {
-      locationPath: "dublin-city-centre-dublin",
       radiusKm: 20,
       priceMinEur: undefined,
       priceMaxEur: 499_999,
@@ -420,7 +433,7 @@ test("covers trimming, defaults, and boundary validation", () => {
     HEARTBEAT_FILE: " /tmp/heartbeat ",
     BROWSER_USER_AGENT: " agent ",
   });
-  assert.equal(trimmed.daft.filters.locationPath, "dublin-city-centre-dublin");
+  assert.deepEqual(trimmed.daft.locationPaths, ["dublin-city-centre-dublin"]);
   assert.equal(trimmed.daft.sectionPath, "new-homes-for-sale");
   assert.equal(trimmed.daft.filters.keyword, "garage");
   assert.equal(trimmed.shoutrrr.titlePrefix, "Custom");

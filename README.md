@@ -247,11 +247,11 @@ bundled Chromium instead.
 The default search is:
 
 - Daft **New Homes for sale**;
-- Dublin City Centre (`dublin-city-centre-dublin`) within 20 km;
+- one or more Daft location paths, defaulting to Dublin City Centre (`dublin-city-centre-dublin`) within 20 km;
 - houses with at least 3 bedrooms;
 - maximum price €499,999;
 - price ascending;
-- one result page;
+- one result page per location;
 - silent seeding of existing results on the first successful poll.
 
 Set variables in the env file and recreate the container after changing them.
@@ -261,7 +261,7 @@ Comma-separated values are trimmed and de-duplicated.
 
 | Purpose | Variable | Accepted values | Default |
 | --- | --- | --- | --- |
-| Daft location | `DAFT_LOCATION_PATH` | Daft URL path/slug, without a leading slash, query, fragment, or spaces | `dublin-city-centre-dublin` |
+| Daft locations | `DAFT_LOCATION_PATH` | Comma-separated Daft URL paths/slugs, each without a leading slash, query, fragment, or spaces | `dublin-city-centre-dublin` |
 | Search section | `DAFT_SECTION_PATH` | Daft URL path | `new-homes-for-sale` |
 | Radius | `DAFT_RADIUS_KM` | `0`, `1`, `3`, `5`, `10`, `20` | `20` |
 | Minimum price | `DAFT_PRICE_MIN_EUR` | Non-negative euro amount | unset |
@@ -284,10 +284,15 @@ combine it with specific values. For property types, one specific value is
 encoded in the Daft path and multiple values are sent as repeated query
 parameters.
 
+`DAFT_LOCATION_PATH` can contain multiple locations. Bellwatch applies the
+same filters to each location, combines the results, and de-duplicates
+listings by Daft listing ID. `DAFT_MAX_PAGES` is the maximum number of pages
+fetched for each location.
+
 Examples:
 
 ```dotenv
-DAFT_LOCATION_PATH=galway-city
+DAFT_LOCATION_PATH=drogheda-louth,navan-meath,dublin-city-centre-dublin
 DAFT_RADIUS_KM=10
 DAFT_PRICE_MIN_EUR=250000
 DAFT_PRICE_MAX_EUR=450000

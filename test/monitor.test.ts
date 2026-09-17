@@ -217,6 +217,50 @@ test("collects multiple Daft pages and deduplicates findings", async () => {
   assert.equal(new URL(urls[1]).searchParams.get("page"), "2");
 });
 
+test("searches every configured location and deduplicates shared findings", async () => {
+  const state = makeState();
+  const sent: string[] = [];
+  const shared = makeFinding("501");
+  const navanOnly = makeFinding("502");
+  const urls: string[] = [];
+  const dependencies = {
+    fetchPage: (url: string) => {
+      urls.push(url);
+      return Effect.succeed(
+        url.includes("navan-meath")
+          ? payload([shared, navanOnly])
+          : payload([shared]),
+      );
+    },
+    publish: (finding: DaftFinding) =>
+      Effect.sync(() => {
+        sent.push(finding.id);
+      }),
+    state,
+    lease,
+    heartbeat: () => Effect.void,
+  };
+  const multiLocationConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_LOCATION_PATH: "dublin-city-centre-dublin,navan-meath",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+
+  const result = await Effect.runPromise(runOnce(multiLocationConfig, dependencies));
+
+  assert.equal(result.pages, 2);
+  assert.equal(result.findings, 2);
+  assert.equal(result.notified, 2);
+  assert.deepEqual(sent, ["501", "502"]);
+  assert.deepEqual(
+    urls.map((url) => new URL(url).pathname),
+    [
+      "/new-homes-for-sale/dublin-city-centre-dublin/houses",
+      "/new-homes-for-sale/navan-meath/houses",
+    ],
+  );
+});
+
 test("wraps a Daft parsing failure with its cause", async () => {
   const cause = new Error("malformed page");
   const badPayload = new Proxy(

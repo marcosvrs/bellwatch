@@ -29,6 +29,7 @@ export interface MonitorConfig {
   readonly daft: {
     readonly baseUrl: string;
     readonly sectionPath: string;
+    readonly locationPaths: readonly string[];
     readonly filters: DaftFilters;
     readonly maxPages: number;
   };
@@ -280,6 +281,24 @@ const validateRange = (
   }
 };
 
+const parseLocationPaths = (env: NodeJS.ProcessEnv): readonly string[] => {
+  const value =
+    trimmed(env, "DAFT_LOCATION_PATH") ?? "dublin-city-centre-dublin";
+  const paths = unique(
+    value
+      .split(",")
+      .map((path) => path.trim())
+      .filter(Boolean)
+      .map((path) => validatePath("DAFT_LOCATION_PATH", path)),
+  );
+  if (paths.length === 0) {
+    throw new ConfigurationError(
+      "DAFT_LOCATION_PATH must contain at least one location path",
+    );
+  }
+  return paths;
+};
+
 export const parseEnvironment = (
   env: NodeJS.ProcessEnv = process.env,
 ): MonitorConfig => {
@@ -307,11 +326,9 @@ export const parseEnvironment = (
   validateRange("DAFT_BEDS", bedsMin, bedsMax);
   validateRange("DAFT_BATHS", bathsMin, bathsMax);
 
+  const locationPaths = parseLocationPaths(env);
+
   const filters: DaftFilters = {
-    locationPath: validatePath(
-      "DAFT_LOCATION_PATH",
-      trimmed(env, "DAFT_LOCATION_PATH") ?? "dublin-city-centre-dublin",
-    ),
     radiusKm: choice<DaftRadiusKm>(env, "DAFT_RADIUS_KM", 20, DAFT_RADIUS_KM_OPTIONS),
     priceMinEur,
     priceMaxEur: priceMaxEur ?? 499_999,
@@ -356,6 +373,7 @@ export const parseEnvironment = (
         "DAFT_SECTION_PATH",
         trimmed(env, "DAFT_SECTION_PATH") ?? "new-homes-for-sale",
       ),
+      locationPaths,
       filters,
       maxPages: integer(env, "DAFT_MAX_PAGES", 1, 1, 20),
     },

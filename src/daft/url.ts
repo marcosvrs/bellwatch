@@ -4,6 +4,7 @@ import { addedInLastDateValue } from "./filters.js";
 export interface DaftSearchRequest {
   readonly baseUrl: string;
   readonly sectionPath: string;
+  readonly locationPath: string;
   readonly filters: DaftFilters;
 }
 
@@ -29,7 +30,7 @@ export const buildDaftSearchUrl = (
   const base = new URL(request.baseUrl);
   const basePath = base.pathname.replace(/\/+$/, "");
   const sectionPath = encodePath(request.sectionPath);
-  const locationPath = encodePath(request.filters.locationPath);
+  const locationPath = encodePath(request.locationPath);
   const propertyTypes = [...request.filters.propertyTypes];
   const singlePropertyType = propertyTypes.length === 1 ? propertyTypes[0] : undefined;
   const pathParts = [basePath, sectionPath, locationPath];

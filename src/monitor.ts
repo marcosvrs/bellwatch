@@ -39,23 +39,30 @@ const collectFindings = (
   Effect.gen(function* () {
     const byId = new Map<string, DaftFinding>();
     let pages = 0;
-    for (let page = 1; page <= config.daft.maxPages; page += 1) {
-      const url = buildDaftSearchUrl(
-        {
-          baseUrl: config.daft.baseUrl,
-          sectionPath: config.daft.sectionPath,
-          filters: config.daft.filters,
-        },
-        page,
-      );
-      const payload = yield* dependencies.fetchPage(url);
-      const parsed = yield* Effect.try({
-        try: () => parseDaftPage(payload, config.daft.baseUrl),
-        catch: (cause) => new MonitorError(`Could not parse Daft page ${page}`, { cause }),
-      });
-      pages += 1;
-      for (const finding of parsed.findings) byId.set(finding.id, finding);
-      if (parsed.currentPage >= parsed.totalPages) break;
+    for (const locationPath of config.daft.locationPaths) {
+      for (let page = 1; page <= config.daft.maxPages; page += 1) {
+        const url = buildDaftSearchUrl(
+          {
+            baseUrl: config.daft.baseUrl,
+            sectionPath: config.daft.sectionPath,
+            locationPath,
+            filters: config.daft.filters,
+          },
+          page,
+        );
+        const payload = yield* dependencies.fetchPage(url);
+        const parsed = yield* Effect.try({
+          try: () => parseDaftPage(payload, config.daft.baseUrl),
+          catch: (cause) =>
+            new MonitorError(
+              `Could not parse Daft page ${page} for ${locationPath}`,
+              { cause },
+            ),
+        });
+        pages += 1;
+        for (const finding of parsed.findings) byId.set(finding.id, finding);
+        if (parsed.currentPage >= parsed.totalPages) break;
+      }
     }
     return { findings: [...byId.values()], pages };
   });

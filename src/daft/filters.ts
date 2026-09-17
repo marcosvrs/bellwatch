@@ -33,7 +33,6 @@ export const DAFT_SORTS = [
 export type DaftSort = (typeof DAFT_SORTS)[number];
 
 export interface DaftFilters {
-  readonly locationPath: string;
   readonly radiusKm: DaftRadiusKm;
   readonly priceMinEur?: number;
   readonly priceMaxEur?: number;
