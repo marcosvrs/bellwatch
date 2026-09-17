@@ -1,0 +1,78 @@
+name: Socket security
+
+on:
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+      - reopened
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: socket-security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Socket dependency policy
+    # Forked pull requests cannot receive repository secrets.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install Socket Firewall
+        uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
+        with:
+          mode: firewall-free
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          job-summary: errors
+
+      - name: Check Socket configuration
+        id: socket-config
+        env:
+          SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+          SOCKET_SECURITY_ENFORCE: ${{ vars.SOCKET_SECURITY_ENFORCE }}
+        shell: bash
+        run: |
+          if [[ -n "$SOCKET_SECURITY_API_KEY" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$SOCKET_SECURITY_ENFORCE" == "true" ]]; then
+            echo "::error::SOCKET_SECURITY_API_KEY is required when SOCKET_SECURITY_ENFORCE=true."
+            exit 1
+          fi
+
+          echo "::warning::Socket policy scan skipped; configure the SOCKET_SECURITY_API_KEY repository secret."
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+
+      - name: Install Socket CLI
+        if: steps.socket-config.outputs.enabled == 'true'
+        run: sfw npm install --global socket@1.1.173 --no-audit --no-fund
+
+      - name: Run Socket policy scan
+        if: steps.socket-config.outputs.enabled == 'true'
+        env:
+          SOCKET_SECURITY_API_KEY: ${{ secrets.SOCKET_SECURITY_API_KEY }}
+        run: socket ci

@@ -34,7 +34,13 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
+
+      - name: Install Socket Firewall
+        uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
+        with:
+          mode: firewall-free
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          job-summary: errors
 
       - name: Restore TypeScript compiler cache
         uses: actions/cache@v6
@@ -44,7 +50,7 @@ jobs:
           restore-keys: |
             validation-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+        run: sfw npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
 
       - name: Run changed-file validation
         run: npm run check:changed -- "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
