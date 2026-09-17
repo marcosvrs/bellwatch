@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.alchemy.json",
-    "test": "tsx --test \"test/*.test.ts\"",
+    "test": "node scripts/test.mjs",
     "coverage": "c8 npm test",
     "mutation": "stryker run",
     "check": "npm run typecheck && npm run build && npm run coverage",
@@ -42,7 +42,6 @@
     "effect": "4.0.0-rc.112",
     "esbuild": "0.28.2",
     "simple-git-hooks": "^2.11.1",
-    "tsx": "4.23.13",
     "typescript": "5.9.3"
   },
   "overrides": {
