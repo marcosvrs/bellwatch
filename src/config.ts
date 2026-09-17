@@ -392,7 +392,7 @@ export const parseEnvironment = (
       ? {
           url: redisUrl,
           lockKey:
-            trimmed(env, "REDIS_LOCK_KEY") ?? "daft-house-search:monitor",
+            trimmed(env, "REDIS_LOCK_KEY") ?? "bellwatch:monitor",
           lockTtlMs: integer(env, "REDIS_LOCK_TTL_SECONDS", 300, 10, 86_400) * 1_000,
         }
       : undefined,

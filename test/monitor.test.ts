@@ -147,7 +147,7 @@ test("skips a poll when the distributed lease is unavailable", async () => {
 });
 
 test("writes a heartbeat and reports filesystem failures", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "daft-house-search-heartbeat-"));
+  const directory = await mkdtemp(join(tmpdir(), "bellwatch-heartbeat-"));
   try {
     const file = join(directory, "nested", "deeper", "heartbeat");
     await Effect.runPromise(writeHeartbeat(file));

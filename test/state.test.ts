@@ -16,7 +16,7 @@ const finding = {
 };
 
 test("SQLite state survives reopening and persists initialization separately", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "daft-house-search-"));
+  const directory = await mkdtemp(join(tmpdir(), "bellwatch-"));
   const file = join(directory, "state.sqlite");
   try {
     const first = await Effect.runPromise(createStateStore({ file }));

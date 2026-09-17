@@ -1,6 +1,7 @@
+name: ${COMPOSE_PROJECT_NAME:-bellwatch}
 services:
-  daft-house-search:
-    image: ${DAFT_HOUSE_SEARCH_IMAGE:-ghcr.io/marcosvrs/daft-house-search:latest}
+  bellwatch:
+    image: ${BELLWATCH_IMAGE:-ghcr.io/marcosvrs/bellwatch:latest}
     init: true
     restart: unless-stopped
     depends_on:
@@ -14,11 +15,11 @@ services:
         condition: service_started
     environment:
       # The monitor talks to the Compose services by service name.
-      NTFY_URL: "${NTFY_URL:-http://ntfy/daft-house-search}"
+      NTFY_URL: "${NTFY_URL:-http://ntfy/bellwatch}"
       NTFY_TOKEN: "${NTFY_TOKEN:-}"
       DATABASE_URL: "${DATABASE_URL:-postgresql://${POSTGRES_USER:-daft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-daft}}"
       REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
-      REDIS_LOCK_KEY: "${REDIS_LOCK_KEY:-daft-house-search:monitor}"
+      REDIS_LOCK_KEY: "${REDIS_LOCK_KEY:-bellwatch:monitor}"
       REDIS_LOCK_TTL_SECONDS: "${REDIS_LOCK_TTL_SECONDS:-300}"
       BROWSER_MODE: "${BROWSER_MODE:-external}"
       PLAYWRIGHT_WS_ENDPOINT: "${PLAYWRIGHT_WS_ENDPOINT-ws://browserless:3000?token=${BROWSERLESS_TOKEN}}"
@@ -43,9 +44,9 @@ services:
       DAFT_SORT: "${DAFT_SORT:-priceAsc}"
       DAFT_MAX_PAGES: "${DAFT_MAX_PAGES:-1}"
     volumes:
-      - daft-house-search-data:/data
+      - bellwatch-data:/data
     networks:
-      - daft-house-search
+      - bellwatch
 
   # Self-hosted ntfy. Bind it to localhost by default; put it behind HTTPS
   # and configure authentication before exposing it beyond the host.
@@ -69,7 +70,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - daft-house-search
+      - bellwatch
 
   # Shared listing state for one or more monitor instances.
   postgres:
@@ -88,7 +89,7 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - daft-house-search
+      - bellwatch
 
   # Distributed poll lease. Postgres remains the source of shared listing state.
   redis:
@@ -104,7 +105,7 @@ services:
       start_period: 5s
     restart: unless-stopped
     networks:
-      - daft-house-search
+      - bellwatch
 
   # Dedicated Chromium/CDP service. The monitor connects over the internal
   # network; the host port is localhost-only for optional debugging.
@@ -120,15 +121,15 @@ services:
     shm_size: "2g"
     restart: unless-stopped
     networks:
-      - daft-house-search
+      - bellwatch
 
 volumes:
-  daft-house-search-data:
+  bellwatch-data:
   ntfy-cache:
   ntfy-config:
   postgres-data:
   redis-data:
 
 networks:
-  daft-house-search:
-    name: ${COMPOSE_NETWORK:-daft-house-search}
+  bellwatch:
+    name: ${COMPOSE_NETWORK:-bellwatch}

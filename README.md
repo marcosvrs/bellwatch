@@ -1,4 +1,4 @@
-# Daft house search monitor
+# Bellwatch
 
 Get an ntfy notification when a new home matching your Daft.ie search appears.
 The monitor runs continuously in one container, remembers listings it has
@@ -87,8 +87,8 @@ contain your ntfy token or database credentials.
 
 ```bash
 umask 077
-mkdir -p "$HOME/.config/daft-house-search"
-cat > "$HOME/.config/daft-house-search/monitor.env" <<'EOF'
+mkdir -p "$HOME/.config/bellwatch"
+cat > "$HOME/.config/bellwatch/monitor.env" <<'EOF'
 # Required: use a private/random topic or your own ntfy server.
 NTFY_URL=https://ntfy.sh/replace-with-a-long-random-topic
 
@@ -104,13 +104,13 @@ EOF
 ```
 
 `NTFY_URL` must be the complete topic endpoint, for example
-`https://ntfy.example/daft-house-search`. Do not put a trailing slash in a
+`https://ntfy.example/bellwatch`. Do not put a trailing slash in a
 value unless your ntfy server requires it.
 
 ### 2. Pull the published image
 
 ```bash
-IMAGE=ghcr.io/marcosvrs/daft-house-search:latest
+IMAGE=ghcr.io/marcosvrs/bellwatch:latest
 docker pull "$IMAGE"
 ```
 
@@ -122,17 +122,17 @@ contains the pinned Playwright/Chromium runtime.
 Create the named volume once:
 
 ```bash
-docker volume create daft-house-search-data
+docker volume create bellwatch-data
 ```
 
 Start the monitor:
 
 ```bash
 docker run --detach \
-  --name daft-house-search \
+  --name bellwatch \
   --restart unless-stopped \
-  --env-file "$HOME/.config/daft-house-search/monitor.env" \
-  --volume daft-house-search-data:/data \
+  --env-file "$HOME/.config/bellwatch/monitor.env" \
+  --volume bellwatch-data:/data \
   "$IMAGE"
 ```
 
@@ -142,8 +142,8 @@ can take up to the browser timeout plus the Daft response time.
 ### 4. Confirm that it is running
 
 ```bash
-docker ps --filter name=daft-house-search
-docker logs --follow daft-house-search
+docker ps --filter name=bellwatch
+docker logs --follow bellwatch
 ```
 
 A successful cycle logs the number of pages, findings, notifications, and
@@ -151,7 +151,7 @@ first-run seedings. The image healthcheck runs automatically against the
 heartbeat file:
 
 ```bash
-docker exec daft-house-search node dist/healthcheck.js
+docker exec bellwatch node dist/healthcheck.js
 ```
 
 ### Updating the image
@@ -160,19 +160,19 @@ The `/data` volume contains the seen-listing state. Keep it when updating the
 image:
 
 ```bash
-IMAGE=ghcr.io/marcosvrs/daft-house-search:latest
+IMAGE=ghcr.io/marcosvrs/bellwatch:latest
 docker pull "$IMAGE"
-docker stop daft-house-search
-docker rm daft-house-search
+docker stop bellwatch
+docker rm bellwatch
 docker run --detach \
-  --name daft-house-search \
+  --name bellwatch \
   --restart unless-stopped \
-  --env-file "$HOME/.config/daft-house-search/monitor.env" \
-  --volume daft-house-search-data:/data \
+  --env-file "$HOME/.config/bellwatch/monitor.env" \
+  --volume bellwatch-data:/data \
   "$IMAGE"
 ```
 
-Do not delete `daft-house-search-data` unless you intentionally want the next
+Do not delete `bellwatch-data` unless you intentionally want the next
 run to treat every current listing as unseen. Docker will restart the container
 after a Docker Engine or host restart because of `--restart unless-stopped`.
 
@@ -181,7 +181,7 @@ after a Docker Engine or host restart because of `--restart unless-stopped`.
 Use the included [`docker-compose.yml`](docker-compose.yml) when you want the
 monitor and its optional external services in one Docker network. It starts:
 
-- the published `daft-house-search` image;
+- the published `bellwatch` image;
 - a self-hosted ntfy server;
 - Postgres for shared listing state;
 - Redis for the distributed polling lease; and
@@ -190,7 +190,7 @@ monitor and its optional external services in one Docker network. It starts:
 The monitor container is configured automatically with:
 
 ```text
-NTFY_URL=http://ntfy/daft-house-search
+NTFY_URL=http://ntfy/bellwatch
 DATABASE_URL=postgresql://...@postgres:5432/daft
 REDIS_URL=redis://redis:6379/0
 BROWSER_MODE=external
@@ -208,7 +208,7 @@ chmod 600 .env
 docker compose pull
 docker compose up --detach
 docker compose ps
-docker compose logs --follow daft-house-search
+docker compose logs --follow bellwatch
 ```
 
 The GHCR package must be public for unauthenticated pulls. If it is private,
@@ -231,7 +231,7 @@ To change search filters or service credentials, edit `.env` and recreate the
 monitor:
 
 ```bash
-docker compose up --detach --force-recreate daft-house-search
+docker compose up --detach --force-recreate bellwatch
 ```
 
 The Compose stack intentionally runs Browserless as a separate external
@@ -380,7 +380,7 @@ listing IDs it has already reported.
 | `HEARTBEAT_FILE` | File updated after a successful poll | `/data/heartbeat` |
 | `HEALTHCHECK_MAX_AGE_SECONDS` | Maximum heartbeat age before healthcheck failure | derived from polling interval, minimum 300 seconds |
 | `REDIS_URL` | Optional `redis://` or `rediss://` coordination lease | unset |
-| `REDIS_LOCK_KEY` | Redis key used by the lease | `daft-house-search:monitor` |
+| `REDIS_LOCK_KEY` | Redis key used by the lease | `bellwatch:monitor` |
 | `REDIS_LOCK_TTL_SECONDS` | Lease lifetime, from 10 to 86,400 seconds | `300` |
 
 ### SQLite (recommended for one container)
@@ -407,9 +407,9 @@ Use the same `REDIS_LOCK_KEY` for instances that should coordinate.
 ### View status and logs
 
 ```bash
-docker ps --filter name=daft-house-search
-docker inspect daft-house-search
-docker logs --follow daft-house-search
+docker ps --filter name=bellwatch
+docker inspect bellwatch
+docker logs --follow bellwatch
 ```
 
 The monitor logs configuration failures at startup and a summary after each
@@ -418,7 +418,7 @@ completed poll. It does not expose a metrics or admin endpoint.
 ### Run the healthcheck manually
 
 ```bash
-docker exec daft-house-search node dist/healthcheck.js
+docker exec bellwatch node dist/healthcheck.js
 ```
 
 The image healthcheck uses the same command every 60 seconds. It allows a
@@ -428,22 +428,22 @@ The image healthcheck uses the same command every 60 seconds. It allows a
 ### Stop, start, and remove
 
 ```bash
-docker stop daft-house-search
-docker start daft-house-search
+docker stop bellwatch
+docker start bellwatch
 ```
 
 To remove only the container while keeping state:
 
 ```bash
-docker stop daft-house-search
-docker rm daft-house-search
+docker stop bellwatch
+docker rm bellwatch
 ```
 
 To reset all seen-listing history, delete the named volume only after stopping
 the container:
 
 ```bash
-docker volume rm daft-house-search-data
+docker volume rm bellwatch-data
 ```
 
 The exact delete command is intentionally destructive. Create a new volume
@@ -454,7 +454,7 @@ history.
 
 ### The container starts but sends no notification
 
-1. Check `docker logs daft-house-search` for configuration or browser
+1. Check `docker logs bellwatch` for configuration or browser
    errors.
 2. Confirm `NTFY_URL` is the complete topic endpoint and that the topic can
    receive a test message.

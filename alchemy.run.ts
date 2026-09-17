@@ -55,7 +55,7 @@ const plainRuntimeEnvironment = (): Record<string, string> => {
 
 
 export default Alchemy.Stack(
-  "DaftHouseSearch",
+  "Bellwatch",
   {
     providers: Layer.merge(Docker.providers(), Alchemy.RandomProvider()),
     state: Alchemy.localState(),
@@ -65,14 +65,14 @@ export default Alchemy.Stack(
     const target = remoteDockerHost
       ? yield* Docker.Context("target-docker", {
           name:
-            process.env.ALCHEMY_DOCKER_CONTEXT_NAME ?? "daft-house-search-target",
+            process.env.ALCHEMY_DOCKER_CONTEXT_NAME ?? "bellwatch-target",
           docker: remoteDockerHost.startsWith("host=")
             ? remoteDockerHost
             : `host=${remoteDockerHost}`,
         })
       : undefined;
     const image = yield* Docker.Image("monitor-image", {
-      name: process.env.MONITOR_IMAGE_NAME ?? "daft-house-search",
+      name: process.env.MONITOR_IMAGE_NAME ?? "bellwatch",
       tag: process.env.MONITOR_IMAGE_TAG ?? "latest",
       context: target,
       build: {
@@ -81,7 +81,7 @@ export default Alchemy.Stack(
       },
     });
     const stateVolume = yield* Docker.Volume("state-volume", {
-      name: process.env.MONITOR_VOLUME_NAME ?? "daft-house-search-data",
+      name: process.env.MONITOR_VOLUME_NAME ?? "bellwatch-data",
       context: target,
     });
 
@@ -104,7 +104,7 @@ export default Alchemy.Stack(
 
     const network = process.env.MONITOR_DOCKER_NETWORK?.trim();
     const container = yield* Docker.Container("monitor", {
-      name: process.env.MONITOR_CONTAINER_NAME ?? "daft-house-search",
+      name: process.env.MONITOR_CONTAINER_NAME ?? "bellwatch",
       image,
       context: target,
       environment,
@@ -115,7 +115,7 @@ export default Alchemy.Stack(
         },
       ],
       networks: network
-        ? [{ name: network, aliases: ["daft-house-search"] }]
+        ? [{ name: network, aliases: ["bellwatch"] }]
         : undefined,
       restart: "unless-stopped",
       stopTimeout: "30 seconds",

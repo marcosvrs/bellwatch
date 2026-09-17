@@ -85,7 +85,7 @@ CLI:
 
 ```bash
 container system start
-container build -t daft-house-search:local .
+container build -t bellwatch:local .
 ```
 
 Run the resulting image with a private env file and a persistent `/data` volume.
@@ -102,7 +102,7 @@ apply the deployment:
 
 ```bash
 npm ci --legacy-peer-deps
-export NTFY_URL=https://ntfy.example/daft-house-search
+export NTFY_URL=https://ntfy.example/bellwatch
 export ALCHEMY_DOCKER_HOST='host=ssh://user@remote-host'
 export MONITOR_DOCKER_NETWORK='the-existing-browser-network'
 export PLAYWRIGHT_WS_ENDPOINT='ws://browser-sockpuppet-chrome:3000/?--window-size=1920,1080'
@@ -132,7 +132,7 @@ The `Publish Docker image` workflow builds the repository's `Dockerfile` in
 GitHub Actions and publishes the result to:
 
 ```text
-ghcr.io/marcosvrs/daft-house-search:latest
+ghcr.io/marcosvrs/bellwatch:latest
 ```
 
 A push to `master` publishes `latest` and a commit-specific SHA tag. The build
