@@ -23,6 +23,7 @@ export class MonitorError extends Error {
 interface MonitorDependencies {
   readonly fetchPage: (url: string) => Effect.Effect<unknown, Error>;
   readonly publish: (finding: DaftFinding) => Effect.Effect<void, Error>;
+  readonly publishError: (error: Error) => Effect.Effect<void, Error>;
   readonly state: StateStore;
   readonly heartbeat: () => Effect.Effect<void, Error>;
 }
@@ -41,10 +42,6 @@ const hydrateShpsFindings = (
   Effect.gen(function* () {
     const hydrated: DaftFinding[] = [];
     for (const finding of findings) {
-      if (finding.schemeText !== undefined) {
-        hydrated.push(finding);
-        continue;
-      }
       const payload = yield* Effect.mapError(
         dependencies.fetchPage(finding.url),
         (cause) =>
@@ -59,11 +56,11 @@ const hydrateShpsFindings = (
             cause,
           }),
       });
-      hydrated.push(
-        details.schemeText === undefined
-          ? finding
-          : { ...finding, schemeText: details.schemeText },
-      );
+      if (details.schemeText === undefined) {
+        hydrated.push(finding);
+        continue;
+      }
+      hydrated.push({ ...finding, schemeText: details.schemeText });
     }
     return hydrated;
   });
@@ -75,34 +72,29 @@ const collectFindings = (
   Effect.gen(function* () {
     const byId = new Map<string, DaftFinding>();
     let pages = 0;
-    for (const locationPath of config.daft.locationPaths) {
-      for (
-        let page = 1;
-        config.daft.maxPages === undefined || page <= config.daft.maxPages;
-        page += 1
-      ) {
-        const url = buildDaftSearchUrl(
-          {
-            baseUrl: config.daft.baseUrl,
-            sectionPath: config.daft.sectionPath,
-            locationPath,
-            filters: config.daft.filters,
-          },
-          page,
-        );
-        const payload = yield* dependencies.fetchPage(url);
-        const parsed = yield* Effect.try({
-          try: () => parseDaftPage(payload, config.daft.baseUrl),
-          catch: (cause) =>
-            new MonitorError(
-              `Could not parse Daft page ${page} for ${locationPath}`,
-              { cause },
-            ),
-        });
-        pages += 1;
-        for (const finding of parsed.findings) byId.set(finding.id, finding);
-        if (parsed.currentPage >= parsed.totalPages) break;
-      }
+    for (
+      let page = 1;
+      config.daft.maxPages === undefined || page <= config.daft.maxPages;
+      page += 1
+    ) {
+      const url = buildDaftSearchUrl(
+        {
+          baseUrl: config.daft.baseUrl,
+          sectionPath: config.daft.sectionPath,
+          locations: config.daft.locations,
+          filters: config.daft.filters,
+        },
+        page,
+      );
+      const payload = yield* dependencies.fetchPage(url);
+      const parsed = yield* Effect.try({
+        try: () => parseDaftPage(payload, config.daft.baseUrl),
+        catch: (cause) =>
+          new MonitorError(`Could not parse Daft page ${page}`, { cause }),
+      });
+      pages += 1;
+      for (const finding of parsed.findings) byId.set(finding.id, finding);
+      if (parsed.currentPage >= parsed.totalPages) break;
     }
     const candidates =
       config.shps.filter !== "off"
@@ -145,11 +137,36 @@ const runPoll = (
       seeded,
     };
   });
+const notifyPollError = (
+  dependencies: MonitorDependencies,
+  error: Error,
+): Effect.Effect<void, never> =>
+  Effect.catch(
+    dependencies.publishError(error),
+    (notificationError) =>
+      Effect.logError(
+        `Could not publish poll error notification: ${
+          notificationError instanceof Error
+            ? notificationError.message
+            : String(notificationError)
+        }`,
+      ),
+  );
 
 export const runOnce = (
   config: MonitorConfig,
   dependencies: MonitorDependencies,
-): Effect.Effect<MonitorStats, Error> => runPoll(config, dependencies);
+): Effect.Effect<MonitorStats, Error> =>
+  Effect.catch(
+    runPoll(config, dependencies),
+    (error) =>
+      Effect.gen(function* () {
+        const failure =
+          error instanceof Error ? error : new Error(String(error));
+        yield* notifyPollError(dependencies, failure);
+        return yield* Effect.fail(failure);
+      }),
+  );
 
 export const writeHeartbeat = (
   file: string,
@@ -157,7 +174,7 @@ export const writeHeartbeat = (
   Effect.tryPromise({
     try: async () => {
       await mkdir(dirname(file), { recursive: true });
-      await writeFile(file, `${new Date().toISOString()}\n`, "utf8");
+      await writeFile(file, `${new Date().toISOString()}\n`);
     },
     catch: (cause) => new MonitorError(`Could not write heartbeat ${file}`, { cause }),
   });

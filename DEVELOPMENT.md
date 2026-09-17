@@ -23,6 +23,7 @@ npm run check
 The check runs TypeScript typechecking, the production build, and the test
 coverage suite. Tests are bundled with the already-used esbuild package and
 executed by Node's native test runner; no TypeScript runtime loader is needed.
+The mutation check enforces a 99% score across the configured source files.
 The local hooks also run staged Gitleaks scanning before commits and
 full-history Gitleaks scanning before pushes.
 

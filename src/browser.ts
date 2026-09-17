@@ -20,12 +20,15 @@ type BrowserStrategy = "external" | "local";
 
 export const resolveBrowserStrategy = (
   browser: MonitorConfig["browser"],
-): BrowserStrategy =>
-  browser.mode === "external" ||
-  (browser.mode === "auto" && browser.externalEndpoint)
-    ? "external"
-    : "local";
+): BrowserStrategy => (browser.externalEndpoint ? "external" : "local");
 
+export const assertDaftHttpStatus = (status: number | undefined): void => {
+  if (status !== 200) {
+    throw new BrowserError(
+      `Daft page returned HTTP ${status === undefined ? "no response" : status}`,
+    );
+  }
+};
 const BROWSER_IDLE_CLOSE_MS = 30_000;
 
 interface BrowserSession {
@@ -101,8 +104,7 @@ const ensureDaftRobotsAllowed = async (
   if (
     !isRobotsAllowed(
       robotsText,
-      url,
-      config.browser.userAgent ?? "*",
+      "*",
     )
   ) {
     throw new BrowserError(`Daft robots.txt disallows ${url}`);
@@ -146,10 +148,8 @@ const connectBrowser = async (
   }
 
   const args = ["--disable-dev-shm-usage"];
-  if (config.noSandbox) args.push("--no-sandbox");
   return chromium.launch({
-    executablePath: config.chromiumExecutablePath,
-    headless: config.headless,
+    headless: true,
     timeout: config.timeoutMs,
     args,
   });
@@ -166,10 +166,7 @@ const getBrowserSession = async (
   const browser = await connectBrowser(config);
   try {
     const context =
-      browser.contexts()[0] ??
-      (await browser.newContext(
-        config.userAgent ? { userAgent: config.userAgent } : undefined,
-      ));
+      browser.contexts()[0] ?? (await browser.newContext());
     browserSession = { browser, context };
     return browserSession;
   } catch (error) {
@@ -193,10 +190,11 @@ export const fetchDaftPayload = (
         session = await getBrowserSession(config.browser);
         page = await session.context.newPage();
         page.setDefaultNavigationTimeout(config.browser.timeoutMs);
-        await page.goto(url, {
+        const response = await page.goto(url, {
           waitUntil: "domcontentloaded",
           timeout: config.browser.timeoutMs,
         });
+        assertDaftHttpStatus(response?.status());
         const nextData = await page
           .locator("#__NEXT_DATA__")
           .textContent({ timeout: config.browser.timeoutMs });

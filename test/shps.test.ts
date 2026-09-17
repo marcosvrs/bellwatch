@@ -114,3 +114,165 @@ test("off mode preserves all findings", () => {
   const findings = [makeFinding("401"), makeFinding("402")];
   assert.deepEqual(filter(findings, { filter: "off" }), findings);
 });
+
+test("recognizes SHPS aliases and punctuation-normalized evidence", () => {
+  const cases = [
+    "LAAPS. The local authority retains an equity share.",
+    "Starter-Homes Programme. The local authority retains an equity share.",
+    "Affordable dwelling purchase arrangement. The local authority retains an equity share.",
+  ];
+  for (const schemeText of cases) {
+    assert.equal(
+      classifyShpsAvailability(makeFinding("alias", { schemeText })),
+      "shps-only",
+    );
+  }
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("boundary", {
+        title: "SHPSX",
+        schemeText: "Private new homes.",
+      }),
+    ),
+    "not-shps",
+  );
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("multi-punctuation", {
+        schemeText:
+          "Starter---Home Purchase Scheme. The local authority retains an equity share.",
+      }),
+    ),
+    "shps-only",
+  );
+});
+
+test("requires complete optional Help to Buy funding language", () => {
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("optional-missing-funding", {
+        schemeText:
+          "Starter Home Purchase Scheme. Help to Buy, if eligible.",
+      }),
+    ),
+    "shps-and-other",
+  );
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("optional-missing-eligibility", {
+        schemeText:
+          "Starter Home Purchase Scheme. Help to Buy mortgage funding.",
+      }),
+    ),
+    "shps-and-other",
+  );
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("optional-complete", {
+        schemeText:
+          "Starter Home Purchase Scheme. Help to Buy mortgage funding where eligible.",
+      }),
+    ),
+    "shps-only",
+  );
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("optional-then-explicit", {
+        schemeText:
+          "Starter Home Purchase Scheme. Help to Buy mortgage funding where eligible. Help to Buy is available.",
+      }),
+    ),
+    "shps-and-other",
+  );
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("affordable-purchase-scheme", {
+        schemeText:
+          "Local Authority Affordable Purchase scheme. The local authority retains an equity share.",
+      }),
+    ),
+    "shps-only",
+  );
+});
+
+test("rejects every named additional and unrecognised scheme form", () => {
+  for (const schemeText of [
+    "Starter Home Purchase Scheme. First Home Scheme.",
+    "Starter Home Purchase Scheme. Cost Rental.",
+    "Starter Home Purchase Scheme. Help to Buy is available.",
+    "Starter Home Purchase Scheme. This is an affordable green homes scheme.",
+  ]) {
+    assert.equal(
+      classifyShpsAvailability(makeFinding("other", { schemeText })),
+      "shps-and-other",
+      schemeText,
+    );
+  }
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("priority", {
+        schemeText: "Starter Home Purchase Scheme. This is a scheme of priority.",
+      }),
+    ),
+    "shps-only",
+  );
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("generic", {
+        schemeText: "Starter Home Purchase Scheme. This is the scheme.",
+      }),
+    ),
+    "shps-only",
+  );
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("generic-plural", {
+        schemeText: "Starter Home Purchase Scheme. These are other schemes.",
+      }),
+    ),
+    "shps-and-other",
+  );
+});
+
+test("handles alias boundaries, HTB aliases, and blank evidence", () => {
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("alias", {
+        title: "SHPS",
+        developmentTitle: "Development",
+        schemeText: "HTB mortgage funding where eligible.",
+      }),
+    ),
+    "shps-only",
+  );
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("blank-evidence", {
+        title: "SHPS",
+        schemeText: "   ",
+      }),
+    ),
+    "unknown",
+  );
+});
+
+test("distinguishes recognized aliases from concatenated scheme prose", () => {
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("alias-at-end", {
+        title: "Private development",
+        developmentTitle: "Development",
+        schemeText: "SHPS",
+      }),
+    ),
+    "shps-only",
+  );
+  assert.equal(
+    classifyShpsAvailability(
+      makeFinding("separated-prose", {
+        schemeText: "Starter Home Purchase Scheme other scheme.",
+      }),
+    ),
+    "shps-and-other",
+  );
+});

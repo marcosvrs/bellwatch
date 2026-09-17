@@ -4,7 +4,7 @@ import { addedInLastDateValue } from "./filters.js";
 interface DaftSearchRequest {
   readonly baseUrl: string;
   readonly sectionPath: string;
-  readonly locationPath: string;
+  readonly locations: readonly string[];
   readonly filters: DaftFilters;
 }
 
@@ -30,17 +30,26 @@ export const buildDaftSearchUrl = (
   const base = new URL(request.baseUrl);
   const basePath = base.pathname.replace(/\/+$/, "");
   const sectionPath = encodePath(request.sectionPath);
-  const locationPath = encodePath(request.locationPath);
   const propertyTypes = [...request.filters.propertyTypes];
-  const singlePropertyType = propertyTypes.length === 1 ? propertyTypes[0] : undefined;
-  const pathParts = [basePath, sectionPath, locationPath];
-  if (singlePropertyType) pathParts.push(singlePropertyType);
-  base.pathname = pathParts.filter(Boolean).join("/").replace(/^([^/])/, "/$1");
-  base.search = "";
+  const singlePropertyType =
+    propertyTypes.length === 1 ? propertyTypes[0] : undefined;
+  const pathParts = [
+    basePath,
+    sectionPath,
+    "ireland",
+    singlePropertyType,
+  ].filter(Boolean);
+  base.pathname = pathParts.join("/").replace(/^([^/])/, "/$1");
 
   const params = new URLSearchParams();
-  if (request.filters.radiusKm !== undefined && request.filters.radiusKm > 0) {
-    params.append("radius", String(request.filters.radiusKm * 1000));
+  for (const location of request.locations) {
+    params.append("location", location);
+  }
+  if (request.filters.radiusKm) {
+    params.append(
+      "radius",
+      String(request.filters.radiusKm * 1000),
+    );
   }
   addOptional(params, "salePrice_from", request.filters.priceMinEur);
   addOptional(params, "salePrice_to", request.filters.priceMaxEur);

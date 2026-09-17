@@ -29,15 +29,23 @@ export class ConfigurationError extends Error {
   }
 }
 
-export type BrowserMode = "auto" | "external" | "local";
 
 export type NotificationBackend = "shoutrrr" | "hermes";
 
 export const DEFAULT_POLL_CRON = "0 */8 * * *";
 
-const detectRuntimeTimezone = (): string => {
+const BROWSER_TIMEOUT_DEFAULT_MS = 120_000;
+const SHOUTRRR_TIMEOUT_DEFAULT_MS = 15_000;
+const HERMES_TIMEOUT_DEFAULT_MS = 20_000;
+function resolveRuntimeTimezone(): string {
+  return new Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+export const detectRuntimeTimezone = (
+  resolve: () => string = resolveRuntimeTimezone,
+): string => {
   try {
-    const timezone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timezone = resolve();
     return timezone && timezone !== "Etc/Unknown" ? timezone : "UTC";
   } catch {
     return "UTC";
@@ -64,19 +72,15 @@ export interface MonitorConfig {
   readonly daft: {
     readonly baseUrl: string;
     readonly sectionPath: string;
-    readonly locationPaths: readonly string[];
+    readonly locations: readonly string[];
     readonly filters: DaftFilters;
     readonly maxPages?: number;
     readonly requestDelayMs: number;
   };
   readonly shps: ShpsConfig;
-  readonly notificationBackend: NotificationBackend;
+  readonly notificationBackends: readonly NotificationBackend[];
   readonly browser: {
-    readonly mode: BrowserMode;
     readonly externalEndpoint?: string;
-    readonly chromiumExecutablePath?: string;
-    readonly headless: boolean;
-    readonly noSandbox: boolean;
     readonly timeoutMs: number;
     readonly userAgent?: string;
   };
@@ -99,11 +103,6 @@ const trimmed = (env: NodeJS.ProcessEnv, name: string): string | undefined => {
   return value === "" ? undefined : value;
 };
 
-const required = (env: NodeJS.ProcessEnv, name: string): string => {
-  const value = trimmed(env, name);
-  if (!value) throw new ConfigurationError(`${name} is required`);
-  return value;
-};
 
 const integer = (
   env: NodeJS.ProcessEnv,
@@ -135,7 +134,7 @@ const optionalInteger = (
   return integer(env, name, 0, min, max);
 };
 
-const choice = <T extends string | number>(
+const choice = <T extends string>(
   env: NodeJS.ProcessEnv,
   name: string,
   defaultValue: T,
@@ -143,14 +142,13 @@ const choice = <T extends string | number>(
 ): T => {
   const raw = trimmed(env, name);
   const value = raw === undefined ? defaultValue : raw;
-  const converted =
-    typeof defaultValue === "number" ? Number(value) : String(value);
-  if (!allowed.includes(converted as T)) {
+  const converted = String(value) as T;
+  if (!allowed.includes(converted)) {
     throw new ConfigurationError(
       `${name} must be one of: ${allowed.join(", ")}`,
     );
   }
-  return converted as T;
+  return converted;
 };
 
 const optionalChoice = <T extends string | number>(
@@ -203,7 +201,6 @@ const unique = <T>(values: readonly T[]): T[] => [...new Set(values)];
 
 const parsePropertyTypes = (env: NodeJS.ProcessEnv): DaftPropertyType[] => {
   const values = list(env, "DAFT_PROPERTY_TYPES");
-  if (values.length === 0) return [];
   if (values.includes("any")) {
     if (values.length > 1) {
       throw new ConfigurationError(
@@ -226,7 +223,6 @@ const parsePropertyTypes = (env: NodeJS.ProcessEnv): DaftPropertyType[] => {
 
 const parseMediaTypes = (env: NodeJS.ProcessEnv): DaftMediaType[] => {
   const values = list(env, "DAFT_MEDIA_TYPES");
-  if (values.length === 0) return [];
   if (values.includes("any")) {
     if (values.length > 1) {
       throw new ConfigurationError(
@@ -247,9 +243,8 @@ const parseMediaTypes = (env: NodeJS.ProcessEnv): DaftMediaType[] => {
   return unique(values) as DaftMediaType[];
 };
 
-const httpUrl = (env: NodeJS.ProcessEnv, name: string, requiredValue: boolean) => {
-  const value = requiredValue ? required(env, name) : trimmed(env, name);
-  if (!value) return undefined;
+const httpUrl = (env: NodeJS.ProcessEnv, name: string): string => {
+  const value = trimmed(env, name)!;
   let url: URL;
   try {
     url = new URL(value);
@@ -296,9 +291,8 @@ const validatePath = (name: string, value: string): string => {
       `${name} must be a Daft URL path without spaces, query, or fragment`,
     );
   }
-  return value.replace(/^\/+|\/+$/g, "");
+  return value.replace(/\/+$/, "");
 };
-
 const validateDate = (
   env: NodeJS.ProcessEnv,
   name: string,
@@ -340,55 +334,63 @@ const validateRange = (
   name: string,
   min: number | undefined,
   max: number | undefined,
-) => {
-  if (min !== undefined && max !== undefined && min > max) {
+): void => {
+  if ((min as number) > (max as number)) {
     throw new ConfigurationError(`${name} minimum cannot exceed maximum`);
   }
 };
 
-const parseLocationPaths = (env: NodeJS.ProcessEnv): readonly string[] => {
-  const value =
-    trimmed(env, "DAFT_LOCATION_PATH") ?? "dublin-city-centre-dublin";
-  const paths = unique(
+const parseLocations = (env: NodeJS.ProcessEnv): readonly string[] => {
+  const value = trimmed(env, "DAFT_LOCATION");
+  if (value === undefined) return [];
+  const locations = unique(
     value
       .split(",")
-      .map((path) => path.trim())
+      .map((location) => location.trim())
       .filter(Boolean)
-      .map((path) => validatePath("DAFT_LOCATION_PATH", path)),
+      .map((location) => validatePath("DAFT_LOCATION", location)),
   );
-  if (paths.length === 0) {
+  if (locations.length === 0) {
     throw new ConfigurationError(
-      "DAFT_LOCATION_PATH must contain at least one location path",
+      "DAFT_LOCATION must contain at least one location",
     );
   }
-  return paths;
+  return locations;
 };
 
 export const parseEnvironment = (
   env: NodeJS.ProcessEnv = process.env,
 ): MonitorConfig => {
-  const baseUrl = httpUrl(env, "DAFT_BASE_URL", false) ?? "https://www.daft.ie";
-  const notificationBackend = choice<NotificationBackend>(
-    env,
-    "NOTIFICATION_BACKEND",
-    "shoutrrr",
-    ["shoutrrr", "hermes"],
+  const baseUrl = "https://www.daft.ie";
+  const shoutrrrUrl = trimmed(env, "SHOUTRRR_URL");
+  const hermesWebhookUrl = trimmed(env, "HERMES_WEBHOOK_URL");
+  const hermesWebhookSecret = trimmed(env, "HERMES_WEBHOOK_SECRET");
+  const hermesChatId = trimmed(env, "HERMES_CHAT_ID");
+  const hermesValues = [
+    hermesWebhookUrl,
+    hermesWebhookSecret,
+    hermesChatId,
+  ];
+  const hermesConfigured = hermesValues.some(
+    (value) => value !== undefined,
   );
-  const shoutrrrUrl =
-    notificationBackend === "shoutrrr"
-      ? required(env, "SHOUTRRR_URL")
-      : trimmed(env, "SHOUTRRR_URL");
-  const browserMode = choice<BrowserMode>(env, "BROWSER_MODE", "auto", [
-    "auto",
-    "external",
-    "local",
-  ]);
-  const externalEndpoint = websocketUrl(env, "PLAYWRIGHT_WS_ENDPOINT");
-  if (browserMode === "external" && !externalEndpoint) {
+  if (
+    hermesConfigured &&
+    hermesValues.some((value) => value === undefined)
+  ) {
     throw new ConfigurationError(
-      "PLAYWRIGHT_WS_ENDPOINT is required when BROWSER_MODE=external",
+      "HERMES_WEBHOOK_URL, HERMES_WEBHOOK_SECRET, and HERMES_CHAT_ID must be set together",
     );
   }
+  const notificationBackends: NotificationBackend[] = [];
+  if (shoutrrrUrl !== undefined) notificationBackends.push("shoutrrr");
+  if (hermesConfigured) notificationBackends.push("hermes");
+  if (notificationBackends.length === 0) {
+    throw new ConfigurationError(
+      "At least one notification backend must be configured: SHOUTRRR_URL or all Hermes variables",
+    );
+  }
+  const externalEndpoint = websocketUrl(env, "PLAYWRIGHT_WS_ENDPOINT");
 
   const priceMinEur = optionalInteger(env, "DAFT_PRICE_MIN_EUR", 0, 100_000_000);
   const priceMaxEur = optionalInteger(env, "DAFT_PRICE_MAX_EUR", 0, 100_000_000);
@@ -400,7 +402,7 @@ export const parseEnvironment = (
   validateRange("DAFT_BEDS", bedsMin, bedsMax);
   validateRange("DAFT_BATHS", bathsMin, bathsMax);
 
-  const locationPaths = parseLocationPaths(env);
+  const locations = parseLocations(env);
   const shpsFilter = choice<ShpsFilterMode>(
     env,
     "SHPS_FILTER",
@@ -449,14 +451,14 @@ export const parseEnvironment = (
   };
 
   return {
-    notificationBackend,
+    notificationBackends,
     daft: {
       baseUrl,
       sectionPath: validatePath(
         "DAFT_SECTION_PATH",
         trimmed(env, "DAFT_SECTION_PATH") ?? "new-homes-for-sale",
       ),
-      locationPaths,
+      locations,
       filters,
       maxPages: optionalInteger(env, "DAFT_MAX_PAGES", 1, 20),
       requestDelayMs: integer(
@@ -469,34 +471,28 @@ export const parseEnvironment = (
     },
     shps,
     browser: {
-      mode: browserMode,
       externalEndpoint,
-      chromiumExecutablePath: trimmed(env, "CHROMIUM_EXECUTABLE_PATH"),
-      headless: boolean(env, "CHROMIUM_HEADLESS", true),
-      noSandbox: boolean(env, "CHROMIUM_NO_SANDBOX", false),
-      timeoutMs: integer(env, "BROWSER_TIMEOUT_MS", 60_000, 1_000, 300_000),
+      timeoutMs: BROWSER_TIMEOUT_DEFAULT_MS,
       userAgent: trimmed(env, "BROWSER_USER_AGENT"),
     },
     shoutrrr: {
       url: shoutrrrUrl ?? "",
-      binary: trimmed(env, "SHOUTRRR_BINARY") ?? "shoutrrr",
-      titlePrefix:
-        trimmed(env, "SHOUTRRR_TITLE_PREFIX") ?? "Bellwatch new home",
-      timeoutMs: integer(env, "SHOUTRRR_TIMEOUT_MS", 15_000, 1_000, 120_000),
+      binary: "shoutrrr",
+      titlePrefix: "Bellwatch new home",
+      timeoutMs: SHOUTRRR_TIMEOUT_DEFAULT_MS,
     },
-    hermes:
-      notificationBackend === "hermes"
-        ? {
-            url: httpUrl(env, "HERMES_WEBHOOK_URL", true)!,
-            secret: required(env, "HERMES_WEBHOOK_SECRET"),
-            chatId: required(env, "HERMES_CHAT_ID"),
-            timeoutMs: integer(env, "HERMES_TIMEOUT_MS", 20_000, 1_000, 120_000),
-          }
-        : undefined,
+    hermes: hermesConfigured
+      ? {
+          url: httpUrl(env, "HERMES_WEBHOOK_URL"),
+          secret: hermesWebhookSecret!,
+          chatId: hermesChatId!,
+          timeoutMs: HERMES_TIMEOUT_DEFAULT_MS,
+        }
+      : undefined,
     state: {
-      file: trimmed(env, "STATE_FILE") ?? "/data/state.sqlite",
+      file: "/data/state.sqlite",
       databaseUrl: databaseUrl(env),
-      heartbeatFile: trimmed(env, "HEARTBEAT_FILE") ?? "/data/heartbeat",
+      heartbeatFile: "/data/heartbeat",
     },
     polling: {
       cron: pollingSchedule.cron,

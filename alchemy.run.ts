@@ -7,9 +7,8 @@ import * as Option from "effect/Option";
 import type * as Redacted from "effect/Redacted";
 
 const RUNTIME_ENVIRONMENT_KEYS = [
-  "DAFT_BASE_URL",
+  "DAFT_LOCATION",
   "DAFT_SECTION_PATH",
-  "DAFT_LOCATION_PATH",
   "DAFT_RADIUS_KM",
   "DAFT_PRICE_MIN_EUR",
   "DAFT_PRICE_MAX_EUR",
@@ -27,17 +26,7 @@ const RUNTIME_ENVIRONMENT_KEYS = [
   "DAFT_MAX_PAGES",
   "DAFT_REQUEST_DELAY_MS",
   "SHPS_FILTER",
-  "BROWSER_MODE",
-  "CHROMIUM_EXECUTABLE_PATH",
-  "CHROMIUM_HEADLESS",
-  "CHROMIUM_NO_SANDBOX",
-  "BROWSER_TIMEOUT_MS",
   "BROWSER_USER_AGENT",
-  "SHOUTRRR_BINARY",
-  "SHOUTRRR_TITLE_PREFIX",
-  "SHOUTRRR_TIMEOUT_MS",
-  "STATE_FILE",
-  "HEARTBEAT_FILE",
   "HEALTHCHECK_MAX_AGE_SECONDS",
   "POLL_CRON",
   "TZ",
@@ -85,10 +74,29 @@ export default Alchemy.Stack(
       context: target,
     });
 
+    const shoutrrrUrl = yield* Config.option(Config.redacted("SHOUTRRR_URL"));
+    const hermesWebhookUrl = yield* Config.option(
+      Config.redacted("HERMES_WEBHOOK_URL"),
+    );
+    const hermesWebhookSecret = yield* Config.option(
+      Config.redacted("HERMES_WEBHOOK_SECRET"),
+    );
+    const hermesChatId = yield* Config.option(
+      Config.redacted("HERMES_CHAT_ID"),
+    );
     const environment: Record<string, string | Redacted.Redacted<string>> = {
       ...plainRuntimeEnvironment(),
-      SHOUTRRR_URL: yield* Config.redacted("SHOUTRRR_URL"),
     };
+    if (Option.isSome(shoutrrrUrl)) environment.SHOUTRRR_URL = shoutrrrUrl.value;
+    if (Option.isSome(hermesWebhookUrl)) {
+      environment.HERMES_WEBHOOK_URL = hermesWebhookUrl.value;
+    }
+    if (Option.isSome(hermesWebhookSecret)) {
+      environment.HERMES_WEBHOOK_SECRET = hermesWebhookSecret.value;
+    }
+    if (Option.isSome(hermesChatId)) {
+      environment.HERMES_CHAT_ID = hermesChatId.value;
+    }
     const databaseUrl = yield* Config.option(Config.redacted("DATABASE_URL"));
     const browserEndpoint = yield* Config.option(
       Config.redacted("PLAYWRIGHT_WS_ENDPOINT"),
@@ -97,7 +105,6 @@ export default Alchemy.Stack(
     if (Option.isSome(browserEndpoint)) {
       environment.PLAYWRIGHT_WS_ENDPOINT = browserEndpoint.value;
     }
-
     const network = process.env.MONITOR_DOCKER_NETWORK?.trim();
     const container = yield* Docker.Container("monitor", {
       name: process.env.MONITOR_CONTAINER_NAME ?? "bellwatch",

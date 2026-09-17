@@ -18,9 +18,9 @@ const config = {
     fileName: "coverage/mutation.json",
   },
   thresholds: {
-    high: 90,
-    low: 90,
-    break: 90,
+    high: 99,
+    low: 99,
+    break: 99,
   },
   concurrency: 2,
   tempDirName: ".stryker-tmp",

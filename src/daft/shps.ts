@@ -31,7 +31,7 @@ const OTHER_SCHEME_MARKERS = [
 ] as const;
 
 const normalizeText = (value: string): string =>
-  value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  value.toLowerCase().replace(/[^a-z0-9]+/g, " ");
 
 const hasShpsMarker = (value: string): boolean => {
   const normalized = normalizeText(value);
@@ -42,10 +42,7 @@ const hasShpsMarker = (value: string): boolean => {
 };
 
 const sentences = (value: string): readonly string[] =>
-  value
-    .split(/(?:\r?\n)+|(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
+  value.split(/[\r\n]|(?<=[.!?])\s/);
 
 const isOptionalHelpToBuyFunding = (sentence: string): boolean => {
   const normalized = normalizeText(sentence);
@@ -82,28 +79,28 @@ const hasOtherSchemeAvailability = (value: string): boolean => {
   );
 };
 
-const hasUnrecognisedSchemeAvailability = (value: string): boolean => {
-  let remaining = normalizeText(value);
-  for (const marker of [...SHPS_MARKERS, ...OTHER_SCHEME_MARKERS]) {
-    remaining = remaining
-      .replaceAll(`${marker} schemes`, " ")
-      .replaceAll(`${marker} scheme`, " ")
-      .replaceAll(marker, " ");
-  }
-  remaining = remaining
-    .replaceAll("scheme of priority", " ")
-    .replace(/\b(?:the|this|that|our|your|a|an) schemes?\b/g, " ");
-  return /\b(?:[a-z0-9]+ ){0,3}schemes?\b/.test(
-    remaining.replace(/\s+/g, " ").trim(),
+const SCHEME_PHRASE =
+  /\b(?:[a-z0-9]+ ){0,3}schemes?\b(?: of priority)?/g;
+
+const KNOWN_SCHEME_SUFFIX =
+  /(?:starter home purchase scheme|starter homes programme|starter home programme|local authority affordable purchase scheme|local authority affordable purchase|affordable dwelling purchase arrangement|affordable purchase scheme|help to buy|htb|first home scheme|cost rental)(?: scheme| schemes|)/;
+
+const isKnownSchemePhrase = (phrase: string): boolean =>
+  KNOWN_SCHEME_SUFFIX.test(phrase) ||
+  /\b(?:the|this|that|our|your|a|an) schemes?\b/.test(phrase) ||
+  /scheme of priority/.test(phrase);
+
+const hasUnrecognisedSchemeAvailability = (value: string): boolean =>
+  Array.from(normalizeText(value).matchAll(SCHEME_PHRASE)).some(
+    ([phrase]) => !isKnownSchemePhrase(phrase),
   );
-};
 
 export const classifyShpsAvailability = (
   finding: DaftFinding,
 ): ShpsAvailability => {
-  const text = [finding.title, finding.developmentTitle, finding.schemeText]
-    .filter((value): value is string => value !== undefined)
-    .join("\n");
+  const text = [finding.title, finding.developmentTitle, finding.schemeText].join(
+    "\n",
+  );
   if (!hasShpsMarker(text)) return "not-shps";
   if (!finding.schemeText?.trim()) return "unknown";
   if (hasOtherSchemeAvailability(text)) return "shps-and-other";

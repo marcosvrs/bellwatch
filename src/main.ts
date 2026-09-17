@@ -4,13 +4,18 @@ import * as Schedule from "effect/Schedule";
 import { parseEnvironment, ConfigurationError } from "./config.js";
 import { fetchDaftPayload } from "./browser.js";
 import { runOnce, writeHeartbeat } from "./monitor.js";
-import { publishFinding } from "./shoutrrr.js";
-import { publishHermesFinding } from "./hermes.js";
+import { publishFinding, publishMessage } from "./shoutrrr.js";
+import { publishHermesFinding, publishHermesMessage } from "./hermes.js";
 import { createStateStore } from "./state.js";
 import {
   createRuntimeMetrics,
   type RuntimeMetrics,
 } from "./runtime-metrics.js";
+import {
+  formatPollError,
+  publishToAll,
+  type NotificationPublisher,
+} from "./notifications.js";
 
 const formatRuntimeMetrics = (
   metrics: RuntimeMetrics,
@@ -52,14 +57,29 @@ const program = Effect.gen(function* () {
   const state = yield* createStateStore(config.state);
   const dependencies = {
     fetchPage: (url: string) => fetchDaftPayload(config, url),
-    publish: (finding: Parameters<typeof publishFinding>[1]) =>
-      config.notificationBackend === "hermes"
-        ? config.hermes
-          ? publishHermesFinding(config.hermes, finding)
-          : Effect.fail(
-              new ConfigurationError("Hermes notification configuration is missing"),
-            )
-        : publishFinding(config.shoutrrr, finding),
+    publish: (finding: Parameters<typeof publishFinding>[1]) => {
+      const publishers: NotificationPublisher[] = [];
+      if (config.notificationBackends.includes("shoutrrr")) {
+        publishers.push(() => publishFinding(config.shoutrrr, finding));
+      }
+      if (config.notificationBackends.includes("hermes")) {
+        publishers.push(() => publishHermesFinding(config.hermes!, finding));
+      }
+      return publishToAll(publishers);
+    },
+    publishError: (error: Error) => {
+      const message = formatPollError(error);
+      const publishers: NotificationPublisher[] = [];
+      if (config.notificationBackends.includes("shoutrrr")) {
+        publishers.push(() =>
+          publishMessage(config.shoutrrr, "Bellwatch error", message),
+        );
+      }
+      if (config.notificationBackends.includes("hermes")) {
+        publishers.push(() => publishHermesMessage(config.hermes!, message));
+      }
+      return publishToAll(publishers);
+    },
     state,
     heartbeat: () => writeHeartbeat(config.state.heartbeatFile),
   };

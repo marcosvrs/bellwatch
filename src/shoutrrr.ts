@@ -63,7 +63,7 @@ const runShoutrrr: ShoutrrrRunner = (
     finish(
       new ShoutrrrError(
         `Shoutrrr exited with ${
-          signal ? `signal ${signal}` : `code ${code ?? "unknown"}`
+          signal ? `signal ${signal}` : `code ${code}`
         }${detail ? `: ${detail}` : ""}`,
       ),
     );
@@ -86,9 +86,10 @@ export const formatFindingMessage = (finding: DaftFinding): string => {
   return [finding.title, ...details].join("\n");
 };
 
-export const publishFinding = (
+export const publishMessage = (
   config: ShoutrrrConfig,
-  finding: DaftFinding,
+  title: string,
+  message: string,
   run: ShoutrrrRunner = runShoutrrr,
 ): Effect.Effect<void, ShoutrrrError> =>
   Effect.tryPromise({
@@ -102,9 +103,9 @@ export const publishFinding = (
           "--message",
           "-",
           "--title",
-          `${config.titlePrefix}: ${finding.title}`,
+          title,
         ],
-        formatFindingMessage(finding),
+        message,
         config.timeoutMs,
       ),
     catch: (cause) =>
@@ -114,3 +115,15 @@ export const publishFinding = (
             cause,
           }),
   });
+
+export const publishFinding = (
+  config: ShoutrrrConfig,
+  finding: DaftFinding,
+  run: ShoutrrrRunner = runShoutrrr,
+): Effect.Effect<void, ShoutrrrError> =>
+  publishMessage(
+    config,
+    `${config.titlePrefix}: ${finding.title}`,
+    formatFindingMessage(finding),
+    run,
+  );

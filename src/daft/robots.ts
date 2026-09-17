@@ -21,22 +21,19 @@ const matchesRule = (pattern: string, path: string): boolean => {
 const parseRobots = (robotsText: string): RobotsGroup[] => {
   const groups: RobotsGroup[] = [];
   let current: RobotsGroup | undefined;
-  let sawRule = false;
-
+  let sawRule: boolean | undefined;
   for (const rawLine of robotsText.split(/\r?\n/)) {
-    const line = rawLine.split("#", 1)[0]?.trim() ?? "";
+    const line = rawLine.split("#", 1)[0].trim();
     if (!line) {
       current = undefined;
-      sawRule = false;
       continue;
     }
     const separator = line.indexOf(":");
-    if (separator < 0) continue;
-    const field = line.slice(0, separator).trim().toLowerCase();
+    const field = line.slice(0, Math.max(separator, 0)).trim().toLowerCase();
     const value = line.slice(separator + 1).trim();
     if (field === "user-agent") {
       if (!current || sawRule) {
-        current = { agents: [], rules: [] };
+        current = { agents: new Array<string>(), rules: [] };
         groups.push(current);
         sawRule = false;
       }
@@ -59,16 +56,14 @@ const parseRobots = (robotsText: string): RobotsGroup[] => {
 export const isRobotsAllowed = (
   robotsText: string,
   targetUrl: string,
-  userAgent = "*",
+  userAgent = "",
 ): boolean => {
   const target = new URL(targetUrl);
   const path = `${target.pathname}${target.search}`;
-  const token = userAgent.trim().toLowerCase().split(/[\s/]/)[0] || "*";
+  const token = userAgent.trim().toLowerCase().split(/[\s/]/)[0];
   const parsedGroups = parseRobots(robotsText);
   const specificGroups = parsedGroups.filter((group) =>
-    group.agents.some(
-      (agent) => agent !== "*" && token !== "*" && token.startsWith(agent),
-    ),
+    group.agents.some((agent) => token.startsWith(agent)),
   );
   const groups =
     specificGroups.length > 0

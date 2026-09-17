@@ -2,18 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseEnvironment } from "../src/config.js";
 import {
+  assertDaftHttpStatus,
   createDaftRequestGate,
   resolveBrowserStrategy,
 } from "../src/browser.js";
 
 const base = { SHOUTRRR_URL: "ntfy://ntfy.sh/daft" };
 
-test("auto browser mode uses bundled Chromium without an endpoint", () => {
+test("uses bundled Chromium without an endpoint", () => {
   const browser = parseEnvironment(base).browser;
   assert.equal(resolveBrowserStrategy(browser), "local");
 });
 
-test("auto browser mode uses an external Playwright/CDP endpoint when set", () => {
+test("uses an external Playwright/CDP endpoint when set", () => {
   const browser = parseEnvironment({
     ...base,
     PLAYWRIGHT_WS_ENDPOINT: "ws://browser-sockpuppet-chrome:3000",
@@ -21,10 +22,27 @@ test("auto browser mode uses an external Playwright/CDP endpoint when set", () =
   assert.equal(resolveBrowserStrategy(browser), "external");
 });
 
-test("external mode requires a websocket endpoint", () => {
+test("rejects an invalid Playwright/CDP endpoint", () => {
   assert.throws(
-    () => parseEnvironment({ ...base, BROWSER_MODE: "external" }),
-    /PLAYWRIGHT_WS_ENDPOINT is required/,
+    () =>
+      parseEnvironment({
+        ...base,
+        PLAYWRIGHT_WS_ENDPOINT: "http://browser.example",
+      }),
+    /PLAYWRIGHT_WS_ENDPOINT must use ws or wss/,
+  );
+});
+test("accepts only HTTP 200 Daft pages", () => {
+  assert.doesNotThrow(() => assertDaftHttpStatus(200));
+  for (const status of [204, 403, 404, 500]) {
+    assert.throws(
+      () => assertDaftHttpStatus(status),
+      new RegExp(`Daft page returned HTTP ${status}`),
+    );
+  }
+  assert.throws(
+    () => assertDaftHttpStatus(undefined),
+    /Daft page returned HTTP no response/,
   );
 });
 

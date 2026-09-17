@@ -44,11 +44,11 @@ const responseDetail = async (response: Response): Promise<string> => {
 
 const sendHermes = async (
   config: HermesConfig,
-  finding: DaftFinding,
+  message: string,
   transport: HermesTransport,
 ): Promise<void> => {
   const body = JSON.stringify({
-    message: formatFindingMessage(finding),
+    message,
     chat_id: config.chatId,
   });
   const timestamp = Math.floor(transport.now() / 1_000).toString();
@@ -99,15 +99,22 @@ const sendHermes = async (
   throw lastError ?? new HermesError("Hermes webhook request failed");
 };
 
-export const publishHermesFinding = (
+export const publishHermesMessage = (
   config: HermesConfig,
-  finding: DaftFinding,
+  message: string,
   transport: HermesTransport = defaultTransport,
 ): Effect.Effect<void, HermesError> =>
   Effect.tryPromise({
-    try: () => sendHermes(config, finding, transport),
+    try: () => sendHermes(config, message, transport),
     catch: (cause) =>
       cause instanceof HermesError
         ? cause
         : new HermesError("Could not publish Hermes notification", { cause }),
   });
+
+export const publishHermesFinding = (
+  config: HermesConfig,
+  finding: DaftFinding,
+  transport: HermesTransport = defaultTransport,
+): Effect.Effect<void, HermesError> =>
+  publishHermesMessage(config, formatFindingMessage(finding), transport);

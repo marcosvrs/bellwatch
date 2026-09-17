@@ -23,7 +23,7 @@ interface DaftPageResult {
 type JsonRecord = Record<string, unknown>;
 
 const asRecord = (value: unknown): JsonRecord | undefined =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
+  typeof value === "object" && !Array.isArray(value)
     ? (value as JsonRecord)
     : undefined;
 
@@ -54,7 +54,7 @@ export const parseDaftListingDetails = (
 
 const numberValue = (record: JsonRecord | undefined, key: string): number | undefined => {
   const value = record?.[key];
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Number.isFinite(value as number)) return value as number;
   if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
     return Number(value);
   }
@@ -92,20 +92,17 @@ const parseListing = (
 ): DaftFinding[] => {
   const wrapper = asRecord(value);
   const listing = asRecord(wrapper?.listing);
-  if (!listing) return [];
 
   const parentId = numberValue(listing, "id");
   const parentIdText = parentId === undefined ? undefined : String(parentId);
   if (!parentIdText) return [];
 
-  const newHome = asRecord(listing.newHome);
+  const newHome = asRecord(listing!.newHome);
   const developmentTitle =
     stringValue(newHome, "developmentName") ??
     stringValue(listing, "title") ??
     `Daft development ${parentIdText}`;
-  const units = Array.isArray(newHome?.subUnits)
-    ? newHome.subUnits.map(asRecord).filter((unit): unit is JsonRecord => unit !== undefined)
-    : [];
+  const units = Array.isArray(newHome?.subUnits) ? newHome.subUnits : [];
 
   if (units.length === 0) {
     const path = stringValue(listing, "seoFriendlyPath");
@@ -123,7 +120,8 @@ const parseListing = (
     ];
   }
 
-  return units.flatMap((unit) => {
+  return units.flatMap((value) => {
+    const unit = asRecord(value);
     const id = numberValue(unit, "id");
     if (id === undefined) return [];
     const idText = String(id);
@@ -131,7 +129,7 @@ const parseListing = (
     return [
       {
         id: idText,
-        title: unitTitle(developmentTitle, unit),
+        title: unitTitle(developmentTitle, unit!),
         developmentTitle,
         priceText,
         bedrooms: parseCount(stringValue(unit, "numBedrooms")),
@@ -154,14 +152,15 @@ export const parseDaftPage = (
   const root = asRecord(payload);
   const props = asRecord(root?.props);
   const pageProps = asRecord(props?.pageProps) ?? root ?? {};
-  const listings = Array.isArray(pageProps.listings) ? pageProps.listings : [];
   const seen = new Set<string>();
   const findings: DaftFinding[] = [];
-  for (const listing of listings) {
-    for (const finding of parseListing(listing, baseUrl)) {
-      if (seen.has(finding.id)) continue;
-      seen.add(finding.id);
-      findings.push(finding);
+  if (Array.isArray(pageProps.listings)) {
+    for (const listing of pageProps.listings) {
+      for (const finding of parseListing(listing, baseUrl)) {
+        if (seen.has(finding.id)) continue;
+        seen.add(finding.id);
+        findings.push(finding);
+      }
     }
   }
 

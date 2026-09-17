@@ -260,3 +260,157 @@ test("handles missing parent data and custom fallback paths", () => {
   assert.equal(result.findings[2].url, "https://www.daft.ie/new-home-for-sale/listing/310");
   assert.equal(result.findings[3].title, "Daft development 311");
 });
+test("rejects invalid records and preserves numeric paging", () => {
+  const arrayPayload = Object.assign([], {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 999,
+              title: "Array root must be ignored",
+            },
+          },
+        ],
+      },
+    },
+  });
+  assert.deepEqual(parseDaftPage(arrayPayload, "https://www.daft.ie"), {
+    findings: [],
+    currentPage: 1,
+    totalPages: 1,
+  });
+
+  const result = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            { listing: { id: NaN, title: "Not finite" } },
+            { listing: { id: "   ", title: "Blank id" } },
+            {
+              listing: {
+                id: " 412 ",
+                title: "Valid string id",
+                newHome: { subUnits: [] },
+              },
+            },
+          ],
+          paging: { currentPage: 2, totalPages: 3 },
+        },
+      },
+    },
+    "https://www.daft.ie",
+  );
+  assert.equal(result.findings.length, 1);
+  assert.equal(result.findings[0].id, "412");
+  assert.equal(result.currentPage, 2);
+  assert.equal(result.totalPages, 3);
+});
+
+test("omits blank detail fields from scheme evidence", () => {
+  assert.deepEqual(
+    parseDaftListingDetails({
+      listing: {
+        title: " ",
+        newHome: { tagLine: 42 },
+        description: "Description only",
+      },
+    }),
+    { schemeText: "Description only" },
+  );
+});
+
+test("rejects arrays and non-finite numeric identifiers at every nesting level", () => {
+  const functionPayload = Object.assign(
+    () => undefined,
+    {
+      props: {
+        pageProps: {
+          listings: [{ listing: { id: 998, title: "Function root" } }],
+        },
+      },
+    },
+  );
+  assert.deepEqual(parseDaftPage(functionPayload, "https://www.daft.ie"), {
+    findings: [],
+    currentPage: 1,
+    totalPages: 1,
+  });
+
+  const arrayProps = Object.assign([], {
+    pageProps: {
+      listings: [{ listing: { id: 995, title: "Array props" } }],
+    },
+  });
+  assert.deepEqual(
+    parseDaftPage(
+      { props: arrayProps },
+      "https://www.daft.ie",
+    ),
+    {
+      findings: [],
+      currentPage: 1,
+      totalPages: 1,
+    },
+  );
+  const arrayPageProps = Object.assign([], {
+    listings: [{ listing: { id: 994, title: "Array page props" } }],
+  });
+  assert.deepEqual(
+    parseDaftPage(
+      { props: { pageProps: arrayPageProps } },
+      "https://www.daft.ie",
+    ),
+    {
+      findings: [],
+      currentPage: 1,
+      totalPages: 1,
+    },
+  );
+  const arrayNewHome = Object.assign([], {
+    developmentName: "Array development",
+    subUnits: [{ id: 997 }],
+  });
+  const arrayResult = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 996,
+                title: "Parent development",
+                newHome: arrayNewHome,
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+  );
+  assert.equal(arrayResult.findings.length, 1);
+  assert.equal(arrayResult.findings[0].id, "996");
+  assert.equal(arrayResult.findings[0].title, "Parent development");
+
+  const invalidResult = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            { listing: { id: Infinity } },
+            { listing: { id: -Infinity } },
+          ],
+          paging: { currentPage: NaN, totalPages: Infinity },
+        },
+      },
+    },
+    "https://www.daft.ie",
+  );
+  assert.deepEqual(invalidResult, {
+    findings: [],
+    currentPage: 1,
+    totalPages: 1,
+  });
+});
