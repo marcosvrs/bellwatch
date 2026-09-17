@@ -14,6 +14,7 @@ Daft.ie, your ntfy server, and any optional external services you configure.
 - [Useful ways to run it](#useful-ways-to-run-it)
 - [Requirements](#requirements)
 - [Quick start with Docker](#quick-start-with-docker)
+- [Docker Compose stack](#docker-compose-stack)
 - [Configure the search](#configure-the-search)
 - [Configure notifications and polling](#configure-notifications-and-polling)
 - [Use a different browser](#use-a-different-browser)
@@ -174,6 +175,69 @@ docker run --detach \
 Do not delete `daft-house-search-data` unless you intentionally want the next
 run to treat every current listing as unseen. Docker will restart the container
 after a Docker Engine or host restart because of `--restart unless-stopped`.
+
+## Docker Compose stack
+
+Use the included [`docker-compose.yml`](docker-compose.yml) when you want the
+monitor and its optional external services in one Docker network. It starts:
+
+- the published `daft-house-search` image;
+- a self-hosted ntfy server;
+- Postgres for shared listing state;
+- Redis for the distributed polling lease; and
+- Browserless Chromium for external Playwright/CDP connections.
+
+The monitor container is configured automatically with:
+
+```text
+NTFY_URL=http://ntfy/daft-house-search
+DATABASE_URL=postgresql://...@postgres:5432/daft
+REDIS_URL=redis://redis:6379/0
+BROWSER_MODE=external
+PLAYWRIGHT_WS_ENDPOINT=ws://browserless:3000?token=...
+```
+
+Copy the environment template, replace both placeholder secrets, and start the
+stack:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+# Edit .env and replace POSTGRES_PASSWORD and BROWSERLESS_TOKEN.
+
+docker compose pull
+docker compose up --detach
+docker compose ps
+docker compose logs --follow daft-house-search
+```
+
+The GHCR package must be public for unauthenticated pulls. If it is private,
+authenticate first:
+
+```bash
+echo "$GITHUB_TOKEN" | docker login ghcr.io --username YOUR_GITHUB_USER --password-stdin
+```
+
+The host exposes ntfy at `http://127.0.0.1:8080` and the Browserless debugger
+at `http://127.0.0.1:3000` by default. Postgres and Redis are reachable only
+inside the Compose network. Do not bind ntfy beyond localhost without adding
+authentication and HTTPS.
+
+`docker compose down` stops the services but keeps named volumes. Do not use
+`docker compose down --volumes` unless you intentionally want to delete the
+Postgres, Redis, ntfy, and listing-history data.
+
+To change search filters or service credentials, edit `.env` and recreate the
+monitor:
+
+```bash
+docker compose up --detach --force-recreate daft-house-search
+```
+
+The Compose stack uses the external browser arrangement described in
+[Use a different browser](#use-a-different-browser). To use the image's bundled
+Chromium instead, set `BROWSER_MODE=local` and remove
+`PLAYWRIGHT_WS_ENDPOINT` from `.env`.
 
 ## Configure the search
 
