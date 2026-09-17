@@ -75,6 +75,11 @@ RUN test ! -e node_modules/@redis/client \
 FROM mcr.microsoft.com/playwright:v1.63.0-noble AS runtime
 
 WORKDIR /app
+LABEL org.opencontainers.image.title="Bellwatch" \
+      org.opencontainers.image.licenses="MIT-0" \
+      org.opencontainers.image.source="https://github.com/marcosvrs/bellwatch"
+COPY --chown=pwuser:pwuser LICENSE ./LICENSE
+COPY --chown=pwuser:pwuser THIRD_PARTY_NOTICES ./THIRD_PARTY_NOTICES
 COPY --from=production-dependencies --chown=pwuser:pwuser /app/node_modules ./node_modules
 COPY --from=build --chown=pwuser:pwuser /app/dist/main.js ./dist/main.js
 COPY --from=build --chown=pwuser:pwuser /app/dist/healthcheck.js ./dist/healthcheck.js

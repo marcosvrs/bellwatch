@@ -1,3 +1,4 @@
+import * as Cron from "effect/Cron";
 import {
   DAFT_ADDED_IN_LAST_DAYS,
   DAFT_AVAILABILITIES,
@@ -13,6 +14,11 @@ import {
   type DaftRadiusKm,
   type DaftSort,
 } from "./daft/filters.js";
+import {
+  SHPS_FILTER_MODES,
+  type ShpsConfig,
+  type ShpsFilterMode,
+} from "./daft/shps.js";
 
 export class ConfigurationError extends Error {
   readonly _tag = "ConfigurationError";
@@ -26,6 +32,19 @@ export class ConfigurationError extends Error {
 export type BrowserMode = "auto" | "external" | "local";
 
 export type NotificationBackend = "shoutrrr" | "hermes";
+
+export const DEFAULT_POLL_CRON = "0 */8 * * *";
+
+const detectRuntimeTimezone = (): string => {
+  try {
+    const timezone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return timezone && timezone !== "Etc/Unknown" ? timezone : "UTC";
+  } catch {
+    return "UTC";
+  }
+};
+
+export const DEFAULT_TIMEZONE = detectRuntimeTimezone();
 
 export interface ShoutrrrConfig {
   readonly url: string;
@@ -47,8 +66,10 @@ export interface MonitorConfig {
     readonly sectionPath: string;
     readonly locationPaths: readonly string[];
     readonly filters: DaftFilters;
-    readonly maxPages: number;
+    readonly maxPages?: number;
+    readonly requestDelayMs: number;
   };
+  readonly shps: ShpsConfig;
   readonly notificationBackend: NotificationBackend;
   readonly browser: {
     readonly mode: BrowserMode;
@@ -67,7 +88,8 @@ export interface MonitorConfig {
     readonly heartbeatFile: string;
   };
   readonly polling: {
-    readonly intervalSeconds: number;
+    readonly cron: string;
+    readonly timezone: string;
     readonly notifyExistingOnFirstRun: boolean;
   };
 }
@@ -131,6 +153,23 @@ const choice = <T extends string | number>(
   return converted as T;
 };
 
+const optionalChoice = <T extends string | number>(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  allowed: readonly T[],
+): T | undefined => {
+  const raw = trimmed(env, name);
+  if (raw === undefined) return undefined;
+  const converted =
+    typeof allowed[0] === "number" ? Number(raw) : String(raw);
+  if (!allowed.includes(converted as T)) {
+    throw new ConfigurationError(
+      `${name} must be one of: ${allowed.join(", ")}`,
+    );
+  }
+  return converted as T;
+};
+
 const boolean = (
   env: NodeJS.ProcessEnv,
   name: string,
@@ -163,10 +202,7 @@ const list = (env: NodeJS.ProcessEnv, name: string): string[] =>
 const unique = <T>(values: readonly T[]): T[] => [...new Set(values)];
 
 const parsePropertyTypes = (env: NodeJS.ProcessEnv): DaftPropertyType[] => {
-  const values =
-    trimmed(env, "DAFT_PROPERTY_TYPES") === undefined
-      ? ["houses"]
-      : list(env, "DAFT_PROPERTY_TYPES");
+  const values = list(env, "DAFT_PROPERTY_TYPES");
   if (values.length === 0) return [];
   if (values.includes("any")) {
     if (values.length > 1) {
@@ -279,6 +315,27 @@ const validateDate = (
   return value;
 };
 
+const parsePollingSchedule = (
+  env: NodeJS.ProcessEnv,
+): { readonly cron: string; readonly timezone: string } => {
+  const timezone = trimmed(env, "TZ") ?? DEFAULT_TIMEZONE;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
+  } catch {
+    throw new ConfigurationError("TZ must be a valid IANA time zone");
+  }
+
+  const cron = trimmed(env, "POLL_CRON") ?? DEFAULT_POLL_CRON;
+  try {
+    Cron.parseUnsafe(cron, timezone);
+  } catch {
+    throw new ConfigurationError(
+      "POLL_CRON must be a valid 5- or 6-field crontab expression",
+    );
+  }
+  return { cron, timezone };
+};
+
 const validateRange = (
   name: string,
   min: number | undefined,
@@ -344,12 +401,26 @@ export const parseEnvironment = (
   validateRange("DAFT_BATHS", bathsMin, bathsMax);
 
   const locationPaths = parseLocationPaths(env);
+  const shpsFilter = choice<ShpsFilterMode>(
+    env,
+    "SHPS_FILTER",
+    "off",
+    SHPS_FILTER_MODES,
+  );
+  const shps: ShpsConfig = {
+    filter: shpsFilter,
+  };
+  const pollingSchedule = parsePollingSchedule(env);
 
   const filters: DaftFilters = {
-    radiusKm: choice<DaftRadiusKm>(env, "DAFT_RADIUS_KM", 20, DAFT_RADIUS_KM_OPTIONS),
+    radiusKm: optionalChoice<DaftRadiusKm>(
+      env,
+      "DAFT_RADIUS_KM",
+      DAFT_RADIUS_KM_OPTIONS,
+    ),
     priceMinEur,
     priceMaxEur: priceMaxEur ?? 499_999,
-    bedsMin: bedsMin ?? 3,
+    bedsMin,
     bedsMax,
     propertyTypes: parsePropertyTypes(env),
     bathsMin,
@@ -368,14 +439,13 @@ export const parseEnvironment = (
       "published",
       DAFT_AVAILABILITIES,
     ),
-    addedInLastDays: choice<DaftAddedInLastDays>(
+    addedInLastDays: optionalChoice<DaftAddedInLastDays>(
       env,
       "DAFT_ADDED_IN_LAST_DAYS",
-      0,
       DAFT_ADDED_IN_LAST_DAYS,
     ),
     openViewingsFrom: validateDate(env, "DAFT_OPEN_VIEWINGS_FROM"),
-    sort: choice<DaftSort>(env, "DAFT_SORT", "priceAsc", DAFT_SORTS),
+    sort: optionalChoice<DaftSort>(env, "DAFT_SORT", DAFT_SORTS),
   };
 
   return {
@@ -388,8 +458,16 @@ export const parseEnvironment = (
       ),
       locationPaths,
       filters,
-      maxPages: integer(env, "DAFT_MAX_PAGES", 1, 1, 20),
+      maxPages: optionalInteger(env, "DAFT_MAX_PAGES", 1, 20),
+      requestDelayMs: integer(
+        env,
+        "DAFT_REQUEST_DELAY_MS",
+        1_000,
+        1_000,
+        60_000,
+      ),
     },
+    shps,
     browser: {
       mode: browserMode,
       externalEndpoint,
@@ -421,7 +499,8 @@ export const parseEnvironment = (
       heartbeatFile: trimmed(env, "HEARTBEAT_FILE") ?? "/data/heartbeat",
     },
     polling: {
-      intervalSeconds: integer(env, "POLL_INTERVAL_SECONDS", 900, 1, 86_400),
+      cron: pollingSchedule.cron,
+      timezone: pollingSchedule.timezone,
       notifyExistingOnFirstRun: boolean(
         env,
         "NOTIFY_EXISTING_ON_FIRST_RUN",

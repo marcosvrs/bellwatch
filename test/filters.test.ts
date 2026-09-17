@@ -1,3 +1,4 @@
+import * as Cron from "effect/Cron";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -10,6 +11,8 @@ import {
 import { buildDaftSearchUrl } from "../src/daft/url.js";
 import {
   ConfigurationError,
+  DEFAULT_POLL_CRON,
+  DEFAULT_TIMEZONE,
   parseEnvironment,
 } from "../src/config.js";
 
@@ -110,7 +113,7 @@ test("maps available Added In Last choices", () => {
 test("handles empty optional filters and rejects invalid page counts", () => {
   const filters: DaftFilters = {
     ...baseFilters,
-    radiusKm: 0,
+    radiusKm: undefined,
     priceMinEur: undefined,
     priceMaxEur: undefined,
     bedsMin: undefined,
@@ -121,8 +124,9 @@ test("handles empty optional filters and rejects invalid page counts", () => {
     mediaTypes: [],
     keyword: undefined,
     availability: "published",
-    addedInLastDays: 0,
+    addedInLastDays: undefined,
     openViewingsFrom: undefined,
+    sort: undefined,
   };
   const request = {
     baseUrl: "https://www.daft.ie",
@@ -132,7 +136,7 @@ test("handles empty optional filters and rejects invalid page counts", () => {
   };
   const url = new URL(buildDaftSearchUrl(request));
   assert.equal(url.pathname, "/new-homes-for-sale/dublin-city-centre-dublin");
-  assert.deepEqual([...url.searchParams.keys()], ["sort"]);
+  assert.deepEqual([...url.searchParams.keys()], []);
   assert.throws(() => buildDaftSearchUrl(request, 0), /positive integer/);
   assert.throws(() => buildDaftSearchUrl(request, 1.5), /positive integer/);
 });
@@ -163,6 +167,83 @@ test("accepts Daft web filters from environment variables", () => {
   assert.equal(config.daft.filters.addedInLastDays, 14);
   assert.equal(config.daft.filters.openViewingsFrom, "2026-08-01");
   assert.equal(config.daft.filters.sort, "publishDateDesc");
+});
+
+test("parses cron polling schedules in the configured timezone", () => {
+  const defaults = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+  });
+  assert.equal(defaults.polling.cron, DEFAULT_POLL_CRON);
+  assert.equal(
+    defaults.polling.timezone,
+    new Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+
+  const defaultSchedule = Cron.parseUnsafe(defaults.polling.cron, "UTC");
+  assert.equal(
+    Cron.next(defaultSchedule, "2026-01-01T00:01:00Z").toISOString(),
+    "2026-01-01T08:00:00.000Z",
+  );
+
+  const configured = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    POLL_CRON: "0 8 * * *",
+    TZ: "Europe/Dublin",
+  });
+  assert.equal(configured.polling.cron, "0 8 * * *");
+  assert.equal(configured.polling.timezone, "Europe/Dublin");
+  const configuredSchedule = Cron.parseUnsafe(
+    configured.polling.cron,
+    configured.polling.timezone,
+  );
+  assert.equal(
+    Cron.next(configuredSchedule, "2026-07-01T06:30:00Z").toISOString(),
+    "2026-07-01T07:00:00.000Z",
+  );
+});
+
+test("rejects invalid cron schedules and timezones", () => {
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        POLL_CRON: "0 25 * * *",
+      }),
+    /POLL_CRON must be a valid 5- or 6-field crontab expression/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        TZ: "Not/AZone",
+      }),
+    /TZ must be a valid IANA time zone/,
+  );
+});
+
+test("accepts exclusive and exclusion SHPS filter modes", () => {
+  const only = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    SHPS_FILTER: "only",
+  });
+  assert.deepEqual(only.shps, {
+    filter: "only",
+  });
+
+  const exclude = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    SHPS_FILTER: "exclude",
+  });
+  assert.deepEqual(exclude.shps, {
+    filter: "exclude",
+  });
+
+  const off = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+  });
+  assert.deepEqual(off.shps, {
+    filter: "off",
+  });
 });
 
 test("accepts Hermes notification settings", () => {
@@ -230,6 +311,14 @@ test("rejects invalid or contradictory filter configuration", () => {
       }),
     /DAFT_LOCATION_PATH must contain at least one location path/,
   );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        SHPS_FILTER: "invalid",
+      }),
+    /SHPS_FILTER must be one of/,
+  );
 });
 
 test("parses optional resource settings and rejects malformed environment values", () => {
@@ -237,6 +326,7 @@ test("parses optional resource settings and rejects malformed environment values
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_BASE_URL: "https://www.daft.ie/",
     DAFT_SECTION_PATH: "new-homes-for-sale/",
+    DAFT_REQUEST_DELAY_MS: "2500",
     BROWSER_MODE: "external",
     PLAYWRIGHT_WS_ENDPOINT: "wss://browser.example/playwright",
     CHROMIUM_HEADLESS: "yes",
@@ -248,6 +338,7 @@ test("parses optional resource settings and rejects malformed environment values
     NOTIFY_EXISTING_ON_FIRST_RUN: "true",
   });
   assert.equal(configured.shoutrrr.url, "ntfy://ntfy.sh/daft");
+  assert.equal(configured.daft.requestDelayMs, 2_500);
   assert.equal(configured.shoutrrr.binary, "/opt/shoutrrr");
   assert.equal(configured.shoutrrr.titlePrefix, "Custom title");
   assert.equal(configured.shoutrrr.timeoutMs, 60_000);
@@ -307,10 +398,10 @@ test("parses optional resource settings and rejects malformed environment values
       DAFT_MEDIA_TYPES: "any",
     }).daft.filters,
     {
-      radiusKm: 20,
+      radiusKm: undefined,
       priceMinEur: undefined,
       priceMaxEur: 499_999,
-      bedsMin: 3,
+      bedsMin: undefined,
       bedsMax: undefined,
       propertyTypes: [],
       bathsMin: undefined,
@@ -318,9 +409,9 @@ test("parses optional resource settings and rejects malformed environment values
       mediaTypes: [],
       keyword: undefined,
       availability: "published",
-      addedInLastDays: 0,
+      addedInLastDays: undefined,
       openViewingsFrom: undefined,
-      sort: "priceAsc",
+      sort: undefined,
     },
   );
   assert.throws(
@@ -399,6 +490,29 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.equal(defaults.shoutrrr.binary, "shoutrrr");
   assert.equal(defaults.state.file, "/data/state.sqlite");
   assert.equal(defaults.state.heartbeatFile, "/data/heartbeat");
+  assert.deepEqual(defaults.shps, {
+    filter: "off",
+  });
+  assert.deepEqual(defaults.daft.filters, {
+    radiusKm: undefined,
+    priceMinEur: undefined,
+    priceMaxEur: 499_999,
+    bedsMin: undefined,
+    bedsMax: undefined,
+    propertyTypes: [],
+    bathsMin: undefined,
+    bathsMax: undefined,
+    mediaTypes: [],
+    keyword: undefined,
+    availability: "published",
+    addedInLastDays: undefined,
+    openViewingsFrom: undefined,
+    sort: undefined,
+  });
+  assert.equal(defaults.daft.maxPages, undefined);
+  assert.equal(defaults.daft.requestDelayMs, 1_000);
+  assert.equal(defaults.polling.cron, DEFAULT_POLL_CRON);
+  assert.equal(defaults.polling.timezone, DEFAULT_TIMEZONE);
   assert.equal(new ConfigurationError("bad").name, "ConfigurationError");
   assert.equal(new ConfigurationError("bad")._tag, "ConfigurationError");
 
@@ -453,9 +567,9 @@ test("covers trimming, defaults, and boundary validation", () => {
     () =>
       parseEnvironment({
         SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
-        DAFT_MAX_PAGES: "x1",
+        DAFT_REQUEST_DELAY_MS: "999",
       }),
-    /DAFT_MAX_PAGES must be an integer/,
+    /DAFT_REQUEST_DELAY_MS must be between/,
   );
   assert.throws(
     () =>

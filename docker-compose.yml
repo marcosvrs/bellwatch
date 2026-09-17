@@ -30,8 +30,11 @@ services:
 
       # Optional state and healthcheck overrides.
       # HEARTBEAT_FILE: "/data/heartbeat"
-      # HEALTHCHECK_MAX_AGE_SECONDS: "" # derived: max(POLL_INTERVAL_SECONDS * 3, 300)
-      # POLL_INTERVAL_SECONDS: "900"
+      # HEALTHCHECK_MAX_AGE_SECONDS: "86400" # default; increase for sparse cron schedules
+      # Set TZ here or in .env to propagate the host's configured timezone.
+      # Unset means the process detects the container runtime timezone.
+      TZ:
+      POLL_CRON: "${POLL_CRON:-0 */8 * * *}"
       # NOTIFY_EXISTING_ON_FIRST_RUN: "false"
 
       # Active for this Compose stack: use the Browserless service.
@@ -44,8 +47,8 @@ services:
       BROWSER_TIMEOUT_MS: "120000"
       # BROWSER_USER_AGENT: "" # unset
 
-      # Compose's search profile intentionally differs from two parser defaults.
-      # The other search defaults remain available below as commented overrides.
+      # Optional search overrides. Leaving these unset intentionally keeps the
+      # default search broad; uncomment only the constraints you want.
       # DAFT_BASE_URL: "https://www.daft.ie"
       # DAFT_SECTION_PATH: "new-homes-for-sale"
       # DAFT_LOCATION_PATH: "dublin-city-centre-dublin"
@@ -60,10 +63,12 @@ services:
       # DAFT_MEDIA_TYPES: "" # unset; equivalent to any
       # DAFT_KEYWORD: "" # unset
       # DAFT_AVAILABILITY: "published"
-      DAFT_ADDED_IN_LAST_DAYS: "1"
+      # DAFT_ADDED_IN_LAST_DAYS: "1"
       # DAFT_OPEN_VIEWINGS_FROM: "" # unset
-      DAFT_SORT: "publishDateDesc"
-      # DAFT_MAX_PAGES: "1"
+      # DAFT_SORT: "publishDateDesc"
+      # DAFT_MAX_PAGES: "1" # unset = follow all Daft result pages
+      # DAFT_REQUEST_DELAY_MS: "1000" # minimum gap between Daft navigations
+      # SHPS_FILTER: "off" # use "only" to keep SHPS-only or "exclude" to remove them
 
       # Image defaults already supplied by Dockerfile.
       # NODE_ENV: "production"
@@ -118,6 +123,7 @@ services:
 
 volumes:
   bellwatch-data:
+  postgres-data:
 
 networks:
   # The internal network name is fixed to bellwatch.

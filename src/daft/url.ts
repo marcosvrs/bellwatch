@@ -39,7 +39,7 @@ export const buildDaftSearchUrl = (
   base.search = "";
 
   const params = new URLSearchParams();
-  if (request.filters.radiusKm > 0) {
+  if (request.filters.radiusKm !== undefined && request.filters.radiusKm > 0) {
     params.append("radius", String(request.filters.radiusKm * 1000));
   }
   addOptional(params, "salePrice_from", request.filters.priceMinEur);
@@ -66,7 +66,7 @@ export const buildDaftSearchUrl = (
     addedInLastDateValue(request.filters.addedInLastDays),
   );
   addOptional(params, "viewingTimes_from", request.filters.openViewingsFrom);
-  params.append("sort", request.filters.sort);
+  addOptional(params, "sort", request.filters.sort);
   if (page > 1) params.append("page", String(page));
 
   base.search = params.toString();

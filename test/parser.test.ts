@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDaftPage } from "../src/daft/parser.js";
+import { parseDaftListingDetails, parseDaftPage } from "../src/daft/parser.js";
 
 const payload = {
   props: {
@@ -41,6 +41,35 @@ const payload = {
     },
   },
 };
+
+test("parses detail-page scheme evidence", () => {
+  assert.deepEqual(
+    parseDaftListingDetails({
+      props: {
+        pageProps: {
+          listing: {
+            title: "Example home",
+            newHome: { tagLine: "Starter Home Purchase Scheme" },
+            description: "Local-authority equity share.",
+          },
+        },
+      },
+    }),
+    {
+      schemeText:
+        "Example home\nStarter Home Purchase Scheme\nLocal-authority equity share.",
+    },
+  );
+  assert.deepEqual(
+    parseDaftListingDetails({
+      props: { pageProps: { listing: { title: "No description" } } },
+    }),
+    { schemeText: undefined },
+  );
+  assert.deepEqual(parseDaftListingDetails(null), {
+    schemeText: undefined,
+  });
+});
 
 test("parses unit findings and development fallbacks", () => {
   const result = parseDaftPage(payload, "https://www.daft.ie");

@@ -86,8 +86,9 @@ const program = Effect.gen(function* () {
   });
 
   yield* Effect.ensuring(
-    Effect.repeat(cycle, () =>
-      Schedule.spaced(`${config.polling.intervalSeconds} seconds`),
+    Effect.repeat(
+      cycle,
+      Schedule.cron(config.polling.cron, config.polling.timezone),
     ),
     Effect.all(
       [state.close(), Effect.sync(() => metrics.close())],
@@ -96,7 +97,19 @@ const program = Effect.gen(function* () {
   );
 });
 
-Effect.runPromise(program).catch((error) => {
+const waitForShutdownSignal = Effect.callback<void>((resume) => {
+  const onSignal = () => resume(Effect.void);
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
+  return Effect.sync(() => {
+    process.removeListener("SIGINT", onSignal);
+    process.removeListener("SIGTERM", onSignal);
+  });
+});
+
+Effect.runPromise(
+  Effect.raceFirst(program, waitForShutdownSignal),
+).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

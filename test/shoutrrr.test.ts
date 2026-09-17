@@ -19,6 +19,7 @@ const finding = {
   bedrooms: 3,
   bathrooms: 2,
   propertyType: "Terrace",
+  schemeText: "Private address details must remain in process memory",
   url: "https://www.daft.ie/new-home-for-sale/example/101",
 };
 
@@ -77,6 +78,7 @@ test("publishes a Shoutrrr message with its title and URL", async () => {
     ].join("\n"),
     timeoutMs: 5000,
   });
+  assert.equal(invocation?.message.includes("Private address details"), false);
 });
 
 test("formats notifications without optional unit fields", () => {

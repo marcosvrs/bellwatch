@@ -33,7 +33,7 @@ export const DAFT_SORTS = [
 export type DaftSort = (typeof DAFT_SORTS)[number];
 
 export interface DaftFilters {
-  readonly radiusKm: DaftRadiusKm;
+  readonly radiusKm?: DaftRadiusKm;
   readonly priceMinEur?: number;
   readonly priceMaxEur?: number;
   readonly bedsMin?: number;
@@ -44,11 +44,11 @@ export interface DaftFilters {
   readonly mediaTypes: readonly DaftMediaType[];
   readonly keyword?: string;
   readonly availability: DaftAvailability;
-  readonly addedInLastDays: DaftAddedInLastDays;
+  readonly addedInLastDays?: DaftAddedInLastDays;
   readonly openViewingsFrom?: string;
-  readonly sort: DaftSort;
+  readonly sort?: DaftSort;
 }
 
 export const addedInLastDateValue = (
-  days: DaftAddedInLastDays,
-): string | undefined => (days === 0 ? undefined : `now-${days}d/d`);
+  days: DaftAddedInLastDays | undefined,
+): string | undefined => (days === undefined || days === 0 ? undefined : `now-${days}d/d`);

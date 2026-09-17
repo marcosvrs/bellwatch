@@ -9,12 +9,16 @@ import { MonitorError, runOnce, writeHeartbeat } from "../src/monitor.js";
 import type { DaftFinding } from "../src/daft/parser.js";
 import type { StateStore } from "../src/state.js";
 
-const makeFinding = (id: string): DaftFinding => ({
+const makeFinding = (
+  id: string,
+  overrides: Partial<DaftFinding> = {},
+): DaftFinding => ({
   id,
   title: `Development ${id}`,
   developmentTitle: `Development ${id}`,
   priceText: "€315,000",
   url: `https://www.daft.ie/new-home-for-sale/example/${id}`,
+  ...overrides,
 });
 
 const makeState = (): StateStore => {
@@ -49,6 +53,16 @@ const payload = (findings: readonly DaftFinding[]) => ({
         },
       })),
       paging: { currentPage: 1, totalPages: 1 },
+    },
+  },
+});
+
+const detailPayload = (schemeText: string) => ({
+  props: {
+    pageProps: {
+      listing: {
+        description: schemeText,
+      },
     },
   },
 });
@@ -168,7 +182,6 @@ test("collects multiple Daft pages and deduplicates findings", async () => {
   };
   const multiPageConfig = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
-    DAFT_MAX_PAGES: "3",
     NOTIFY_EXISTING_ON_FIRST_RUN: "true",
   });
 
@@ -181,6 +194,36 @@ test("collects multiple Daft pages and deduplicates findings", async () => {
   assert.equal(new URL(urls[1]).searchParams.get("page"), "2");
 });
 
+
+test("honors an explicit maximum page limit", async () => {
+  const state = makeState();
+  const urls: string[] = [];
+  const firstPage = payload([makeFinding("403")]);
+  firstPage.props.pageProps.paging = {
+    currentPage: 1,
+    totalPages: 2,
+  };
+  const dependencies = {
+    fetchPage: (url: string) => {
+      urls.push(url);
+      return Effect.succeed(firstPage);
+    },
+    publish: () => Effect.void,
+    state,
+    heartbeat: () => Effect.void,
+  };
+  const cappedConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+
+  const result = await Effect.runPromise(runOnce(cappedConfig, dependencies));
+
+  assert.equal(result.pages, 1);
+  assert.equal(result.findings, 1);
+  assert.equal(urls.length, 1);
+});
 test("searches every configured location and deduplicates shared findings", async () => {
   const state = makeState();
   const sent: string[] = [];
@@ -218,10 +261,117 @@ test("searches every configured location and deduplicates shared findings", asyn
   assert.deepEqual(
     urls.map((url) => new URL(url).pathname),
     [
-      "/new-homes-for-sale/dublin-city-centre-dublin/houses",
-      "/new-homes-for-sale/navan-meath/houses",
+      "/new-homes-for-sale/dublin-city-centre-dublin",
+      "/new-homes-for-sale/navan-meath",
     ],
   );
+});
+
+test("applies exclusive SHPS filtering before state and notifications", async () => {
+  const state = makeState();
+  const sent: string[] = [];
+  const detailUrls: string[] = [];
+  const descriptions = new Map([
+    [
+      "601",
+      "This home is offered under the Starter Home Purchase Scheme. " +
+        "The local authority retains an equity share.",
+    ],
+    [
+      "602",
+      "This home is available under both the Help to Buy scheme and the " +
+        "Starter Home Purchase Scheme.",
+    ],
+    [
+      "603",
+      "This home is offered under the Starter Home Purchase Scheme. " +
+        "The upfront price is reduced by a local-authority equity share.",
+    ],
+  ]);
+  const dependencies = {
+    fetchPage: (url: string) => {
+      if (url.includes("/new-home-for-sale/example/")) {
+        detailUrls.push(url);
+        const id = url.split("/").at(-1);
+        const description = id ? descriptions.get(id) : undefined;
+        assert.ok(description);
+        return Effect.succeed(detailPayload(description));
+      }
+      return Effect.succeed(
+        payload([
+          makeFinding("601", { priceText: "€350,000" }),
+          makeFinding("602", { priceText: "€350,001" }),
+          makeFinding("603", { priceText: "Price unavailable" }),
+        ]),
+      );
+    },
+    publish: (finding: DaftFinding) =>
+      Effect.sync(() => {
+        sent.push(finding.id);
+      }),
+    state,
+    heartbeat: () => Effect.void,
+  };
+  const shpsConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    SHPS_FILTER: "only",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+
+  const result = await Effect.runPromise(runOnce(shpsConfig, dependencies));
+
+  assert.equal(result.findings, 2);
+  assert.equal(result.notified, 2);
+  assert.deepEqual(sent, ["601", "603"]);
+  assert.equal(detailUrls.length, 3);
+});
+
+test("excludes SHPS-only findings before state and notifications", async () => {
+  const state = makeState();
+  const sent: string[] = [];
+  const descriptions = new Map([
+    [
+      "701",
+      "This home is offered under the Starter Home Purchase Scheme. " +
+        "The local authority retains an equity share.",
+    ],
+    [
+      "702",
+      "This home is available under both the Help to Buy scheme and the " +
+        "Starter Home Purchase Scheme.",
+    ],
+    ["703", "This is a private new home with no named purchase scheme."],
+  ]);
+  const dependencies = {
+    fetchPage: (url: string) => {
+      if (url.includes("/new-home-for-sale/example/")) {
+        const id = url.split("/").at(-1);
+        const description = id ? descriptions.get(id) : undefined;
+        assert.ok(description);
+        return Effect.succeed(detailPayload(description));
+      }
+      return Effect.succeed(
+        payload([makeFinding("701"), makeFinding("702"), makeFinding("703")]),
+      );
+    },
+    publish: (finding: DaftFinding) =>
+      Effect.sync(() => {
+        sent.push(finding.id);
+      }),
+    state,
+    heartbeat: () => Effect.void,
+  };
+  const shpsConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    SHPS_FILTER: "exclude",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+
+  const result = await Effect.runPromise(runOnce(shpsConfig, dependencies));
+
+  assert.equal(result.findings, 2);
+  assert.equal(result.notified, 2);
+  assert.deepEqual(sent, ["702", "703"]);
 });
 
 test("wraps a Daft parsing failure with its cause", async () => {

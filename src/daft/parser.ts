@@ -7,6 +7,11 @@ export interface DaftFinding {
   readonly bathrooms?: number;
   readonly propertyType?: string;
   readonly url: string;
+  readonly schemeText?: string;
+}
+
+export interface DaftListingDetails {
+  readonly schemeText?: string;
 }
 
 interface DaftPageResult {
@@ -25,6 +30,26 @@ const asRecord = (value: unknown): JsonRecord | undefined =>
 const stringValue = (record: JsonRecord | undefined, key: string): string | undefined => {
   const value = record?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+};
+
+export const parseDaftListingDetails = (
+  payload: unknown,
+): DaftListingDetails => {
+  const root = asRecord(payload);
+  const props = asRecord(root?.props);
+  const pageProps = asRecord(props?.pageProps) ?? root ?? {};
+  const listing = asRecord(pageProps.listing);
+  const newHome = asRecord(listing?.newHome);
+  const description = stringValue(listing, "description");
+  if (description === undefined) return { schemeText: undefined };
+  const schemeText = [
+    stringValue(listing, "title"),
+    stringValue(newHome, "tagLine"),
+    description,
+  ]
+    .filter((value): value is string => value !== undefined)
+    .join("\n");
+  return { schemeText: schemeText || undefined };
 };
 
 const numberValue = (record: JsonRecord | undefined, key: string): number | undefined => {

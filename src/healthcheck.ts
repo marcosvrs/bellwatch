@@ -2,13 +2,10 @@ import { stat } from "node:fs/promises";
 
 const heartbeatFile = process.env.HEARTBEAT_FILE?.trim() || "/data/heartbeat";
 const configuredMaxAge = Number(process.env.HEALTHCHECK_MAX_AGE_SECONDS ?? "");
-const configuredPollInterval = Number(process.env.POLL_INTERVAL_SECONDS ?? "");
 const maxAgeSeconds =
   Number.isFinite(configuredMaxAge) && configuredMaxAge > 0
     ? configuredMaxAge
-    : Number.isFinite(configuredPollInterval) && configuredPollInterval > 0
-      ? Math.max(configuredPollInterval * 3, 300)
-      : 300;
+    : 86_400;
 
 try {
   const file = await stat(heartbeatFile);

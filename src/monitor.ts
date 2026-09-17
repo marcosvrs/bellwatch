@@ -3,7 +3,12 @@ import { dirname } from "node:path";
 import * as Effect from "effect/Effect";
 import type { MonitorConfig } from "./config.js";
 import { buildDaftSearchUrl } from "./daft/url.js";
-import { parseDaftPage, type DaftFinding } from "./daft/parser.js";
+import {
+  parseDaftListingDetails,
+  parseDaftPage,
+  type DaftFinding,
+} from "./daft/parser.js";
+import { filterShpsFindings } from "./daft/shps.js";
 import type { StateStore } from "./state.js";
 
 export class MonitorError extends Error {
@@ -29,6 +34,40 @@ interface MonitorStats {
   readonly seeded: number;
 }
 
+const hydrateShpsFindings = (
+  findings: readonly DaftFinding[],
+  dependencies: MonitorDependencies,
+): Effect.Effect<readonly DaftFinding[], Error> =>
+  Effect.gen(function* () {
+    const hydrated: DaftFinding[] = [];
+    for (const finding of findings) {
+      if (finding.schemeText !== undefined) {
+        hydrated.push(finding);
+        continue;
+      }
+      const payload = yield* Effect.mapError(
+        dependencies.fetchPage(finding.url),
+        (cause) =>
+          new MonitorError(`Could not fetch Daft listing ${finding.url}`, {
+            cause,
+          }),
+      );
+      const details = yield* Effect.try({
+        try: () => parseDaftListingDetails(payload),
+        catch: (cause) =>
+          new MonitorError(`Could not parse Daft listing ${finding.url}`, {
+            cause,
+          }),
+      });
+      hydrated.push(
+        details.schemeText === undefined
+          ? finding
+          : { ...finding, schemeText: details.schemeText },
+      );
+    }
+    return hydrated;
+  });
+
 const collectFindings = (
   config: MonitorConfig,
   dependencies: MonitorDependencies,
@@ -37,7 +76,11 @@ const collectFindings = (
     const byId = new Map<string, DaftFinding>();
     let pages = 0;
     for (const locationPath of config.daft.locationPaths) {
-      for (let page = 1; page <= config.daft.maxPages; page += 1) {
+      for (
+        let page = 1;
+        config.daft.maxPages === undefined || page <= config.daft.maxPages;
+        page += 1
+      ) {
         const url = buildDaftSearchUrl(
           {
             baseUrl: config.daft.baseUrl,
@@ -61,7 +104,12 @@ const collectFindings = (
         if (parsed.currentPage >= parsed.totalPages) break;
       }
     }
-    return { findings: [...byId.values()], pages };
+    const candidates =
+      config.shps.filter !== "off"
+        ? yield* hydrateShpsFindings([...byId.values()], dependencies)
+        : [...byId.values()];
+    const findings = filterShpsFindings(candidates, config.shps);
+    return { findings, pages };
   });
 
 const runPoll = (

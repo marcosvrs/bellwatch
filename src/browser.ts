@@ -6,7 +6,7 @@ import {
   type Page,
 } from "playwright-core";
 import type { MonitorConfig } from "./config.js";
-
+import { isRobotsAllowed } from "./daft/robots.js";
 class BrowserError extends Error {
   readonly _tag = "BrowserError";
 
@@ -35,6 +35,80 @@ interface BrowserSession {
 }
 
 let browserSession: BrowserSession | undefined;
+
+export const createDaftRequestGate = (
+  now: () => number = () => Date.now(),
+  sleep: (milliseconds: number) =>
+    Promise<void> = (milliseconds) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, milliseconds);
+      }),
+): ((minimumDelayMs: number) => Promise<void>) => {
+  let lastRequestAt: number | undefined;
+  return async (minimumDelayMs) => {
+    if (lastRequestAt !== undefined) {
+      const elapsedMs = now() - lastRequestAt;
+      const waitMs = Math.max(0, minimumDelayMs - elapsedMs);
+      if (waitMs > 0) await sleep(waitMs);
+    }
+    lastRequestAt = now();
+  };
+};
+
+const daftRequestGate = createDaftRequestGate();
+const ROBOTS_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
+
+interface RobotsCache {
+  readonly origin: string;
+  readonly fetchedAt: number;
+  readonly text: string;
+}
+
+let robotsCache: RobotsCache | undefined;
+
+const loadRobotsText = async (config: MonitorConfig): Promise<string> => {
+  const origin = new URL(config.daft.baseUrl).origin;
+  if (
+    robotsCache &&
+    robotsCache.origin === origin &&
+    Date.now() - robotsCache.fetchedAt < ROBOTS_CACHE_MAX_AGE_MS
+  ) {
+    return robotsCache.text;
+  }
+
+  await daftRequestGate(config.daft.requestDelayMs);
+  try {
+    const response = await fetch(new URL("/robots.txt", origin), {
+      signal: AbortSignal.timeout(config.browser.timeoutMs),
+    });
+    if (response.status !== 404 && !response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const text = response.status === 404 ? "" : (await response.text()).slice(0, 1_000_000);
+    robotsCache = { origin, fetchedAt: Date.now(), text };
+    return text;
+  } catch (cause) {
+    if (cause instanceof BrowserError) throw cause;
+    throw new BrowserError("Could not fetch Daft robots.txt", { cause });
+  }
+};
+
+const ensureDaftRobotsAllowed = async (
+  config: MonitorConfig,
+  url: string,
+): Promise<void> => {
+  const robotsText = await loadRobotsText(config);
+  if (
+    !isRobotsAllowed(
+      robotsText,
+      url,
+      config.browser.userAgent ?? "*",
+    )
+  ) {
+    throw new BrowserError(`Daft robots.txt disallows ${url}`);
+  }
+};
+
 
 const closeBrowserSession = async (session: BrowserSession): Promise<void> => {
   if (browserSession !== session) return;
@@ -114,6 +188,8 @@ export const fetchDaftPayload = (
       let page: Page | undefined;
       let succeeded = false;
       try {
+        await ensureDaftRobotsAllowed(config, url);
+        await daftRequestGate(config.daft.requestDelayMs);
         session = await getBrowserSession(config.browser);
         page = await session.context.newPage();
         page.setDefaultNavigationTimeout(config.browser.timeoutMs);

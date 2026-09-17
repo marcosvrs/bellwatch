@@ -1,145 +1,74 @@
 # Bellwatch
 
-Get a notification through Shoutrrr or Hermes when a new home matching your
-Daft.ie search appears.
-The monitor runs continuously in one container, remembers listings it has
-already reported, and sends only unseen findings.
+Bellwatch watches a Daft.ie new-homes search and sends a notification when a
+new matching listing appears. It keeps listing history in persistent storage,
+so restarts do not resend the same homes.
 
-It is a background service, not a website: there is no HTTP server, web UI, or
-dashboard. The container has no inbound port. It only needs outbound access to
-Daft.ie, your configured notification backend, and any optional external services
-you configure.
+It is a background container, not a website: there is no web UI or inbound
+application port. The container needs outbound access to Daft.ie, the selected
+notification service, and any optional browser or database service.
 
-## Contents
+> **Legal notice**
+>
+> Bellwatch is an independent, unofficial project. It is not affiliated with,
+> endorsed by, sponsored by, or authorized by Daft.ie, Daft Media Limited, or
+> their affiliates.
+>
+> Bellwatch is provided “as is”. To the fullest extent permitted by law, the
+> owner and contributors accept no responsibility or liability for how it is
+> used, for automated access to third-party services, for notification accuracy
+> or delivery, or for decisions made from its output. Users are solely
+> responsible for lawful use, permissions, third-party terms, credentials, rate
+> limits, privacy, and data protection. Review [Daft.ie’s current terms](https://www.daft.ie/legal/)
+> before running the application.
 
-- [What it does](#what-it-does)
-- [Useful ways to run it](#useful-ways-to-run-it)
-- [Requirements](#requirements)
-- [Quick start with Docker](#quick-start-with-docker)
-- [Docker Compose stack](#docker-compose-stack)
-- [Configure the search](#configure-the-search)
-- [Configure notifications and polling](#configure-notifications-and-polling)
-- [Use a different browser](#use-a-different-browser)
-- [Choose where state is stored](#choose-where-state-is-stored)
-- [Operate the container](#operate-the-container)
-- [Troubleshooting](#troubleshooting)
-- [Privacy and security](#privacy-and-security)
+## What you need
 
-## What it does
+- A Docker-compatible OCI runtime.
+- A notification backend:
+  - Shoutrrr URL, such as ntfy, Discord, Gotify, or Slack; or
+  - Hermes webhook URL, secret, and WhatsApp chat ID.
+- Persistent storage mounted at `/data`.
+- Optional: Postgres for shared/external state, or a Playwright/CDP endpoint.
 
-Each polling cycle the monitor:
+## Quick start: one container
 
-1. Builds the Daft New Homes search URL from your filters.
-2. Uses Playwright and Chromium to render one or more result pages.
-3. Extracts individual units when Daft provides unit data. If a development has
-   no unit data, it becomes one fallback finding.
-4. Removes duplicate findings across pages.
-5. Compares findings with persistent state.
-6. Publishes unseen findings through the configured notification backend and
-   marks them seen only after the notification service accepts the notification.
-7. Writes a heartbeat for the container healthcheck.
+This uses the published image and the Chromium bundled in it.
 
-A notification includes the listing title, price, bedrooms, bathrooms, property
-type, development, and a clickable Daft URL. Help to Buy or other scheme
-eligibility is not inferred from listing text.
+### 1. Create an environment file
 
-On the first successful poll, existing results are seeded silently by default.
-Set `NOTIFY_EXISTING_ON_FIRST_RUN=true` when the current results should be sent
-immediately instead.
-
-## Useful ways to run it
-
-- **Personal home alerts:** monitor one search on a home server or Mac and
-  receive new-listing notifications through your configured service.
-- **Different searches:** run separate containers, each with its own env file,
-  state volume, and notification backend configuration. This keeps searches and
-  notification independent.
-- **Existing browser infrastructure:** connect to a Playwright/CDP browser
-  service instead of launching Chromium in this container.
-- **Durable external state:** use Postgres when listing history must live
-  outside the container; a single monitor can use the default SQLite volume.
-- **Remote Docker host:** run the same published image on a home server, VPS,
-  or managed Docker host with its own persistent `/data` volume.
-
-## Requirements
-
-- A notification backend: either a Shoutrrr service URL, such as ntfy, Discord,
-  Gotify, or Slack, or a Hermes webhook URL, secret, and WhatsApp chat ID.
-- A Docker Engine or compatible OCI runtime. The production examples below use
-  Docker.
-- Outbound HTTPS access to Daft.ie and network access to the configured
-  notification backend.
-- A persistent container volume mounted at `/data`.
-- Optional: a Postgres database or external Playwright/CDP endpoint when you
-  need them.
-
-## Quick start with Docker
-
-This is the normal production setup. The maintained image is published to
-GitHub Container Registry, so users pull it instead of building the repository.
-The image includes Chromium and declares `/data` as its persistent volume.
-
-The first pull needs access to `ghcr.io`. Runtime access to Daft and the
-configured notification service is also required. If the package is private,
-authenticate Docker to GitHub Container Registry before pulling it.
-
-### 1. Create the notification configuration
-
-Create an env file outside the repository. Keep it private because it may
-contain notification credentials, a Shoutrrr service URL, or database credentials.
+Keep this file private. It contains notification credentials.
 
 ```bash
 umask 077
 mkdir -p "$HOME/.config/bellwatch"
 cat > "$HOME/.config/bellwatch/monitor.env" <<'EOF'
-# Default backend: Shoutrrr with the public ntfy service.
 NOTIFICATION_BACKEND=shoutrrr
-SHOUTRRR_URL=ntfy://ntfy.sh/replace-with-a-long-random-topic
+SHOUTRRR_URL=ntfy://ntfy.sh/replace-with-a-random-topic
 
-# Hermes alternative:
-# NOTIFICATION_BACKEND=hermes
-# HERMES_WEBHOOK_URL=http://hermes:8644/webhooks/ha-notify
-# HERMES_WEBHOOK_SECRET=replace-with-the-Hermes-webhook-secret
-# HERMES_CHAT_ID=replace-with-the-WhatsApp-chat-id
-
-# Optional: put service credentials in the Shoutrrr URL when required.
-# SHOUTRRR_TITLE_PREFIX=Bellwatch new home
-
-# Optional overrides. Omit these to use the parser defaults.
+# Optional search, request pacing, and schedule overrides:
 # DAFT_LOCATION_PATH=galway-city
 # DAFT_PRICE_MAX_EUR=450000
-# DAFT_BEDS_MIN=2
-# POLL_INTERVAL_SECONDS=1800
-EOF
+# DAFT_REQUEST_DELAY_MS=1000
+# TZ=Europe/Dublin
+# POLL_CRON=0 */8 * * *
 ```
 
-`NOTIFICATION_BACKEND=shoutrrr` uses the configured Shoutrrr service URL. For
-direct Hermes WhatsApp delivery, set `NOTIFICATION_BACKEND=hermes` and provide
-the `HERMES_*` variables documented below.
+For Hermes instead, use:
 
-### 2. Pull the published image
+```dotenv
+NOTIFICATION_BACKEND=hermes
+HERMES_WEBHOOK_URL=http://hermes:8644/webhooks/ha-notify
+HERMES_WEBHOOK_SECRET=replace-with-the-webhook-secret
+HERMES_CHAT_ID=replace-with-the-WhatsApp-chat-id
+```
+
+### 2. Pull and start the container
 
 ```bash
 IMAGE=ghcr.io/marcosvrs/bellwatch:latest
 docker pull "$IMAGE"
-```
-
-The image runs as the non-root `pwuser`, exposes no application port, and
-contains the precompiled native Node.js application, pinned Playwright/Chromium
-runtime, and Shoutrrr CLI. TypeScript and test tooling are build/test-only and
-are not included in the production image.
-
-### 3. Create storage and start the monitor
-
-Create the named volume once:
-
-```bash
 docker volume create bellwatch-data
-```
-
-Start the monitor:
-
-```bash
 docker run --detach \
   --name bellwatch \
   --restart unless-stopped \
@@ -148,378 +77,235 @@ docker run --detach \
   "$IMAGE"
 ```
 
-The monitor starts polling with the default search immediately. The first poll
-can take up to the browser timeout plus the Daft response time.
-
-### 4. Confirm that it is running
+### 3. Check the container
 
 ```bash
 docker ps --filter name=bellwatch
 docker logs --follow bellwatch
 ```
 
-A successful cycle logs the number of pages, findings, notifications, and
-first-run seedings, plus low-overhead Node.js runtime metrics: RSS and heap
-memory, CPU time, event-loop utilization, and garbage-collection counts and
-duration. These metrics cover the Bellwatch Node.js process; local Chromium
-and external Browserless resources must be measured at the container/service
-level. The image healthcheck runs automatically against the heartbeat file:
+A healthy container has a recent heartbeat. The image healthcheck runs
+automatically; run it manually with:
 
 ```bash
 docker exec bellwatch node dist/healthcheck.js
 ```
 
-### Updating the image
+## Docker Compose
 
-The `/data` volume contains the seen-listing state. Keep it when updating the
-image:
+The included [`docker-compose.yml`](docker-compose.yml) starts:
 
-```bash
-IMAGE=ghcr.io/marcosvrs/bellwatch:latest
-docker pull "$IMAGE"
-docker stop bellwatch
-docker rm bellwatch
-docker run --detach \
-  --name bellwatch \
-  --restart unless-stopped \
-  --env-file "$HOME/.config/bellwatch/monitor.env" \
-  --volume bellwatch-data:/data \
-  "$IMAGE"
-```
+- Bellwatch;
+- Postgres for listing history; and
+- Browserless Chromium for the monitor's browser connection.
 
-Do not delete `bellwatch-data` unless you intentionally want the next
-run to treat every current listing as unseen. Docker will restart the container
-after a Docker Engine or host restart because of `--restart unless-stopped`.
-
-## Docker Compose stack
-
-Use the included [`docker-compose.yml`](docker-compose.yml) when you want the
-monitor and its optional external services in one Docker network. It starts:
-
-- the published `bellwatch` image;
-- Postgres for persistent listing state; and
-- Browserless Chromium for external Playwright/CDP connections.
-
-The monitor container is configured automatically with:
-
-```text
-SHOUTRRR_URL=ntfy://ntfy.sh/bellwatch
-DATABASE_URL=postgresql://...@postgres:5432/daft
-PLAYWRIGHT_WS_ENDPOINT=ws://browserless:3000?token=...
-BROWSER_TIMEOUT_MS=120000
-DAFT_ADDED_IN_LAST_DAYS=1
-DAFT_SORT=publishDateDesc
-```
-
-`BROWSER_MODE` is intentionally omitted here. Its default is `auto`, which
-selects the external Browserless endpoint when `PLAYWRIGHT_WS_ENDPOINT` is set.
-
-Copy the environment template, replace both placeholder secrets, and start the
-stack:
+Use it when you want those services managed together. It does not use the
+image's bundled Chromium.
 
 ```bash
 cp .env.example .env
-chmod 600 .env
-# Edit .env and replace POSTGRES_PASSWORD and BROWSERLESS_TOKEN.
-
+# Set POSTGRES_PASSWORD and BROWSERLESS_TOKEN in .env.
+# Set SHOUTRRR_URL, or configure the HERMES_* variables.
 docker compose pull
 docker compose up --detach
-docker compose ps
 docker compose logs --follow bellwatch
 ```
 
-The GHCR package must be public for unauthenticated pulls. If it is private,
-authenticate first:
+The Compose stack keeps Postgres data in a named volume. `docker compose down`
+keeps the volumes; do not add `--volumes` unless you want to delete listing
+history.
 
-```bash
-echo "$GITHUB_TOKEN" | docker login ghcr.io --username YOUR_GITHUB_USER --password-stdin
-```
-
-The host exposes the Browserless debugger at `http://127.0.0.1:3000` by default.
-Postgres is reachable only inside the Compose network.
-
-`docker compose down` stops the services but keeps named volumes. Do not use
-`docker compose down --volumes` unless you intentionally want to delete the
-Postgres and listing-history data.
-
-To change a non-secret stack default, edit and uncomment the corresponding
-entry in `docker-compose.yml`. Edit `.env` for the required secrets, then
-recreate the monitor:
-
-```bash
-docker compose up --detach --force-recreate bellwatch
-```
-
-The Compose stack intentionally runs Browserless as a separate external
-browser. Use the standalone `docker run` setup above when you want the image's
-bundled Chromium instead.
-
-## Configure the search
+## Defaults and expected behavior
 
 The default search is:
 
-- Daft **New Homes for sale**;
-- one or more Daft location paths, defaulting to Dublin City Centre (`dublin-city-centre-dublin`) within 20 km;
-- houses with at least 3 bedrooms;
+- Daft's `new-homes-for-sale` section;
+- Dublin City Centre (`dublin-city-centre-dublin`);
+- all property types, bedroom counts, and radius distances;
 - maximum price €499,999;
-- price ascending;
-- one result page per location;
-- silent seeding of existing results on the first successful poll.
+- published listings; and
+- all result pages.
 
-Set variables in the env file and recreate the container after changing them.
-Comma-separated values are trimmed and de-duplicated.
+Results from multiple locations are combined and de-duplicated. Configuration
+is validated before polling starts; an invalid value stops the container with a
+configuration error.
+The first poll runs immediately. Existing results are seeded silently unless
+`NOTIFY_EXISTING_ON_FIRST_RUN=true`.
 
-### Search filters
+Notifications contain the listing title, price, bedrooms, bathrooms, property
+type, development, and Daft URL. A listing is marked seen only after the
+notification service accepts it. If delivery fails, it can be sent again on a
+later poll. The persistent state stores only listing IDs and first/last-seen
+timestamps; listing descriptions, images, advertiser details, and page content
+are not stored. IDs and timestamps remain until the state file or database is
+deleted; this is the minimum history needed to suppress duplicate alerts.
 
-| Purpose | Variable | Accepted values | Default |
+## Configuration
+
+Put variables in the env file passed to the container. Recreate the container
+after changing them.
+
+### Notifications
+
+| Variable | Default | Required when | Result |
 | --- | --- | --- | --- |
-| Daft locations | `DAFT_LOCATION_PATH` | Comma-separated Daft URL paths/slugs, each without a leading slash, query, fragment, or spaces | `dublin-city-centre-dublin` |
-| Search section | `DAFT_SECTION_PATH` | Daft URL path | `new-homes-for-sale` |
-| Radius | `DAFT_RADIUS_KM` | `0`, `1`, `3`, `5`, `10`, `20` | `20` |
-| Minimum price | `DAFT_PRICE_MIN_EUR` | Non-negative euro amount | unset |
-| Maximum price | `DAFT_PRICE_MAX_EUR` | Non-negative euro amount | `499999` |
-| Minimum bedrooms | `DAFT_BEDS_MIN` | Integer `0`–`15` | `3` |
-| Maximum bedrooms | `DAFT_BEDS_MAX` | Integer `0`–`15` | unset |
-| Property types | `DAFT_PROPERTY_TYPES` | `houses`, `detached-houses`, `semi-detached-houses`, `terraced-houses`, `end-of-terrace-houses`, `townhouses`, `apartments`, `studio-apartments`, `duplexes`, `bungalows`, or `any` | `houses` |
-| Minimum bathrooms | `DAFT_BATHS_MIN` | Integer `1`–`5` | unset |
-| Maximum bathrooms | `DAFT_BATHS_MAX` | Integer `1`–`5` | unset |
-| Media | `DAFT_MEDIA_TYPES` | `video`, `virtual-tour`, or `any` | `any` |
-| Keyword/address | `DAFT_KEYWORD` | Up to 50 characters | unset |
-| Availability | `DAFT_AVAILABILITY` | `published` or `sale-agreed` | `published` |
-| Added recently | `DAFT_ADDED_IN_LAST_DAYS` | `0`, `1`, `3`, `7`, `14`, or `30` | `0` (any time) |
-| Open viewings from | `DAFT_OPEN_VIEWINGS_FROM` | Real date in `YYYY-MM-DD` format | unset |
-| Sort order | `DAFT_SORT` | `bestMatch`, `publishDateDesc`, `priceAsc`, `priceDesc` | `priceAsc` |
-| Pages per poll | `DAFT_MAX_PAGES` | Integer `1`–`20` | `1` |
+| `NOTIFICATION_BACKEND` | `shoutrrr` | — | Selects `shoutrrr` or `hermes`. |
+| `SHOUTRRR_URL` | — | Backend is `shoutrrr` | Complete Shoutrrr service URL. |
+| `HERMES_WEBHOOK_URL` | — | Backend is `hermes` | Hermes webhook endpoint. |
+| `HERMES_WEBHOOK_SECRET` | — | Backend is `hermes` | Signs Hermes requests. |
+| `HERMES_CHAT_ID` | — | Backend is `hermes` | WhatsApp chat or group ID. |
+| `SHOUTRRR_BINARY` | `shoutrrr` | — | Shoutrrr executable or command. |
+| `SHOUTRRR_TITLE_PREFIX` | `Bellwatch new home` | — | Notification title prefix where supported. |
+| `SHOUTRRR_TIMEOUT_MS` | `15000` | — | Shoutrrr timeout; `1000`–`120000`. |
+| `HERMES_TIMEOUT_MS` | `20000` | — | Hermes timeout per attempt; `1000`–`120000`. |
 
-Use `any` by itself for `DAFT_PROPERTY_TYPES` or `DAFT_MEDIA_TYPES`; do not
-combine it with specific values. For property types, one specific value is
-encoded in the Daft path and multiple values are sent as repeated query
-parameters.
+### Search
 
-`DAFT_LOCATION_PATH` can contain multiple locations. Bellwatch applies the
-same filters to each location, combines the results, and de-duplicates
-listings by Daft listing ID. `DAFT_MAX_PAGES` is the maximum number of pages
-fetched for each location.
+| Variable | Default | Accepted values / result |
+| --- | --- | --- |
+| `DAFT_LOCATION_PATH` | `dublin-city-centre-dublin` | Comma-separated Daft paths. Results are merged and de-duplicated. |
+| `DAFT_SECTION_PATH` | `new-homes-for-sale` | Daft search section. |
+| `DAFT_BASE_URL` | `https://www.daft.ie` | Alternate Daft-compatible origin; mainly useful for testing. |
+| `DAFT_PRICE_MIN_EUR` | unset | Non-negative euro amount. |
+| `DAFT_PRICE_MAX_EUR` | `499999` | Non-negative euro amount. |
+| `DAFT_BEDS_MIN`, `DAFT_BEDS_MAX` | unset | Integer `0`–`15`. |
+| `DAFT_BATHS_MIN`, `DAFT_BATHS_MAX` | unset | Integer `1`–`5`. |
+| `DAFT_RADIUS_KM` | unset | `0`, `1`, `3`, `5`, `10`, or `20`; unset means no radius restriction. |
+| `DAFT_PROPERTY_TYPES` | unset | Comma-separated Daft types, or `any`; unset means all types. |
+| `DAFT_MEDIA_TYPES` | unset | `video`, `virtual-tour`, or `any`; unset means any. |
+| `DAFT_KEYWORD` | unset | Keyword or address, up to 50 characters. |
+| `DAFT_AVAILABILITY` | `published` | `published` or `sale-agreed`. |
+| `DAFT_ADDED_IN_LAST_DAYS` | unset | `0`, `1`, `3`, `7`, `14`, or `30`; unset means any age. |
+| `DAFT_OPEN_VIEWINGS_FROM` | unset | Date in `YYYY-MM-DD` format. |
+| `DAFT_SORT` | Daft default | `bestMatch`, `publishDateDesc`, `priceAsc`, or `priceDesc`. |
+| `DAFT_MAX_PAGES` | unset | Integer `1`–`20`; unset means all result pages. |
+| `DAFT_REQUEST_DELAY_MS` | `1000` | Minimum milliseconds between browser navigations to Daft; `1000`–`60000`. |
 
-Examples:
+Requests matching a `robots.txt` disallow rule fail rather than being
+rewritten to evade it.
 
-```dotenv
-DAFT_LOCATION_PATH=drogheda-louth,navan-meath,dublin-city-centre-dublin
-DAFT_RADIUS_KM=10
-DAFT_PRICE_MIN_EUR=250000
-DAFT_PRICE_MAX_EUR=450000
-DAFT_BEDS_MIN=2
-DAFT_PROPERTY_TYPES=houses,apartments
-DAFT_KEYWORD=near university
-DAFT_ADDED_IN_LAST_DAYS=7
-DAFT_SORT=publishDateDesc
-DAFT_MAX_PAGES=3
-```
+Property types accept `houses`, `detached-houses`, `semi-detached-houses`,
+`terraced-houses`, `end-of-terrace-houses`, `townhouses`, `apartments`,
+`studio-apartments`, `duplexes`, `bungalows`, or `any`. Use `any` alone; do
+not combine it with specific values.
 
-The monitor rejects invalid values at startup, including reversed min/max
-ranges, invalid dates, unsupported filter choices, and malformed URLs.
+### SHPS filtering
 
-### Advanced Daft URL settings
+`SHPS_FILTER` is optional and defaults to `off`.
 
-| Variable | Purpose |
+| Value | Result |
 | --- | --- |
-| `DAFT_BASE_URL` | Daft origin. Defaults to `https://www.daft.ie`; useful for controlled tests or a compatible origin. |
-| `DAFT_SECTION_PATH` | Search route. Defaults to `new-homes-for-sale`. |
-| `DAFT_MAX_PAGES` | Maximum pages fetched per poll. The monitor stops earlier when Daft reports that there are no more pages. |
+| `off` | Keep all matching listings. |
+| `only` | Keep listings with proven SHPS-only evidence; uncertain listings are removed. |
+| `exclude` | Remove only listings proven to be SHPS-only; keep uncertain listings. |
 
-## Configure notifications and polling
+`only` and `exclude` fetch each listing's detail page. This is a text filter,
+not a legal eligibility check; verify eligibility with the relevant scheme and
+local authority.
 
-| Variable | Purpose | Default |
+### Polling
+
+| Variable | Default | Result |
 | --- | --- | --- |
-| `NOTIFICATION_BACKEND` | `shoutrrr` or `hermes` | `shoutrrr` |
-| `SHOUTRRR_URL` | Complete Shoutrrr service URL when using `shoutrrr` | Required for `shoutrrr` |
-| `SHOUTRRR_BINARY` | Shoutrrr executable path or command | `shoutrrr` |
-| `SHOUTRRR_TITLE_PREFIX` | Notification title prefix for services that support titles | `Bellwatch new home` |
-| `SHOUTRRR_TIMEOUT_MS` | Shoutrrr notification timeout, from 1,000 to 120,000 ms | `15000` |
-| `HERMES_WEBHOOK_URL` | Hermes webhook endpoint, normally `/webhooks/ha-notify` | Required for `hermes` |
-| `HERMES_WEBHOOK_SECRET` | Secret used to sign Hermes webhook requests | Required for `hermes` |
-| `HERMES_CHAT_ID` | Raw WhatsApp chat or group ID; do not base64-encode it | Required for `hermes` |
-| `HERMES_TIMEOUT_MS` | Hermes request timeout per attempt, from 1,000 to 120,000 ms | `20000` |
-| `POLL_INTERVAL_SECONDS` | Delay between completed polls, from 1 to 86,400 seconds | `900` |
-| `NOTIFY_EXISTING_ON_FIRST_RUN` | Send the current results on first run instead of silently seeding them | `false` |
+| `POLL_CRON` | `0 */8 * * *` | Polls at `00:00`, `08:00`, and `16:00`. Five- or six-field crontab syntax is accepted. |
+| `TZ` | Detected runtime timezone | Timezone used for `POLL_CRON`. Direct host runs detect the host timezone. Containers need `TZ` passed explicitly if they should use the host timezone. |
+| `NOTIFY_EXISTING_ON_FIRST_RUN` | `false` | Sends current results on the first poll instead of silently seeding them. |
 
-Hermes requests use the `X-Webhook-Timestamp` and
-`X-Webhook-Signature-V2` headers required by the Hermes webhook. HTTP 5xx and
-network failures are retried twice; client errors are not retried.
+### Browser
 
-A failed notification does not mark a finding as seen. It is retried on a
-later poll. Multiple new findings can be sent during the same poll.
+The default `auto` mode uses an external endpoint when
+`PLAYWRIGHT_WS_ENDPOINT` is set; otherwise it launches bundled Chromium.
 
-## Use a different browser
-
-The normal container uses the bundled headless Chromium. Set `BROWSER_MODE`
-and related variables only when you need a different browser arrangement.
-
-| Variable | Purpose | Default |
+| Variable | Default | Dependency / result |
 | --- | --- | --- |
-| `BROWSER_MODE` | `auto`, `local`, or `external` | `auto` |
-| `PLAYWRIGHT_WS_ENDPOINT` | Playwright/CDP WebSocket endpoint using `ws://` or `wss://` | unset |
-| `CHROMIUM_EXECUTABLE_PATH` | Local Chromium executable path | unset; uses the bundled browser |
-| `CHROMIUM_HEADLESS` | Run local Chromium headless | `true` |
-| `CHROMIUM_NO_SANDBOX` | Disable the Chromium sandbox when the host requires it | `false` |
-| `BROWSER_TIMEOUT_MS` | Browser connection and navigation timeout, from 1,000 to 300,000 ms | `60000` |
-| `BROWSER_USER_AGENT` | Optional browser user-agent string | unset |
+| `BROWSER_MODE` | `auto` | `auto`, `local`, or `external`. |
+| `PLAYWRIGHT_WS_ENDPOINT` | unset | Required for `external`; must be `ws://` or `wss://`. |
+| `CHROMIUM_EXECUTABLE_PATH` | bundled browser | Overrides the local Chromium executable. |
+| `CHROMIUM_HEADLESS` | `true` | Controls local Chromium headless mode. |
+| `CHROMIUM_NO_SANDBOX` | `false` | Use only when the runtime cannot use Chromium's sandbox. |
+| `BROWSER_TIMEOUT_MS` | `60000` | Browser/navigation timeout; `1000`–`300000`. |
+| `BROWSER_USER_AGENT` | unset | Optional browser user-agent string. |
 
-Mode behavior:
+### State and health
 
-- `auto` connects to `PLAYWRIGHT_WS_ENDPOINT` when it is set; otherwise it
-  launches local Chromium.
-- `local` always launches Chromium in the monitor container. Use
-  `CHROMIUM_EXECUTABLE_PATH` only when the bundled executable is not suitable.
-- `external` requires `PLAYWRIGHT_WS_ENDPOINT` and connects using Playwright's
-  CDP API.
-
-When `BROWSER_MODE=auto` (the default), setting
-`PLAYWRIGHT_WS_ENDPOINT` is enough to select the external browser. Set
-`BROWSER_MODE=external` only when you want startup to fail if the endpoint is
-missing.
-
-Example for a browser service on the same container network:
-
-```dotenv
-PLAYWRIGHT_WS_ENDPOINT=ws://browser-sockpuppet-chrome:3000/?--window-size=1920,1080
-```
-
-Example for a browser service published on a reachable host:
-
-```dotenv
-PLAYWRIGHT_WS_ENDPOINT=ws://192.168.50.106:3000
-```
-
-When both services run as Docker containers, attach the monitor to the browser
-service's network by adding `--network <network-name>` to the `docker run`
-command. Use `docker network ls` to find the network.
-
-The monitor must be able to resolve and reach the endpoint from inside its
-container. `CHROMIUM_NO_SANDBOX=true` reduces browser isolation and should only
-be used when the runtime cannot launch Chromium with its sandbox.
-
-## Choose where state is stored
-
-The monitor stores two kinds of state: whether it has initialized, and which
-listing IDs it has already reported.
-
-| Variable | Purpose | Default |
+| Variable | Default | Dependency / result |
 | --- | --- | --- |
-| `STATE_FILE` | SQLite state file when Postgres is not configured | `/data/state.sqlite` |
-| `DATABASE_URL` | Optional `postgres://` or `postgresql://` state backend | unset |
-| `HEARTBEAT_FILE` | File updated after a successful poll | `/data/heartbeat` |
-| `HEALTHCHECK_MAX_AGE_SECONDS` | Maximum heartbeat age before healthcheck failure | derived from polling interval, minimum 300 seconds |
+| `STATE_FILE` | `/data/state.sqlite` | Used when `DATABASE_URL` is unset. Keep `/data` persistent. |
+| `DATABASE_URL` | unset | Optional Postgres state backend. Compose sets this automatically. |
+| `HEARTBEAT_FILE` | `/data/heartbeat` | Successful polls update this file. |
+| `HEALTHCHECK_MAX_AGE_SECONDS` | `86400` | Maximum heartbeat age. Increase it for sparse cron schedules. |
 
-### SQLite (recommended for one container)
+## Operate and update
 
-SQLite is the default and requires no extra service. Mount `/data` to a named
-volume, as shown in the quick start. Losing that volume resets the seen-listing
-history.
-
-### Postgres (external state)
-
-Set `DATABASE_URL` when state must be shared across deployments or stored
-outside the container. The monitor creates its required tables automatically.
-The database must be reachable from the monitor container.
-
-## Operate the container
-
-### View status and logs
-
-```bash
-docker ps --filter name=bellwatch
-docker inspect bellwatch
-docker logs --follow bellwatch
-```
-
-The monitor logs configuration failures at startup and a summary after each
-completed poll. It does not expose a metrics or admin endpoint.
-
-### Run the healthcheck manually
-
-```bash
-docker exec bellwatch node dist/healthcheck.js
-```
-
-The image healthcheck uses the same command every 60 seconds. It allows a
-120-second startup period and fails when the heartbeat is older than
-`HEALTHCHECK_MAX_AGE_SECONDS`, or its derived value of at least five minutes.
-
-### Stop, start, and remove
+Stop and start without losing state:
 
 ```bash
 docker stop bellwatch
 docker start bellwatch
 ```
 
-To remove only the container while keeping state:
+The process handles `SIGINT` and `SIGTERM`, stops polling, and closes its
+persistent state before exiting.
+
+Replace the container while keeping the volume:
 
 ```bash
 docker stop bellwatch
 docker rm bellwatch
+docker pull ghcr.io/marcosvrs/bellwatch:latest
+docker run --detach \
+  --name bellwatch \
+  --restart unless-stopped \
+  --env-file "$HOME/.config/bellwatch/monitor.env" \
+  --volume bellwatch-data:/data \
+  ghcr.io/marcosvrs/bellwatch:latest
 ```
 
-To reset all seen-listing history, delete the named volume only after stopping
-the container:
+Delete `bellwatch-data` only when you intentionally want all current listings
+treated as new:
 
 ```bash
 docker volume rm bellwatch-data
 ```
 
-The exact delete command is intentionally destructive. Create a new volume
-instead when testing a different search without affecting the production
-history.
-
 ## Troubleshooting
 
-### The container starts but sends no notification
-
-1. Check `docker logs bellwatch` for configuration or browser
-   errors.
-2. Confirm the selected notification backend is configured correctly. For
-   Shoutrrr, validate `SHOUTRRR_URL`; for Hermes, validate
-   `HERMES_WEBHOOK_URL`, `HERMES_WEBHOOK_SECRET`, and `HERMES_CHAT_ID`.
-3. Remember that the first successful poll seeds existing results silently
-   unless `NOTIFY_EXISTING_ON_FIRST_RUN=true`.
-4. Confirm the search filters still return results on Daft.ie.
-
-### The container is unhealthy
-
-- Wait through the 120-second startup period.
-- Run the healthcheck manually and inspect the heartbeat path.
-- Confirm `/data` is writable and the state volume is mounted.
-- If polling takes longer than expected, increase `HEALTHCHECK_MAX_AGE_SECONDS`
-  or reduce the number of pages.
-
-### Browser connection errors
-
-- For bundled Chromium, leave `BROWSER_MODE=auto` and remove an obsolete
-  `PLAYWRIGHT_WS_ENDPOINT`.
-- For an external browser, use `BROWSER_MODE=external`, a `ws://` or `wss://`
-  endpoint, and a hostname reachable from inside the monitor container.
-- Use `CHROMIUM_NO_SANDBOX=true` only when the runtime requires it.
-
-### Notifications are duplicated
-
-Keep the `/data` volume across restarts. A single monitor container does not
-need a distributed lease. If using external Postgres, keep the database
-available so listing history remains durable.
-
-### Startup rejects an environment variable
-
-Configuration is validated before polling starts. Check allowed values, integer
-ranges, min/max ordering, date format (`YYYY-MM-DD`), URL schemes, and the
-`any` rules for property and media types.
+- **No notification:** the first poll is silent by default; check the backend
+  variables and `docker logs bellwatch`.
+- **Unhealthy container:** confirm `/data` is writable and persistent. Raise
+  `HEALTHCHECK_MAX_AGE_SECONDS` if the cron schedule is less frequent than the
+  default.
+- **Browser connection error:** remove an obsolete endpoint for bundled
+  Chromium, or make the external `ws://`/`wss://` endpoint reachable from the
+  monitor container.
+- **Duplicate notifications after restart:** restore the original `/data`
+  volume or Postgres database.
+- **Startup configuration error:** check the variable's accepted values and
+  dependency requirements above.
 
 ## Privacy and security
 
-- The monitor reads public Daft listing pages and sends selected listing data
-  and the Daft link to your configured notification backend.
-- Listing IDs and timestamps are stored in SQLite or Postgres so notifications
-  are not repeated.
-- Shoutrrr, Hermes, Postgres, and browser credentials are supplied through
-  environment variables. Keep env files, webhook secrets, and notification
-  URLs private.
-- The container exposes no inbound application port. External services must be
-  reachable from the container's network.
+Bellwatch reads public Daft.ie pages and sends listing details and URLs to your
+selected notification backend. Credentials, webhook secrets, service URLs, and
+listing history should be treated as private. It fetches and applies the
+target origin's `robots.txt` rules, fails closed if that policy cannot be
+retrieved, and paces browser navigations by at least one second by default.
+Bellwatch does not log in to Daft.ie, bypass access controls, solve CAPTCHAs,
+or use a proxy to evade blocking. Request pacing or robots compliance does
+not grant permission to automate access; review the current third-party terms
+before running it.
+
+## Contact and removal requests
+
+For non-sensitive bugs, compliance questions, or removal requests, use the
+[repository issue tracker](https://github.com/marcosvrs/bellwatch/issues).
+Do not include credentials, personal data, or private listing information in a
+public issue. For sensitive requests, contact the repository owner through
+their [GitHub profile](https://github.com/marcosvrs) instead.
+
+## License
+
+Bellwatch is released under [MIT-0](LICENSE). This license applies only to
+Bellwatch; it does not grant rights to Daft.ie, its content, or any other
+third-party service. Direct runtime dependency notices are in
+[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES); their licenses remain separate.
