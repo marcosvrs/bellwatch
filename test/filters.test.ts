@@ -238,6 +238,13 @@ test("parses optional resource settings and rejects malformed environment values
     lockKey: "test-lock",
     lockTtlMs: 60_000,
   });
+  assert.equal(
+    parseEnvironment({
+      NTFY_URL: "https://ntfy.example/daft",
+      REDIS_URL: "redis://redis.example",
+    }).redis?.lockKey,
+    "bellwatch:monitor",
+  );
   assert.deepEqual(configured.ntfy.tags, ["house", "new-home"]);
   assert.equal(configured.polling.notifyExistingOnFirstRun, true);
 
