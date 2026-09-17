@@ -51,6 +51,7 @@
     "@effect/vitest": "4.0.0-rc.112",
     "alchemy": {
       "@prisma/dev": "0.25.2"
-    }
+    },
+    "qs": "6.16.0"
   }
 }
