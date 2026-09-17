@@ -234,10 +234,9 @@ monitor:
 docker compose up --detach --force-recreate daft-house-search
 ```
 
-The Compose stack uses the external browser arrangement described in
-[Use a different browser](#use-a-different-browser). To use the image's bundled
-Chromium instead, set `BROWSER_MODE=local` and remove
-`PLAYWRIGHT_WS_ENDPOINT` from `.env`.
+The Compose stack intentionally runs Browserless as a separate external
+browser. Use the standalone `docker run` setup above when you want the image's
+bundled Chromium instead.
 
 ## Configure the search
 
