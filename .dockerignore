@@ -1,5 +1,6 @@
 .git
 .alchemy
+.cache
 .env
 .env.*
 node_modules

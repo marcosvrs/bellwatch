@@ -125,7 +125,9 @@ docker pull "$IMAGE"
 ```
 
 The image runs as the non-root `pwuser`, exposes no application port, and
-contains the pinned Playwright/Chromium runtime and Shoutrrr CLI.
+contains the precompiled native Node.js application, pinned Playwright/Chromium
+runtime, and Shoutrrr CLI. TypeScript and `tsx` are build/test-only and are not
+included in the production image.
 
 ### 3. Create storage and start the monitor
 

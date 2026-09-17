@@ -1,5 +1,10 @@
 import * as Effect from "effect/Effect";
-import { chromium, type Browser } from "playwright";
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from "playwright-core";
 import type { MonitorConfig } from "./config.js";
 
 export class BrowserError extends Error {
@@ -20,6 +25,36 @@ export const resolveBrowserStrategy = (
   (browser.mode === "auto" && browser.externalEndpoint)
     ? "external"
     : "local";
+
+const BROWSER_IDLE_CLOSE_MS = 30_000;
+
+interface BrowserSession {
+  readonly browser: Browser;
+  readonly context: BrowserContext;
+  closeTimer?: ReturnType<typeof setTimeout>;
+}
+
+let browserSession: BrowserSession | undefined;
+
+const closeBrowserSession = async (session: BrowserSession): Promise<void> => {
+  if (browserSession !== session) return;
+  browserSession = undefined;
+  clearTimeout(session.closeTimer);
+  try {
+    await session.browser.close();
+  } catch {
+    // The browser may already have disconnected.
+  }
+};
+
+const scheduleBrowserClose = (session: BrowserSession): void => {
+  if (browserSession !== session) return;
+  clearTimeout(session.closeTimer);
+  session.closeTimer = setTimeout(() => {
+    void closeBrowserSession(session);
+  }, BROWSER_IDLE_CLOSE_MS);
+  session.closeTimer.unref();
+};
 
 const connectBrowser = async (
   config: MonitorConfig["browser"],
@@ -46,23 +81,41 @@ const connectBrowser = async (
   });
 };
 
+const getBrowserSession = async (
+  config: MonitorConfig["browser"],
+): Promise<BrowserSession> => {
+  if (browserSession) {
+    clearTimeout(browserSession.closeTimer);
+    return browserSession;
+  }
+
+  const browser = await connectBrowser(config);
+  try {
+    const context =
+      browser.contexts()[0] ??
+      (await browser.newContext(
+        config.userAgent ? { userAgent: config.userAgent } : undefined,
+      ));
+    browserSession = { browser, context };
+    return browserSession;
+  } catch (error) {
+    await browser.close().catch(() => undefined);
+    throw error;
+  }
+};
+
 export const fetchDaftPayload = (
   config: MonitorConfig,
   url: string,
 ): Effect.Effect<unknown, BrowserError> =>
   Effect.tryPromise({
     try: async () => {
-      let browser: Browser | undefined;
+      let session: BrowserSession | undefined;
+      let page: Page | undefined;
+      let succeeded = false;
       try {
-        browser = await connectBrowser(config.browser);
-        const context =
-          browser.contexts()[0] ??
-          (await browser.newContext(
-            config.browser.userAgent
-              ? { userAgent: config.browser.userAgent }
-              : undefined,
-          ));
-        const page = await context.newPage();
+        session = await getBrowserSession(config.browser);
+        page = await session.context.newPage();
         page.setDefaultNavigationTimeout(config.browser.timeoutMs);
         await page.goto(url, {
           waitUntil: "domcontentloaded",
@@ -77,6 +130,7 @@ export const fetchDaftPayload = (
           });
         }
         try {
+          succeeded = true;
           return JSON.parse(nextData) as unknown;
         } catch (error) {
           throw new BrowserError("Daft __NEXT_DATA__ was not valid JSON", {
@@ -84,7 +138,15 @@ export const fetchDaftPayload = (
           });
         }
       } finally {
-        await browser?.close();
+        try {
+          await page?.close();
+        } catch {
+          // Closing a failed page should not mask the original error.
+        }
+        if (session) {
+          if (succeeded) scheduleBrowserClose(session);
+          else await closeBrowserSession(session);
+        }
       }
     },
     catch: (cause) =>

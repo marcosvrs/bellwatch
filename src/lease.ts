@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
-import { createClient } from "redis";
+import { createClient } from "@redis/client";
 
 export class LeaseError extends Error {
   readonly _tag = "LeaseError";

@@ -1,10 +1,19 @@
-FROM node:22-bookworm-slim AS build
+FROM node:22-bookworm-slim AS dependencies
 ARG TARGETARCH
 ARG SHOUTRRR_VERSION=0.21.0
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+RUN npm ci \
+  --legacy-peer-deps \
+  --ignore-scripts \
+  --no-audit \
+  --no-fund \
+  --fetch-retries=5 \
+  --fetch-retry-factor=2 \
+  --fetch-retry-mintimeout=1000 \
+  --fetch-retry-maxtimeout=60000 \
+  --fetch-timeout=120000
 RUN apt-get update \
   && apt-get install --no-install-recommends --yes ca-certificates curl \
   && case "${TARGETARCH}" in \
@@ -27,23 +36,55 @@ RUN apt-get update \
   && test -x /usr/local/bin/shoutrrr \
   && rm -f /tmp/shoutrrr.tar.gz \
   && rm -rf /var/lib/apt/lists/*
+
+FROM dependencies AS build
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build && npm ci --omit=dev --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+RUN npm run build \
+  && node_modules/.bin/esbuild src/main.ts \
+    --bundle \
+    --format=esm \
+    --minify \
+    --platform=node \
+    --target=node22 \
+    --external:playwright-core \
+    --external:@redis/client \
+    --external:postgres \
+    --outfile=dist/main.js \
+  && find dist -type f -name '*.map' -delete
+
+FROM node:22-bookworm-slim AS production-dependencies
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci \
+  --omit=dev \
+  --legacy-peer-deps \
+  --ignore-scripts \
+  --no-audit \
+  --no-fund \
+  --fetch-retries=5 \
+  --fetch-retry-factor=2 \
+  --fetch-retry-mintimeout=1000 \
+  --fetch-retry-maxtimeout=60000 \
+  --fetch-timeout=120000
+RUN test ! -e node_modules/effect \
+  && test ! -e node_modules/tsx \
+  && test ! -e node_modules/typescript
 
 # The pinned Playwright image supplies Chromium and its Linux dependencies.
-FROM mcr.microsoft.com/playwright:v1.63.0-noble
+FROM mcr.microsoft.com/playwright:v1.63.0-noble AS runtime
 
 WORKDIR /app
-COPY --from=build /app/package.json /app/package-lock.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
+COPY --from=production-dependencies --chown=pwuser:pwuser /app/node_modules ./node_modules
+COPY --from=build --chown=pwuser:pwuser /app/dist/main.js ./dist/main.js
+COPY --from=build --chown=pwuser:pwuser /app/dist/healthcheck.js ./dist/healthcheck.js
 COPY --from=build /usr/local/bin/shoutrrr /usr/local/bin/shoutrrr
 
 RUN mkdir -p /data \
-  && chown -R pwuser:pwuser /app /data
+  && chown pwuser:pwuser /data
 
 ENV NODE_ENV=production \
+    NODE_OPTIONS=--max-old-space-size=256 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 USER pwuser
