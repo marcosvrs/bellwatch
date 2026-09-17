@@ -2,7 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "."
+    "rootDir": ".",
+    "tsBuildInfoFile": ".cache/tsconfig.test.tsbuildinfo"
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "alchemy.run.ts"]
 }

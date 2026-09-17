@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-alchemy/
 coverage/
+.cache/
 .alchemy/
 .stryker-tmp/
 

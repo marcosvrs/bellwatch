@@ -15,26 +15,30 @@ concurrency:
 
 jobs:
   verify:
-    name: Validation and mutation testing
+    name: Validation and changed-file mutation testing
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - name: Restore TypeScript compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: validation-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            validation-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
 
-      - name: Run validation gate
-        run: npm run check
-
-      # Mutation testing is intentionally limited to protected-branch pushes.
-      # It is substantially slower than the PR gate and runs once per commit.
-      - name: Run mutation gate
-        run: npm run mutation
+      - name: Run changed-file validation
+        run: npm run check:changed -- "${{ github.event.before }}" "${{ github.sha }}"

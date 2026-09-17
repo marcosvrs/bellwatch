@@ -3,7 +3,8 @@
   "compilerOptions": {
     "rootDir": ".",
     "outDir": "dist-alchemy",
-    "noEmit": true
+    "noEmit": true,
+    "tsBuildInfoFile": ".cache/tsconfig.alchemy.tsbuildinfo"
   },
   "include": ["alchemy.run.ts"]
 }

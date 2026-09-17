@@ -14,6 +14,7 @@
     "coverage": "c8 npm test",
     "mutation": "stryker run",
     "check": "npm run typecheck && npm run build && npm run coverage",
+    "check:changed": "node scripts/changed-validation.mjs",
     "prepare": "simple-git-hooks",
     "start": "node dist/main.js",
     "healthcheck": "node dist/healthcheck.js",
@@ -23,7 +24,7 @@
   },
   "simple-git-hooks": {
     "pre-commit": "git diff --cached --check && npm run typecheck",
-    "pre-push": "npm run check"
+    "pre-push": "npm run check:changed"
   },
   "dependencies": {
     "effect": "4.0.0-rc.112",

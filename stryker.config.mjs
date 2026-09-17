@@ -25,6 +25,12 @@ const config = {
   concurrency: 2,
   tempDirName: ".stryker-tmp",
   cleanTempDir: "always",
+  ...(process.env.STRYKER_INCREMENTAL === "false"
+    ? { incremental: false }
+    : {
+        incremental: true,
+        incrementalFile: "coverage/mutation-incremental.json",
+      }),
 };
 
 export default config;

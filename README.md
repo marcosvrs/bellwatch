@@ -155,22 +155,23 @@ its Linux dependencies.
 
 `npm ci` installs the local Git hooks through `simple-git-hooks`:
 
-- `pre-commit` runs `npm run typecheck`, covering strict Effect code, tests,
-  and `alchemy.run.ts` without starting external services.
-- `pre-push` runs `npm run check`, which adds the production build and the
-  100% statement/function coverage gate.
+- `pre-commit` runs the staged whitespace check and strict TypeScript
+  validation.
+- `pre-push` runs `npm run check:changed` against the commits being pushed.
+  Typecheck and build validate the project graph incrementally; coverage
+  instruments only changed, covered source files; mutation testing mutates
+  only changed Stryker targets.
 
-GitHub Actions keeps the same layers without duplicating expensive work:
+The changed-file runner still executes the full test suite so a changed module
+is checked against all consumers. It skips coverage and mutation when no
+eligible source file changed, and skips the entire validation for
+documentation-only changes.
 
-- Pull requests run `npm run check`.
-- Pushes to `master` run `npm run check` once, then the 90% mutation gate.
-- Stale pull-request runs are cancelled; protected-branch push runs are not.
-
-Mutation testing is intentionally absent from local hooks and pull-request
-validation because it is substantially slower than the compile/build/coverage
-gate. Alchemy plan/deploy are also manual: their Docker context and deployment
-secrets are environment-specific, while `npm run typecheck` still validates
-the Alchemy stack source.
+Pull requests and pushes to `master` use the same changed-file range. GitHub
+Actions caches TypeScript build information. Mutation uses changed-line ranges
+without reusing a full-codebase report, so its threshold applies only to the
+mutants introduced by the current change. Alchemy plan/deploy remain manual
+because their Docker context and deployment secrets are environment-specific.
 
 ## Container and Alchemy
 
