@@ -129,7 +129,8 @@ therefore retries on the next poll.
 
 ## Local development
 
-Node.js 22+ is required.
+Node.js 22+ is required. Install Gitleaks before installing the npm hooks
+(`brew install gitleaks` on macOS).
 
 ```bash
 npm ci --legacy-peer-deps
@@ -155,12 +156,28 @@ its Linux dependencies.
 
 `npm ci` installs the local Git hooks through `simple-git-hooks`:
 
-- `pre-commit` runs the staged whitespace check and strict TypeScript
-  validation.
-- `pre-push` runs `npm run check:changed` against the commits being pushed.
-  Typecheck and build validate the project graph incrementally; coverage
-  instruments only changed, covered source files; mutation testing mutates
-  only changed Stryker targets.
+- `pre-commit` runs the staged whitespace check, staged Gitleaks secret/PII
+  scan, and strict TypeScript validation.
+- `pre-push` scans repository history with Gitleaks, then runs
+  `npm run check:changed` against the commits being pushed. Typecheck and
+  build validate the project graph incrementally; coverage instruments only
+  changed, covered source files; mutation testing mutates only changed
+  Stryker targets.
+
+Run `npm run scan:secrets` manually to scan repository history, or
+`npm run scan:secrets:staged` to scan only the index. Both scans use
+`.gitleaks.toml`, redact findings, and ignore inline `gitleaks:allow`
+comments. The configuration combines Gitleaks's default secret rules with
+conservative machine-detectable PII rules for email addresses, Irish phone
+numbers, IBANs, labeled Irish PPS numbers, and labeled US Social Security
+numbers. It cannot reliably infer names or addresses, so review those
+manually. Use synthetic `example` domains in fixtures.
+
+`.gitleaksignore` contains only two reviewed fingerprints for maintainer
+metadata in historical `setup.py` commits. It is not a blanket PII
+allowlist; current files remain scanned. The CI Gitleaks action scans the full
+checked-out history on pull requests and pushes, with comments and uploaded
+artifacts disabled so findings are not copied into GitHub metadata.
 
 The changed-file runner still executes the full test suite so a changed module
 is checked against all consumers. It skips coverage and mutation when no
@@ -172,6 +189,7 @@ Actions caches TypeScript build information. Mutation uses changed-line ranges
 without reusing a full-codebase report, so its threshold applies only to the
 mutants introduced by the current change. Alchemy plan/deploy remain manual
 because their Docker context and deployment secrets are environment-specific.
+
 
 ## Container and Alchemy
 

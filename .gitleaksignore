@@ -1,0 +1,4 @@
+# Historical setup.py maintainer metadata from commits before this service.
+# These are non-secret legacy PII findings; current files remain scanned.
+5c5e44dd6c5893a6901b4f52a9b6c1adca89f418:setup.py:pii-email-address:57
+729d0f460296f0a7d11d5776c97190bb9eee7e3d:setup.py:pii-email-address:55
