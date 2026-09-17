@@ -247,6 +247,13 @@ test("parses optional resource settings and rejects malformed environment values
     }).redis?.lockKey,
     "bellwatch:monitor",
   );
+  assert.equal(
+    parseEnvironment({
+      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+      REDIS_URL: "redis://redis.example",
+    }).redis?.lockTtlMs,
+    300_000,
+  );
   assert.equal(configured.polling.notifyExistingOnFirstRun, true);
 
   assert.throws(() => parseEnvironment({}), /SHOUTRRR_URL is required/);

@@ -44,11 +44,7 @@ RUN mkdir -p /data \
   && chown -R pwuser:pwuser /app /data
 
 ENV NODE_ENV=production \
-    BROWSER_MODE=auto \
-    CHROMIUM_HEADLESS=true \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-    STATE_FILE=/data/state.sqlite \
-    HEARTBEAT_FILE=/data/heartbeat
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 USER pwuser
 VOLUME ["/data"]

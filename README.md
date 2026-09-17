@@ -97,11 +97,11 @@ SHOUTRRR_URL=ntfy://ntfy.sh/replace-with-a-long-random-topic
 # Optional: put service credentials in the Shoutrrr URL when required.
 # SHOUTRRR_TITLE_PREFIX=Bellwatch new home
 
-# Optional search overrides. The defaults are shown in the reference below.
-# DAFT_LOCATION_PATH=dublin-city-centre-dublin
-# DAFT_PRICE_MAX_EUR=499999
-# DAFT_BEDS_MIN=3
-# POLL_INTERVAL_SECONDS=900
+# Optional overrides. Omit these to use the parser defaults.
+# DAFT_LOCATION_PATH=galway-city
+# DAFT_PRICE_MAX_EUR=450000
+# DAFT_BEDS_MIN=2
+# POLL_INTERVAL_SECONDS=1800
 EOF
 ```
 
@@ -191,12 +191,16 @@ The monitor container is configured automatically with:
 
 ```text
 SHOUTRRR_URL=ntfy://ntfy.sh/bellwatch
-SHOUTRRR_TITLE_PREFIX=Bellwatch new home
 DATABASE_URL=postgresql://...@postgres:5432/daft
 REDIS_URL=redis://redis:6379/0
-BROWSER_MODE=external
 PLAYWRIGHT_WS_ENDPOINT=ws://browserless:3000?token=...
+BROWSER_TIMEOUT_MS=120000
+DAFT_ADDED_IN_LAST_DAYS=1
+DAFT_SORT=publishDateDesc
 ```
+
+`BROWSER_MODE` is intentionally omitted here. Its default is `auto`, which
+selects the external Browserless endpoint when `PLAYWRIGHT_WS_ENDPOINT` is set.
 
 Copy the environment template, replace both placeholder secrets, and start the
 stack:
@@ -226,8 +230,9 @@ Postgres and Redis are reachable only inside the Compose network.
 `docker compose down --volumes` unless you intentionally want to delete the
 Postgres, Redis, and listing-history data.
 
-To change search filters or service credentials, edit `.env` and recreate the
-monitor:
+To change the Compose-exposed search overrides or service credentials, edit
+`.env` and recreate the monitor. Add other supported monitor variables to the
+`bellwatch.environment` section when needed:
 
 ```bash
 docker compose up --detach --force-recreate bellwatch
@@ -343,17 +348,20 @@ Mode behavior:
 - `external` requires `PLAYWRIGHT_WS_ENDPOINT` and connects using Playwright's
   CDP API.
 
+When `BROWSER_MODE=auto` (the default), setting
+`PLAYWRIGHT_WS_ENDPOINT` is enough to select the external browser. Set
+`BROWSER_MODE=external` only when you want startup to fail if the endpoint is
+missing.
+
 Example for a browser service on the same container network:
 
 ```dotenv
-BROWSER_MODE=external
 PLAYWRIGHT_WS_ENDPOINT=ws://browser-sockpuppet-chrome:3000/?--window-size=1920,1080
 ```
 
 Example for a browser service published on a reachable host:
 
 ```dotenv
-BROWSER_MODE=external
 PLAYWRIGHT_WS_ENDPOINT=ws://192.168.50.106:3000
 ```
 
@@ -398,6 +406,11 @@ Set `REDIS_URL` to serialize polling between instances. For reliable multiple
 instances, use Redis together with one shared Postgres database; Redis alone
 prevents overlapping polls but does not share each instance's SQLite history.
 Use the same `REDIS_LOCK_KEY` for instances that should coordinate.
+
+Compose leaves `REDIS_LOCK_KEY` and `REDIS_LOCK_TTL_SECONDS` unset because the
+parser defaults (`bellwatch:monitor` and `300` seconds) are sufficient. Set a
+different lock key only when separate monitor groups share Redis but should not
+coordinate with one another.
 
 ## Operate the container
 
