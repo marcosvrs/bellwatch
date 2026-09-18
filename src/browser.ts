@@ -136,7 +136,7 @@ const ensureDaftRobotsAllowed = async (
 ): Promise<void> => {
   const robotsText = await loadRobotsText(config);
   if (
-    isRobotsAllowed(
+    !isRobotsAllowed(
       robotsText,
       url,
       resolveBrowserUserAgent(config.browser),
