@@ -15,6 +15,12 @@ class BrowserError extends Error {
     this.name = "BrowserError";
   }
 }
+export const DEFAULT_BROWSER_USER_AGENT =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
+
+export const resolveBrowserUserAgent = (
+  browser: MonitorConfig["browser"],
+): string => browser.userAgent ?? DEFAULT_BROWSER_USER_AGENT;
 
 type BrowserStrategy = "external" | "local";
 
@@ -82,6 +88,9 @@ const loadRobotsText = async (config: MonitorConfig): Promise<string> => {
   await daftRequestGate(config.daft.requestDelayMs);
   try {
     const response = await fetch(new URL("/robots.txt", origin), {
+      headers: {
+        "user-agent": resolveBrowserUserAgent(config.browser),
+      },
       signal: AbortSignal.timeout(config.browser.timeoutMs),
     });
     if (response.status !== 404 && !response.ok) {
@@ -166,7 +175,10 @@ const getBrowserSession = async (
   const browser = await connectBrowser(config);
   try {
     const context =
-      browser.contexts()[0] ?? (await browser.newContext());
+      browser.contexts()[0] ??
+      (await browser.newContext({
+        userAgent: resolveBrowserUserAgent(config),
+      }));
     browserSession = { browser, context };
     return browserSession;
   } catch (error) {
