@@ -23,7 +23,7 @@ const networkName = `bellwatch-e2e-network-${suffix}`;
 const dataDirectory = await mkdtemp(join(tmpdir(), "bellwatch-e2e-"));
 const environment = [
   ["SHOUTRRR_URL", "ntfy://127.0.0.1/bellwatch-e2e"],
-  ["DAFT_BASE_URL", "http://daft-fixture:8080"],
+  ["DAFT_BASE_URL", `http://${fixtureContainerName}:8080`],
   ["DAFT_PRICE_MAX_EUR", "499999"],
   ["DAFT_ADDED_IN_LAST_DAYS", "1"],
   ["DAFT_SORT", "publishDateDesc"],
