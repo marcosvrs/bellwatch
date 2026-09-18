@@ -16,6 +16,7 @@
     "mutation": "stryker run",
     "check": "npm run typecheck && npm run build && npm run coverage",
     "check:changed": "node scripts/changed-validation.mjs",
+    "e2e": "node scripts/e2e.mjs",
     "scan:secrets": "gitleaks git . --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore --no-banner --redact --ignore-gitleaks-allow",
     "scan:secrets:staged": "gitleaks git --staged --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore --no-banner --redact --ignore-gitleaks-allow",
     "prepare": "simple-git-hooks",

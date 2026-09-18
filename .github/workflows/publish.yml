@@ -23,11 +23,52 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  publish:
-    name: Build and publish Docker image
+  e2e:
+    name: Production image e2e
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      E2E_IMAGE: bellwatch:e2e-${{ github.run_id }}
+    steps:
+      - name: Check out validated source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image for e2e
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.E2E_IMAGE }}
+          provenance: false
+
+      - name: Run production image e2e
+        run: node scripts/e2e.mjs
+        env:
+          CONTAINER_CLI: docker
+          E2E_IMAGE: ${{ env.E2E_IMAGE }}
+
+  publish:
+    needs: e2e
+    name: Build and publish Docker image
+    if: >-
+      needs.e2e.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

@@ -95,6 +95,25 @@ Run the resulting image with a private env file and a persistent `/data` volume.
 The image installs the pinned Shoutrrr CLI used for notification delivery. Do
 not commit the env file. The image's healthcheck is defined in `Dockerfile`.
 
+## Production image e2e test
+
+This test runs the production image, uses its bundled Chromium, performs the
+same first Daft poll as the deployed monitor, and fails on a poll error or
+timeout. It requires outbound access to `www.daft.ie`; it does not send
+notifications or reuse persistent state.
+
+Run it after building an image:
+
+```bash
+container system start
+container build -t bellwatch:e2e .
+CONTAINER_CLI=container E2E_IMAGE=bellwatch:e2e npm run e2e
+```
+
+On Linux with Docker, set `CONTAINER_CLI=docker` instead. The image publication
+workflow runs this e2e check against a loaded `linux/amd64` image before it
+publishes the multi-architecture tags.
+
 ## Alchemy deployment
 
 `alchemy.run.ts` is the infrastructure definition. Alchemy builds the Docker
