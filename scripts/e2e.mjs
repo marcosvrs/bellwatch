@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +21,7 @@ const containerName = `bellwatch-e2e-${suffix}`;
 const fixtureContainerName = `bellwatch-e2e-fixture-${suffix}`;
 const networkName = `bellwatch-e2e-network-${suffix}`;
 const dataDirectory = await mkdtemp(join(tmpdir(), "bellwatch-e2e-"));
+await chmod(dataDirectory, 0o777);
 const environment = [
   [
     "HERMES_WEBHOOK_URL",
