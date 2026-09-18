@@ -51,43 +51,6 @@ npm run scan:secrets
 npm run scan:secrets:staged
 ```
 
-## Socket supply-chain controls
-
-The pull-request and push validation workflows install JavaScript
-dependencies through Socket Firewall Free. The action is pinned to the
-Socket-provided `v1.3.2` commit, and the CI commands use the explicit
-`sfw npm ...` wrapper.
-
-To use the same protection locally:
-
-```bash
-npm install --global --ignore-scripts sfw@2.0.6
-sfw npm ci --legacy-peer-deps --ignore-scripts
-```
-
-Socket Firewall Free requires no API key. It protects network downloads from
-confirmed malicious packages; packages already present in a local npm cache
-are not downloaded again and therefore cannot be filtered.
-
-The `socket-security.yml` workflow runs Socket's dependency policy scan on
-same-repository pull requests, `master` pushes, and manual dispatches. It
-installs the pinned Socket CLI through the firewall and runs `socket ci`, which
-waits for the scan report and fails when the configured Socket security or
-license policy rejects the dependency set.
-
-Configure the repository secret `SOCKET_SECURITY_API_KEY` with a Socket CI/CD
-API key. The workflow warns and skips the policy scan when the secret is
-absent. Set the repository variable `SOCKET_SECURITY_ENFORCE=true` to make a
-missing key fail the workflow. Forked pull requests are skipped because GitHub
-does not expose repository secrets to them.
-
-Socket's basic scan evaluates dependency manifests and lockfiles; it does not
-replace the repository's Gitleaks/PII scan or application tests. The
-`publish.yml` Docker build installs npm dependencies inside BuildKit, so the
-runner-level `sfw` wrapper does not transparently wrap those internal Docker
-network requests. The Socket policy scan still evaluates the repository
-manifests. Firewall coverage inside Docker builds requires Socket Firewall
-Enterprise registry/proxy deployment.
 
 Dependabot is configured to keep npm dependencies and GitHub Actions current.
 Actions used as security controls remain pinned to immutable commit SHAs.
@@ -188,12 +151,8 @@ credentials before `docker pull` or Alchemy deployment.
 
 ## GitHub Actions overview
 
-- `pull-request.yml` runs Gitleaks, Socket Firewall Free, and changed-file
-  validation for pull requests.
-- `push.yml` runs Gitleaks, Socket Firewall Free, and changed-file validation
-  for `master` pushes.
-- `socket-security.yml` runs the Socket dependency policy scan when the Socket
-  API key is configured.
+- `pull-request.yml` runs Gitleaks and changed-file validation for pull requests.
+- `push.yml` runs Gitleaks and changed-file validation for `master` pushes.
 - `publish.yml` builds and publishes the multi-architecture Docker image after
   a successful `master` push workflow trigger.
 
