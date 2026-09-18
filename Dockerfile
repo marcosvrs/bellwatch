@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS dependencies
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS dependencies
 ARG TARGETARCH
 ARG SHOUTRRR_VERSION=0.21.0
 
@@ -52,7 +52,7 @@ RUN npm run build \
     --outfile=dist/main.js \
   && find dist -type f -name '*.map' -delete
 
-FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS production-dependencies
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS production-dependencies
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci \
@@ -73,7 +73,7 @@ RUN test ! -e node_modules/@redis/client \
 
 # The Node slim image avoids Firefox and WebKit from the all-in-one
 # Playwright image; Chromium and its headless shell are installed below.
-FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS runtime
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS runtime
 
 WORKDIR /app
 LABEL org.opencontainers.image.title="Bellwatch" \
