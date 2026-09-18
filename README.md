@@ -279,6 +279,8 @@ history. Without `DATABASE_URL`, SQLite state is stored at
 The production-image e2e check starts a local Daft-compatible fixture, runs one
 real browser poll from the built image, and runs the image healthcheck. It does
 not make live Daft requests, so it is deterministic and safe to run in CI.
+The finding notification is delivered to a disposable local Hermes sink inside
+the e2e network; it never uses a production notification URL or chat.
 
 Build an image, then run:
 

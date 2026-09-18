@@ -22,14 +22,19 @@ const fixtureContainerName = `bellwatch-e2e-fixture-${suffix}`;
 const networkName = `bellwatch-e2e-network-${suffix}`;
 const dataDirectory = await mkdtemp(join(tmpdir(), "bellwatch-e2e-"));
 const environment = [
-  ["SHOUTRRR_URL", "ntfy://127.0.0.1/bellwatch-e2e"],
+  [
+    "HERMES_WEBHOOK_URL",
+    `http://${fixtureContainerName}:8080/webhooks/ha-notify`,
+  ],
+  ["HERMES_WEBHOOK_SECRET", "e2e"],
+  ["HERMES_CHAT_ID", "e2e-test-chat"],
   ["DAFT_BASE_URL", `http://${fixtureContainerName}:8080`],
   ["DAFT_PRICE_MAX_EUR", "499999"],
   ["DAFT_ADDED_IN_LAST_DAYS", "1"],
   ["DAFT_SORT", "publishDateDesc"],
   ["DAFT_MAX_PAGES", "1"],
   ["DAFT_REQUEST_DELAY_MS", "1000"],
-  ["NOTIFY_EXISTING_ON_FIRST_RUN", "false"],
+  ["NOTIFY_EXISTING_ON_FIRST_RUN", "true"],
   ["POLL_CRON", "0 0 1 1 *"],
   ["TZ", "UTC"],
 ];
@@ -60,6 +65,13 @@ const server = createServer((request, response) => {
   if (url.pathname === "/robots.txt") {
     response.writeHead(200, { "content-type": "text/plain" });
     response.end("User-agent: *\\\\nAllow: /\\\\n");
+    return;
+  }
+  if (url.pathname === "/webhooks/ha-notify" && request.method === "POST") {
+    request.resume();
+    response.writeHead(204);
+    response.end();
+    console.log("notification received");
     return;
   }
   if (url.pathname.startsWith("/new-homes-for-sale/")) {
@@ -137,6 +149,8 @@ try {
     image,
   ]);
   await waitForFirstPoll();
+  await waitForLog(fixtureContainerName, "notification received");
+  console.log("Local e2e notification sink received the finding");
   console.log("Production image completed its first Daft poll");
   await runContainerCli([
     "exec",
