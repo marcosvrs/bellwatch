@@ -115,7 +115,8 @@ const loadRobotsText = async (config: MonitorConfig): Promise<string> => {
     return text;
   } catch (cause) {
     if (cause instanceof BrowserError) throw cause;
-    throw new BrowserError("Could not fetch Daft robots.txt", { cause });
+    const detail = cause instanceof Error ? `: ${cause.message}` : `: ${String(cause)}`;
+    throw new BrowserError(`Could not fetch Daft robots.txt${detail}`, { cause });
   } finally {
     try {
       await page?.close();
