@@ -71,28 +71,33 @@ RUN test ! -e node_modules/@redis/client \
   && test ! -e node_modules/tsx \
   && test ! -e node_modules/typescript
 
-# The pinned Playwright image supplies Chromium and its Linux dependencies.
-FROM mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27 AS runtime
+# The Node slim image avoids Firefox and WebKit from the all-in-one
+# Playwright image; Chromium and its headless shell are installed below.
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS runtime
 
 WORKDIR /app
 LABEL org.opencontainers.image.title="Bellwatch" \
       org.opencontainers.image.licenses="MIT-0" \
       org.opencontainers.image.source="https://github.com/marcosvrs/bellwatch"
-COPY --chown=pwuser:pwuser LICENSE ./LICENSE
-COPY --chown=pwuser:pwuser THIRD_PARTY_NOTICES ./THIRD_PARTY_NOTICES
-COPY --from=production-dependencies --chown=pwuser:pwuser /app/node_modules ./node_modules
-COPY --from=build --chown=pwuser:pwuser /app/dist/main.js ./dist/main.js
-COPY --from=build --chown=pwuser:pwuser /app/dist/healthcheck.js ./dist/healthcheck.js
+COPY --chown=node:node LICENSE ./LICENSE
+COPY --chown=node:node THIRD_PARTY_NOTICES ./THIRD_PARTY_NOTICES
+COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/dist/main.js ./dist/main.js
+COPY --from=build --chown=node:node /app/dist/healthcheck.js ./dist/healthcheck.js
 COPY --from=build /usr/local/bin/shoutrrr /usr/local/bin/shoutrrr
-
-RUN mkdir -p /data \
-  && chown pwuser:pwuser /data
 
 ENV NODE_ENV=production \
     NODE_OPTIONS=--max-old-space-size=256 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-USER pwuser
+RUN mkdir -p /ms-playwright \
+  && node_modules/.bin/playwright-core install --with-deps chromium \
+  && chown -R node:node /ms-playwright \
+  && mkdir -p /data \
+  && chown node:node /data \
+  && rm -rf /root/.cache /var/lib/apt/lists/*
+
+USER node
 VOLUME ["/data"]
 HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 CMD ["node", "dist/healthcheck.js"]
 CMD ["node", "dist/main.js"]

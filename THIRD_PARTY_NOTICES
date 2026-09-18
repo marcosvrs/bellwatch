@@ -7,9 +7,10 @@ source repositories and package metadata remain the authoritative sources for
 version-specific notices. The image also carries the corresponding package
 files under /app/node_modules where they are provided by the dependency.
 
-The runtime base image, `mcr.microsoft.com/playwright:v1.63.0-noble`, and its
-bundled browsers and system packages have separate upstream licenses and
-notices. Bellwatch does not relicense those components; consult the base image
+The runtime image uses the pinned `node:22-bookworm-slim` base and installs the
+Playwright 1.63.0 Chromium runtime plus its Debian system dependencies with the
+Playwright installer. Those browser and system packages have separate upstream
+licenses and notices; Bellwatch does not relicense them. Consult the package
 metadata and files under `/ms-playwright` for their terms.
 
 playwright-core 1.63.0

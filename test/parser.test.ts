@@ -71,6 +71,31 @@ test("parses detail-page scheme evidence", () => {
   });
 });
 
+test("parses matching fields from detail pages", () => {
+  assert.deepEqual(
+    parseDaftListingDetails({
+      props: {
+        pageProps: {
+          listing: {
+            floorArea: { value: "105", unit: "METRES_SQUARED" },
+            ber: { rating: "B2" },
+            addressDetails: {
+              postalCode: "A12B345",
+              streetAddress: "1 Example Road",
+            },
+          },
+        },
+      },
+    }),
+    {
+      floorSizeSqm: 105,
+      berRating: "B2",
+      address: "1 Example Road",
+      eircode: "A12B345",
+    },
+  );
+});
+
 test("parses unit findings and development fallbacks", () => {
   const result = parseDaftPage(payload, "https://www.daft.ie");
   assert.equal(result.currentPage, 1);
@@ -197,6 +222,133 @@ test("preserves fallback fields and deduplicates unit ids", () => {
   assert.equal(result.findings[1].title, "Daft development 304 — 2 Bed · 1 Bath · Flat");
   assert.equal(result.findings[1].url, "https://www.daft.ie/new-home-for-sale/listing/305");
 });
+test("parses direct sale and rental listings by section", () => {
+  const sale = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 400,
+                title: "Apartment 3, Dublin 2",
+                price: "€495,000",
+                numBedrooms: "2 Bed",
+                numBathrooms: "2 Bath",
+                propertyType: "Apartment",
+                seoFriendlyPath: "/for-sale/apartment-3-dublin-2/400",
+              },
+            },
+          ],
+          paging: { currentPage: 1, totalPages: 1 },
+        },
+      },
+    },
+    "https://www.daft.ie",
+    "property-for-sale",
+  );
+  assert.deepEqual(sale.findings, [
+    {
+      id: "400",
+      title: "Apartment 3, Dublin 2",
+      developmentTitle: "Apartment 3, Dublin 2",
+      priceText: "€495,000",
+      bedrooms: 2,
+      bathrooms: 2,
+      propertyType: "Apartment",
+      url: "https://www.daft.ie/for-sale/apartment-3-dublin-2/400",
+    },
+  ]);
+
+  const directRent = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 500,
+                title: "12 Main Street, Dublin 8",
+                price: "€1,800 per month",
+                numBedrooms: "2 Bed",
+                numBathrooms: "1 Bath",
+                propertyType: "Apartment",
+                seoFriendlyPath: "/for-rent/12-main-street-dublin-8/500",
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+    "property-for-rent",
+  );
+  assert.equal(directRent.findings[0].id, "500");
+  assert.equal(directRent.findings[0].priceText, "€1,800 per month");
+  assert.equal(directRent.findings[0].bathrooms, 1);
+  assert.equal(directRent.findings[0].url, "https://www.daft.ie/for-rent/12-main-street-dublin-8/500");
+
+  const prsRent = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 600,
+                title: "Riverside Apartments",
+                prs: {
+                  subUnits: [
+                    {
+                      id: 601,
+                      price: "€2,700 per month",
+                      numBedrooms: "1 Bed",
+                      numBathrooms: "1 Bath",
+                      propertyType: "Apartment",
+                      seoFriendlyPath: "/for-rent/riverside-apartments/601",
+                    },
+                    {
+                      id: 602,
+                      price: "€3,000 per month",
+                      numBedrooms: "2 Bed",
+                      numBathrooms: "2 Bath",
+                      propertyType: "Apartment",
+                      seoFriendlyPath: "/for-rent/riverside-apartments/602",
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+    "property-for-rent",
+  );
+  assert.deepEqual(
+    prsRent.findings.map(({ id, title, developmentTitle, priceText }) => ({
+      id,
+      title,
+      developmentTitle,
+      priceText,
+    })),
+    [
+      {
+        id: "601",
+        title: "Riverside Apartments — 1 Bed · 1 Bath · Apartment",
+        developmentTitle: "Riverside Apartments",
+        priceText: "€2,700 per month",
+      },
+      {
+        id: "602",
+        title: "Riverside Apartments — 2 Bed · 2 Bath · Apartment",
+        developmentTitle: "Riverside Apartments",
+        priceText: "€3,000 per month",
+      },
+    ],
+  );
+});
 
 
 test("handles missing parent data and custom fallback paths", () => {
@@ -321,6 +473,53 @@ test("omits blank detail fields from scheme evidence", () => {
   );
 });
 
+test("parses comparable fields from direct sale listings", () => {
+  const result = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 510,
+                title: "Semi-detached home",
+                price: "€500,000",
+                numBedrooms: "3 Bed",
+                numBathrooms: "2 Bath",
+                propertyType: "Semi-D",
+                floorArea: { value: "105", unit: "METRES_SQUARED" },
+                ber: { rating: "B2" },
+                addressDetails: {
+                  postalCode: "A12B345",
+                  streetAddress: "1 Example Road",
+                },
+                seoFriendlyPath: "/for-sale/semi-detached-home/510",
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+    "property-for-sale",
+  );
+
+  assert.deepEqual(result.findings[0], {
+    id: "510",
+    title: "Semi-detached home",
+    developmentTitle: "Semi-detached home",
+    priceText: "€500,000",
+    bedrooms: 3,
+    bathrooms: 2,
+    propertyType: "Semi-D",
+    floorSizeSqm: 105,
+    berRating: "B2",
+    address: "1 Example Road",
+    eircode: "A12B345",
+    url: "https://www.daft.ie/for-sale/semi-detached-home/510",
+  });
+});
+
 test("rejects arrays and non-finite numeric identifiers at every nesting level", () => {
   const functionPayload = Object.assign(
     () => undefined,
@@ -413,4 +612,231 @@ test("rejects arrays and non-finite numeric identifiers at every nesting level",
     currentPage: 1,
     totalPages: 1,
   });
+});
+
+test("covers direct records, rental fallbacks, and invalid section paths", () => {
+  const direct = parseDaftPage(
+    {
+      listings: [
+        {
+          id: 800,
+          price: "€2,000",
+          numBedrooms: "2 Bed",
+          numBathrooms: "1 Bath",
+          propertyType: "Apartment",
+          propertySize: "75 sqm",
+        },
+      ],
+      paging: { currentPage: "2", totalPages: "4" },
+    },
+    "https://www.daft.ie",
+    "property-for-sale",
+  );
+  assert.deepEqual(direct, {
+    findings: [
+      {
+        id: "800",
+        title: "Daft listing 800",
+        developmentTitle: "Daft listing 800",
+        priceText: "€2,000",
+        bedrooms: 2,
+        bathrooms: 1,
+        propertyType: "Apartment",
+        floorSizeSqm: 75,
+        url: "https://www.daft.ie/for-sale/listing/800",
+      },
+    ],
+    currentPage: 2,
+    totalPages: 4,
+  });
+
+  const rental = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 810,
+                prs: {
+                  subUnits: [
+                    {
+                      id: 811,
+                      numBedrooms: "1 Bed",
+                      numBathrooms: "1 Bath",
+                    },
+                    { id: 812 },
+                    {},
+                    null,
+                  ],
+                },
+              },
+            },
+            {
+              listing: {
+                prs: {
+                  subUnits: [
+                    {
+                      id: 813,
+                      propertyType: "Studio",
+                    },
+                  ],
+                },
+              },
+            },
+            { listing: null },
+            { listing: { title: "Missing rental id" } },
+            {
+              listing: {
+                id: 814,
+                title: "Fallback Rental",
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+    "property-for-rent",
+  );
+  assert.deepEqual(
+    rental.findings.map(
+      ({ id, title, developmentTitle, priceText, url }) => ({
+        id,
+        title,
+        developmentTitle,
+        priceText,
+        url,
+      }),
+    ),
+    [
+      {
+        id: "811",
+        title: "Daft rental 810 — 1 Bed · 1 Bath",
+        developmentTitle: "Daft rental 810",
+        priceText: "Price unavailable",
+        url: "https://www.daft.ie/for-rent/listing/811",
+      },
+      {
+        id: "812",
+        title: "Daft rental 810",
+        developmentTitle: "Daft rental 810",
+        priceText: "Price unavailable",
+        url: "https://www.daft.ie/for-rent/listing/812",
+      },
+      {
+        id: "813",
+        title: "Daft rental — Studio",
+        developmentTitle: "Daft rental",
+        priceText: "Price unavailable",
+        url: "https://www.daft.ie/for-rent/listing/813",
+      },
+      {
+        id: "814",
+        title: "Fallback Rental",
+        developmentTitle: "Fallback Rental",
+        priceText: "Price unavailable",
+        url: "https://www.daft.ie/for-rent/listing/814",
+      },
+    ],
+  );
+  assert.equal(Object.hasOwn(rental.findings[3], "propertyType"), false);
+
+  const fallback = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 820,
+                title: "Direct",
+                newHome: { subUnits: [] },
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+    "not-a-section",
+  );
+  assert.equal(fallback.findings[0].id, "820");
+  assert.equal(
+    fallback.findings[0].url,
+    "https://www.daft.ie/new-home-for-sale/listing/820",
+  );
+
+
+  assert.deepEqual(
+    parseDaftListingDetails({
+      listing: {
+        propertySize: "91.5 sqm",
+        ber: { rating: "A2" },
+        addressDetails: {
+          streetAddress: "2 Example Road",
+          postalCode: "D02TEST",
+        },
+      },
+    }),
+    {
+      floorSizeSqm: 91.5,
+      berRating: "A2",
+      address: "2 Example Road",
+      eircode: "D02TEST",
+    },
+  );
+});
+test("rejects parentless and malformed new-home units", () => {
+  const result = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                title: "Parentless",
+                newHome: { subUnits: [{ id: 901 }] },
+              },
+            },
+            {
+              listing: {
+                id: 902,
+                newHome: { subUnits: [null, {}, { id: 903 }] },
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+  );
+
+  assert.deepEqual(result.findings.map(({ id }) => id), ["903"]);
+});
+test("preserves string ids and omits absent optional finding fields", () => {
+  const result = parseDaftPage(
+    {
+      listings: [
+        { listing: { id: "text-id", title: "Text identifier" } },
+        { listing: { id: 904, title: "No bedroom data" } },
+      ],
+    },
+    "https://www.daft.ie",
+    "property-for-sale",
+  );
+  assert.deepEqual(result.findings.map(({ id }) => id), ["text-id", "904"]);
+  assert.equal(Object.hasOwn(result.findings[0], "bedrooms"), false);
+  assert.equal(Object.hasOwn(result.findings[1], "bedrooms"), false);
+});
+
+test("ignores malformed direct sale listings", () => {
+  const result = parseDaftPage(
+    {
+      listings: [null, { listing: null }, { listing: { title: "Missing id" } }],
+    },
+    "https://www.daft.ie",
+    "property-for-sale",
+  );
+  assert.deepEqual(result.findings, []);
 });

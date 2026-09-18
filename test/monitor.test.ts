@@ -81,6 +81,340 @@ const config = parseEnvironment({
   DAFT_MAX_PAGES: "1",
   NOTIFY_EXISTING_ON_FIRST_RUN: "false",
 });
+test("uses the configured rental section URL and parser", async () => {
+  const rentalConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-rent",
+    DAFT_PRICE_MAX_EUR: "2500",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const sent: string[] = [];
+  const published: DaftFinding[] = [];
+  const rentalPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 700,
+              title: "Riverside Apartments",
+              prs: {
+                subUnits: [
+                  {
+                    id: 701,
+                    price: "€2,300 per month",
+                    numBedrooms: "1 Bed",
+                    numBathrooms: "1 Bath",
+                    propertyType: "Apartment",
+                    floorArea: { value: 70 },
+                    ber: { rating: "B2" },
+                    seoFriendlyPath: "/for-rent/riverside-apartments/701",
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const result = await Effect.runPromise(
+    runOnce(rentalConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          requested.push(url);
+          return rentalPayload;
+        }),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+          sent.push(finding.id);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(result.notified, 1);
+  assert.deepEqual(sent, ["701"]);
+  assert.equal(new URL(requested[0]).pathname, "/property-for-rent/ireland");
+  assert.equal(requested.length, 1);
+  assert.equal(new URL(requested[0]).searchParams.get("rentalPrice_to"), "2500");
+  assert.equal(
+    requested.some((url) => url.includes("/sold-properties/")),
+    false,
+  );
+  assert.equal(Object.hasOwn(published[0], "soldComparison"), false);
+});
+
+test("enriches sale findings with current-year sold comparables", async () => {
+  const saleConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_LOCATION: "dublin",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const published: DaftFinding[] = [];
+  const salePayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 710,
+              title: "Comparable Sale",
+              price: "€500,000",
+              numBedrooms: "3 Bed",
+              numBathrooms: "2 Bath",
+              propertyType: "Semi-D",
+              floorArea: { value: "105", unit: "METRES_SQUARED" },
+              ber: { rating: "B2" },
+              seoFriendlyPath: "/for-sale/comparable-sale/710",
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const soldPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          { listing: { soldPrice: "€400,000" } },
+          { listing: { soldPrice: "€450,000" } },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+
+  const result = await Effect.runPromise(
+    runOnce(saleConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          requested.push(url);
+          return url.includes("/sold-properties/") ? soldPayload : salePayload;
+        }),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(result.notified, 1);
+  assert.equal(requested.length, 2);
+  assert.equal(new URL(requested[1]).pathname, "/sold-properties/ireland/semi-detached-houses");
+  assert.deepEqual(published[0].soldComparison, {
+    year: new Date().getFullYear(),
+    comparableCount: 2,
+    minPriceEur: 400000,
+    maxPriceEur: 450000,
+    askingPriceEur: 500000,
+    verdict: "above",
+  });
+});
+test("merges sold comparables across configured locations", async () => {
+  const saleConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_LOCATION: "dublin,kildare",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const published: DaftFinding[] = [];
+  const salePayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 710,
+              title: "Comparable Sale",
+              price: "€500,000",
+              numBedrooms: "3 Bed",
+              numBathrooms: "2 Bath",
+              propertyType: "Semi-D",
+              floorArea: { value: "105", unit: "METRES_SQUARED" },
+              ber: { rating: "B2" },
+              seoFriendlyPath: "/for-sale/comparable-sale/710",
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const soldDublinPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          { listing: { soldPrice: "€400,000" } },
+          { listing: { soldPrice: "€450,000" } },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const soldKildarePayload = {
+    props: {
+      pageProps: {
+        listings: [{ listing: { soldPrice: "€550,000" } }],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+
+  const result = await Effect.runPromise(
+    runOnce(saleConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          requested.push(url);
+          if (!url.includes("/sold-properties/")) return salePayload;
+          return new URL(url).searchParams.get("location") === "dublin"
+            ? soldDublinPayload
+            : soldKildarePayload;
+        }),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(result.pages, 2);
+  assert.equal(result.notified, 1);
+  assert.equal(requested.length, 4);
+  assert.deepEqual(
+    requested
+      .filter((url) => !url.includes("/sold-properties/"))
+      .map((url) => new URL(url).pathname),
+    ["/property-for-sale/dublin", "/property-for-sale/kildare"],
+  );
+  assert.deepEqual(
+    requested
+      .filter((url) => url.includes("/sold-properties/"))
+      .map((url) => new URL(url).searchParams.getAll("location")),
+    [["dublin"], ["kildare"]],
+  );
+  assert.deepEqual(published[0].soldComparison, {
+    year: new Date().getFullYear(),
+    comparableCount: 3,
+    minPriceEur: 400000,
+    maxPriceEur: 550000,
+    askingPriceEur: 500000,
+    verdict: "within",
+  });
+});
+
+test("hydrates new-home matching fields before sold comparison", async () => {
+  const newHomeConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_LOCATION: "dublin",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const published: DaftFinding[] = [];
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 720,
+              title: "Example Development",
+              newHome: {
+                subUnits: [
+                  {
+                    id: 721,
+                    price: "€500,000",
+                    numBedrooms: "3 Bed",
+                    numBathrooms: "2 Bath",
+                    propertyType: "Semi-D",
+                    seoFriendlyPath: "/new-home-for-sale/example/721",
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const detailPayload = {
+    props: {
+      pageProps: {
+        listing: {
+          floorArea: { value: "105", unit: "METRES_SQUARED" },
+          ber: { rating: "B2" },
+          addressDetails: {
+            postalCode: "A12B345",
+            streetAddress: "1 Example Road",
+          },
+        },
+      },
+    },
+  };
+  const soldPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          { listing: { soldPrice: "€400,000" } },
+          { listing: { soldPrice: "€450,000" } },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+
+  await Effect.runPromise(
+    runOnce(newHomeConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          requested.push(url);
+          if (url.includes("/sold-properties/")) return soldPayload;
+          if (url.includes("/new-home-for-sale/")) return detailPayload;
+          return searchPayload;
+        }),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(published[0].floorSizeSqm, 105);
+  assert.equal(published[0].berRating, "B2");
+  assert.equal(published[0].address, "1 Example Road");
+  assert.equal(published[0].eircode, "A12B345");
+  assert.deepEqual(published[0].soldComparison, {
+    year: new Date().getFullYear(),
+    comparableCount: 2,
+    minPriceEur: 400000,
+    maxPriceEur: 450000,
+    askingPriceEur: 500000,
+    verdict: "above",
+  });
+});
 
 test("seeds first results and notifies only later unseen findings", async () => {
   const state = makeState();
@@ -288,16 +622,23 @@ test("honors an explicit maximum page limit", async () => {
   assert.equal(result.findings, 1);
   assert.equal(urls.length, 1);
 });
-test("searches configured locations in one query and deduplicates findings", async () => {
+test("searches configured locations separately and deduplicates findings", async () => {
   const state = makeState();
   const sent: string[] = [];
   const shared = makeFinding("501");
-  const navanOnly = makeFinding("502");
+  const dublinOnly = makeFinding("502");
+  const navanOnly = makeFinding("503");
   const urls: string[] = [];
   const dependencies = {
     fetchPage: (url: string) => {
       urls.push(url);
-      return Effect.succeed(payload([shared, navanOnly]));
+      return Effect.succeed(
+        payload(
+          url.includes("/dublin-city")
+            ? [shared, dublinOnly]
+            : [shared, navanOnly],
+        ),
+      );
     },
     publish: (finding: DaftFinding) =>
       Effect.sync(() => {
@@ -310,22 +651,25 @@ test("searches configured locations in one query and deduplicates findings", asy
   const multiLocationConfig = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_LOCATION: "dublin-city,navan-meath",
+    DAFT_RADIUS_KM: "20",
     NOTIFY_EXISTING_ON_FIRST_RUN: "true",
   });
 
   const result = await Effect.runPromise(runOnce(multiLocationConfig, dependencies));
 
-  assert.equal(result.pages, 1);
-  assert.equal(result.findings, 2);
-  assert.equal(result.notified, 2);
-  assert.deepEqual(sent, ["501", "502"]);
-  assert.equal(urls.length, 1);
-  const url = new URL(urls[0]);
-  assert.equal(url.pathname, "/new-homes-for-sale/ireland");
-  assert.deepEqual(url.searchParams.getAll("location"), [
-    "dublin-city",
-    "navan-meath",
-  ]);
+  assert.equal(result.pages, 2);
+  assert.equal(result.findings, 3);
+  assert.equal(result.notified, 3);
+  assert.deepEqual(sent, ["501", "502", "503"]);
+  assert.equal(urls.length, 2);
+  const firstUrl = new URL(urls[0]);
+  const secondUrl = new URL(urls[1]);
+  assert.equal(firstUrl.pathname, "/new-homes-for-sale/dublin-city");
+  assert.equal(firstUrl.searchParams.get("radius"), "20000");
+  assert.equal(firstUrl.searchParams.get("location"), null);
+  assert.equal(secondUrl.pathname, "/new-homes-for-sale/navan-meath");
+  assert.equal(secondUrl.searchParams.get("radius"), "20000");
+  assert.equal(secondUrl.searchParams.get("location"), null);
 });
 
 test("applies exclusive SHPS filtering before state and notifications", async () => {
@@ -458,7 +802,7 @@ test("wraps a Daft parsing failure with its cause", async () => {
       }),
     ),
     (error: unknown) => {
-      assert.match(String(error), /Could not parse Daft page 1/);
+      assert.match(String(error), /Could not parse Daft page 1 for Ireland/);
       assert.equal((error as Error).cause, cause);
       return true;
     },
@@ -544,6 +888,10 @@ test("keeps findings when detail pages have no description", async () => {
         publish: (value) =>
           Effect.sync(() => {
             assert.equal(Object.hasOwn(value, "schemeText"), false);
+            assert.equal(Object.hasOwn(value, "floorSizeSqm"), false);
+            assert.equal(Object.hasOwn(value, "berRating"), false);
+            assert.equal(Object.hasOwn(value, "address"), false);
+            assert.equal(Object.hasOwn(value, "eircode"), false);
             sent.push(value.id);
           }),
         publishError: () => Effect.void,
@@ -632,5 +980,562 @@ test("wraps detail parsing failures before notifying them", async () => {
       return true;
     },
   );
+
   assert.equal(notified.length, 1);
+});
+
+test("fetches paginated sold comparables and preserves their range", async () => {
+  const saleConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_LOCATION: "dublin",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const published: DaftFinding[] = [];
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 730,
+              title: "Paginated Sale",
+              price: "€500,000",
+              numBedrooms: "3 Bed",
+              numBathrooms: "2 Bath",
+              propertyType: "Semi-D",
+              floorArea: { value: 105 },
+              ber: { rating: "B2" },
+              seoFriendlyPath: "/for-sale/paginated-sale/730",
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const soldPayload = (prices: readonly string[], page: number) => ({
+    props: {
+      pageProps: {
+        listings: prices.map((soldPrice) => ({ listing: { soldPrice } })),
+        paging: { currentPage: page, totalPages: 2 },
+      },
+    },
+  });
+
+  const result = await Effect.runPromise(
+    runOnce(saleConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          requested.push(url);
+          if (!url.includes("/sold-properties/")) return searchPayload;
+          return new URL(url).searchParams.get("page") === null
+            ? soldPayload(["€400,000"], 1)
+            : soldPayload(["€450,000"], 2);
+        }),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  const soldRequests = requested.filter((url) =>
+    url.includes("/sold-properties/"),
+  );
+  assert.deepEqual(
+    soldRequests.map((url) => new URL(url).searchParams.get("page")),
+    [null, "2"],
+  );
+  assert.equal(result.findings, 1);
+  assert.equal(published[0].soldComparison?.comparableCount, 2);
+  assert.equal(published[0].soldComparison?.minPriceEur, 400_000);
+  assert.equal(published[0].soldComparison?.maxPriceEur, 450_000);
+});
+
+test("caches sold lookup failures for duplicate comparable requests", async () => {
+  const saleConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_LOCATION: "dublin",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const published: DaftFinding[] = [];
+  let soldRequests = 0;
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [731, 732, 733].map((id) => ({
+          listing: {
+            id,
+            title: "Same Comparable Request",
+            price: id === 733 ? "€501,000" : "€500,000",
+            numBedrooms: "3 Bed",
+            numBathrooms: "2 Bath",
+            propertyType: "Semi-D",
+            floorArea: { value: 105 },
+            ber: { rating: "B2" },
+          },
+        })),
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const cause = new Error("sold service unavailable");
+  const logs: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    logs.push(String(message));
+  });
+  const result = await Effect.runPromise(
+    runOnce(saleConfig, {
+      fetchPage: (url) => {
+        if (!url.includes("/sold-properties/")) {
+          return Effect.succeed(searchPayload);
+        }
+        soldRequests += 1;
+        return Effect.fail(cause);
+      },
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }).pipe(Effect.provide(Logger.layer([logger]))),
+  );
+
+  assert.equal(result.findings, 3);
+  assert.equal(result.notified, 3);
+  assert.equal(soldRequests, 2);
+  assert.equal(Object.hasOwn(published[0], "soldComparison"), false);
+  assert.equal(Object.hasOwn(published[1], "soldComparison"), false);
+  assert.equal(Object.hasOwn(published[2], "soldComparison"), false);
+  assert.deepEqual(logs, [
+    "Could not load sold comparables for 731: Could not fetch sold comparables for Semi-D",
+    "Could not load sold comparables for 733: Could not fetch sold comparables for Semi-D",
+  ]);
+});
+
+test("skips sold requests when hydrated finding lacks spatial evidence", async () => {
+  const newHomeConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 740,
+              title: "No Spatial Evidence",
+              newHome: {
+                subUnits: [
+                  {
+                    id: 741,
+                    price: "€500,000",
+                    numBedrooms: "3 Bed",
+                    numBathrooms: "2 Bath",
+                    propertyType: "Semi-D",
+                    floorArea: { value: 105 },
+                    ber: { rating: "B2" },
+                    seoFriendlyPath: "/new-home-for-sale/no-spatial/741",
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const published: DaftFinding[] = [];
+  await Effect.runPromise(
+    runOnce(newHomeConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          requested.push(url);
+          return url.includes("/new-home-for-sale/no-spatial/")
+            ? emptyDetailPayload()
+            : searchPayload;
+        }),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(requested.length, 2);
+  assert.equal(
+    requested.some((url) => url.includes("/sold-properties/")),
+    false,
+  );
+  assert.equal(Object.hasOwn(published[0], "soldComparison"), false);
+});
+
+
+test("uses one address-based sold request without hydrating complete findings", async () => {
+  const newHomeConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const published: DaftFinding[] = [];
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 750,
+              title: "Address-Based Development",
+              newHome: {
+                subUnits: [
+                  {
+                    id: 751,
+                    price: "€500,000",
+                    numBedrooms: "3 Bed",
+                    numBathrooms: "2 Bath",
+                    propertyType: "Semi-D",
+                    floorArea: { value: 105 },
+                    ber: { rating: "B2" },
+                    addressDetails: { streetAddress: "1 Main Street" },
+                  },
+                  {
+                    id: 752,
+                    price: "€500,000",
+                    numBedrooms: "3 Bed",
+                    numBathrooms: "2 Bath",
+                    propertyType: "Semi-D",
+                    floorArea: { value: 105 },
+                    ber: { rating: "B2" },
+                    addressDetails: { postalCode: "A12B345" },
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const soldPayload = {
+    props: {
+      pageProps: {
+        listings: [{ listing: { soldPrice: "€450,000" } }],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  await Effect.runPromise(
+    runOnce(newHomeConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          requested.push(url);
+          return url.includes("/sold-properties/") ? soldPayload : searchPayload;
+        }),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(
+    requested.some((url) => url.includes("/new-home-for-sale/")),
+    false,
+  );
+  assert.equal(
+    requested.filter((url) => url.includes("/sold-properties/")).length,
+    2,
+  );
+  assert.equal(published[0].soldComparison?.comparableCount, 1);
+  assert.equal(published[1].soldComparison?.comparableCount, 1);
+});
+
+test("hydrates all findings when one comparable needs detail data", async () => {
+  const newHomeConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_LOCATION: "dublin",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const detailUrls: string[] = [];
+  const published: DaftFinding[] = [];
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 760,
+              title: "Mixed Development",
+              newHome: {
+                subUnits: [
+                  {
+                    id: 761,
+                    price: "€500,000",
+                    numBedrooms: "3 Bed",
+                    numBathrooms: "2 Bath",
+                    propertyType: "Semi-D",
+                    floorArea: { value: 105 },
+                    ber: { rating: "B2" },
+                    addressDetails: { streetAddress: "1 Main Street" },
+                  },
+                  {
+                    id: 762,
+                    price: "€500,000",
+                    numBedrooms: "3 Bed",
+                    numBathrooms: "2 Bath",
+                    propertyType: "Semi-D",
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const detail = {
+    props: {
+      pageProps: {
+        listing: {
+          floorArea: { value: 105 },
+          ber: { rating: "B2" },
+          addressDetails: { streetAddress: "1 Main Street" },
+        },
+      },
+    },
+  };
+  const sold = {
+    props: {
+      pageProps: {
+        listings: [{ listing: { soldPrice: "€450,000" } }],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  await Effect.runPromise(
+    runOnce(newHomeConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          if (url.includes("/sold-properties/")) return sold;
+          if (url.includes("/new-home-for-sale/")) {
+            detailUrls.push(url);
+            return detail;
+          }
+          return searchPayload;
+        }),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(detailUrls.length, 2);
+  assert.equal(published.length, 2);
+});
+test("does not hydrate sale findings missing one bedroom field", async () => {
+  const saleConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const published: DaftFinding[] = [];
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 780,
+              title: "Missing Bedrooms",
+              price: "€400,000",
+              numBathrooms: "2 Bath",
+              propertyType: "Semi-D",
+              floorArea: { value: 100 },
+              ber: { rating: "B2" },
+              seoFriendlyPath: "/for-sale/missing-bedrooms/780",
+            },
+          },
+          {
+            listing: {
+              id: 781,
+              title: "Missing Bathrooms",
+              price: "€400,000",
+              numBedrooms: "3 Bed",
+              propertyType: "Semi-D",
+              floorArea: { value: 100 },
+              ber: { rating: "B2" },
+              seoFriendlyPath: "/for-sale/missing-bathrooms/781",
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const result = await Effect.runPromise(
+    runOnce(saleConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          requested.push(url);
+          return searchPayload;
+        }),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(result.findings, 2);
+  assert.equal(published.length, 2);
+  assert.equal(requested.length, 1);
+});
+test("hydrates spatially incomplete property-sale findings", async () => {
+  const saleConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 790,
+              title: "Spatially Incomplete Sale",
+              price: "€400,000",
+              numBedrooms: "3 Bed",
+              numBathrooms: "2 Bath",
+              propertyType: "Semi-D",
+              floorArea: { value: 100 },
+              ber: { rating: "B2" },
+              seoFriendlyPath: "/for-sale/spatially-incomplete/790",
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const result = await Effect.runPromise(
+    runOnce(saleConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          requested.push(url);
+          return url.includes("/for-sale/") && !url.includes("/ireland")
+            ? emptyDetailPayload()
+            : searchPayload;
+        }),
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(result.findings, 1);
+  assert.equal(requested.length, 2);
+  assert.equal(
+    requested.some((url) => url.includes("/sold-properties/")),
+    false,
+  );
+});
+test("does not hydrate complete new-home findings when a location supplies spatial evidence", async () => {
+  const newHomeConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_LOCATION: "dublin",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 795,
+              title: "Located Development",
+              newHome: {
+                subUnits: [
+                  {
+                    id: 796,
+                    price: "€400,000",
+                    numBedrooms: "3 Bed",
+                    numBathrooms: "2 Bath",
+                    propertyType: "Semi-D",
+                    floorArea: { value: 100 },
+                    ber: { rating: "B2" },
+                    seoFriendlyPath: "/new-home-for-sale/located/796",
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const soldPayload = {
+    props: {
+      pageProps: {
+        listings: [{ listing: { soldPrice: "€350,000" } }],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  await Effect.runPromise(
+    runOnce(newHomeConfig, {
+      fetchPage: (url) =>
+        Effect.sync(() => {
+          requested.push(url);
+          return url.includes("/sold-properties/") ? soldPayload : searchPayload;
+        }),
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(requested.length, 2);
+  assert.equal(
+    requested.some((url) => url.includes("/new-home-for-sale/")),
+    false,
+  );
 });

@@ -72,17 +72,52 @@ const runShoutrrr: ShoutrrrRunner = (
   return promise;
 };
 
+const formatEur = (value: number): string =>
+  `€${Math.round(value).toLocaleString("en-IE")}`;
+
+const soldComparisonLines = (
+  finding: DaftFinding,
+): readonly string[] => {
+  const comparison = finding.soldComparison;
+  if (comparison === undefined) return [];
+  const range =
+    comparison.minPriceEur === undefined ||
+    comparison.maxPriceEur === undefined
+      ? `Sold comparables ${comparison.year}: no matching sales`
+      : `Sold comparables ${comparison.year}: ${formatEur(
+          comparison.minPriceEur,
+        )}–${formatEur(comparison.maxPriceEur)} (${
+          comparison.comparableCount
+        } sales)`;
+  const verdict =
+    comparison.verdict === "above"
+      ? "Market check: potentially overpriced (asking price above comparable sold range)"
+      : comparison.verdict === "within"
+        ? "Market check: within comparable sold range"
+        : comparison.verdict === "below"
+          ? "Market check: below comparable sold range"
+          : comparison.verdict === "unavailable"
+            ? "Market check: asking price unavailable for comparison"
+            : undefined;
+  const lines = [range];
+  if (verdict !== undefined) lines.push(verdict);
+  return lines;
+};
+
 export const formatFindingMessage = (finding: DaftFinding): string => {
   const details = [
     `Price: ${finding.priceText}`,
-    finding.bedrooms === undefined ? undefined : `Beds: ${finding.bedrooms}`,
-    finding.bathrooms === undefined
-      ? undefined
-      : `Baths: ${finding.bathrooms}`,
-    finding.propertyType ? `Type: ${finding.propertyType}` : undefined,
+    ...(finding.bedrooms === undefined
+      ? []
+      : [`Beds: ${finding.bedrooms}`]),
+    ...(finding.bathrooms === undefined
+      ? []
+      : [`Baths: ${finding.bathrooms}`]),
+    ...(finding.propertyType ? [`Type: ${finding.propertyType}`] : []),
     `Development: ${finding.developmentTitle}`,
+    ...soldComparisonLines(finding),
     `Daft: ${finding.url}`,
-  ].filter((line): line is string => line !== undefined);
+  ];
   return [finding.title, ...details].join("\n");
 };
 
