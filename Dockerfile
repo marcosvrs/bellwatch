@@ -71,8 +71,8 @@ RUN test ! -e node_modules/@redis/client \
   && test ! -e node_modules/tsx \
   && test ! -e node_modules/typescript
 
-# The Node slim image avoids Firefox, WebKit, and the Chromium headless shell
-# from the all-in-one Playwright image.
+# The Node slim image avoids Firefox and WebKit from the all-in-one
+# Playwright image; Chromium and its headless shell are installed below.
 FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS runtime
 
 WORKDIR /app
@@ -91,7 +91,7 @@ ENV NODE_ENV=production \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN mkdir -p /ms-playwright \
-  && node_modules/.bin/playwright-core install --with-deps chromium --no-shell \
+  && node_modules/.bin/playwright-core install --with-deps chromium \
   && chown -R node:node /ms-playwright \
   && mkdir -p /data \
   && chown node:node /data \
