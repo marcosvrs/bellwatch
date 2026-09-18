@@ -103,7 +103,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
-            type=sha,format=long,prefix=sha-
+            type=raw,value=sha-${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Build and push image
         id: build
