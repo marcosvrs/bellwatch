@@ -290,6 +290,27 @@ E2E_IMAGE=bellwatch:e2e npm run e2e
 
 CI builds the image and runs this check before publishing `latest`.
 
+### Supply-chain verification
+
+Published images are built only after the production-image e2e gate, include
+SBOM and provenance attestations, and are signed with keyless Cosign. Resolve a
+release tag to its immutable digest before deployment:
+
+```bash
+docker buildx imagetools inspect ghcr.io/marcosvrs/bellwatch:latest
+```
+
+Verify the selected digest before running it:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp 'https://github.com/marcosvrs/bellwatch/.github/workflows/publish.yml@refs/heads/master' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  ghcr.io/marcosvrs/bellwatch@sha256:replace-with-published-digest
+```
+
+Deploy the digest, not the mutable `latest` tag.
+
 ## Operate and update
 
 Stop and start without losing state:
@@ -305,15 +326,16 @@ persistent state before exiting.
 Replace the container while keeping the volume:
 
 ```bash
+IMAGE=ghcr.io/marcosvrs/bellwatch@sha256:replace-with-published-digest
+docker pull "$IMAGE"
 docker stop bellwatch
 docker rm bellwatch
-docker pull ghcr.io/marcosvrs/bellwatch:latest
 docker run --detach \
   --name bellwatch \
   --restart unless-stopped \
   --env-file "$HOME/.config/bellwatch/monitor.env" \
   --volume bellwatch-data:/data \
-  ghcr.io/marcosvrs/bellwatch:latest
+  "$IMAGE"
 ```
 
 In SQLite mode, delete `bellwatch-data` only when you intentionally want all

@@ -1,9 +1,9 @@
-FROM node:22-bookworm-slim AS dependencies
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS dependencies
 ARG TARGETARCH
 ARG SHOUTRRR_VERSION=0.21.0
 
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci \
   --legacy-peer-deps \
   --ignore-scripts \
@@ -52,9 +52,9 @@ RUN npm run build \
     --outfile=dist/main.js \
   && find dist -type f -name '*.map' -delete
 
-FROM node:22-bookworm-slim AS production-dependencies
+FROM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS production-dependencies
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 RUN npm ci \
   --omit=dev \
   --legacy-peer-deps \
@@ -72,7 +72,7 @@ RUN test ! -e node_modules/@redis/client \
   && test ! -e node_modules/typescript
 
 # The pinned Playwright image supplies Chromium and its Linux dependencies.
-FROM mcr.microsoft.com/playwright:v1.63.0-noble AS runtime
+FROM mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27 AS runtime
 
 WORKDIR /app
 LABEL org.opencontainers.image.title="Bellwatch" \
