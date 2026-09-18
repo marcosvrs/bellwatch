@@ -350,6 +350,7 @@ test("rejects invalid or contradictory filter configuration", () => {
 test("parses optional resource settings and rejects malformed environment values", () => {
   const configured = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_BASE_URL: "http://fixture.example:8080/",
     DAFT_SECTION_PATH: "property-to-rent",
     DAFT_REQUEST_DELAY_MS: "2500",
     PLAYWRIGHT_WS_ENDPOINT: "wss://browser.example/playwright",
@@ -357,7 +358,7 @@ test("parses optional resource settings and rejects malformed environment values
     NOTIFY_EXISTING_ON_FIRST_RUN: "true",
   });
   assert.equal(configured.shoutrrr.url, "ntfy://ntfy.sh/daft");
-  assert.equal(configured.daft.baseUrl, "https://www.daft.ie");
+  assert.equal(configured.daft.baseUrl, "http://fixture.example:8080");
   assert.equal(configured.daft.sectionPath, "property-to-rent");
   assert.equal(configured.daft.requestDelayMs, 2_500);
   assert.equal(
@@ -389,6 +390,30 @@ test("parses optional resource settings and rejects malformed environment values
       }),
     /DAFT_LOCATION must be a Daft URL path/,
   );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_BASE_URL: "https://www.daft.ie/search?test=1",
+      }),
+    /DAFT_BASE_URL must be an HTTP\(S\) origin/,
+  );
+  for (const baseUrl of [
+    "ftp://www.daft.ie",
+    "https://u@[::1]",
+    "https://:pw@[::1]",
+    "https://www.daft.ie#fragment",
+    "not-a-url",
+  ]) {
+    assert.throws(
+      () =>
+        parseEnvironment({
+          SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+          DAFT_BASE_URL: baseUrl,
+        }),
+      /DAFT_BASE_URL must be an HTTP\(S\) origin/,
+    );
+  }
   assert.throws(
     () =>
       parseEnvironment({

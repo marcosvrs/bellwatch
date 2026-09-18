@@ -358,10 +358,34 @@ const parseLocations = (env: NodeJS.ProcessEnv): readonly string[] => {
   return locations;
 };
 
+const parseDaftBaseUrl = (env: NodeJS.ProcessEnv): string => {
+  const value = trimmed(env, "DAFT_BASE_URL") ?? "https://www.daft.ie";
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ConfigurationError(
+      "DAFT_BASE_URL must be an HTTP(S) origin without credentials, query, or fragment",
+    );
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new ConfigurationError(
+      "DAFT_BASE_URL must be an HTTP(S) origin without credentials, query, or fragment",
+    );
+  }
+  return url.origin;
+};
+
 export const parseEnvironment = (
   env: NodeJS.ProcessEnv = process.env,
 ): MonitorConfig => {
-  const baseUrl = "https://www.daft.ie";
+  const baseUrl = parseDaftBaseUrl(env);
   const shoutrrrUrl = trimmed(env, "SHOUTRRR_URL");
   const hermesWebhookUrl = trimmed(env, "HERMES_WEBHOOK_URL");
   const hermesWebhookSecret = trimmed(env, "HERMES_WEBHOOK_SECRET");

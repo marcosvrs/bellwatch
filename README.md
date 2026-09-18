@@ -185,6 +185,7 @@ rejected.
 
 | Variable | Default | Accepted values / result |
 | --- | --- | --- |
+| `DAFT_BASE_URL` | `https://www.daft.ie` | HTTP(S) origin for Daft-compatible searches; useful for deterministic acceptance fixtures. |
 | `DAFT_LOCATION` | unset | Comma-separated location slugs sent as repeated `location` query parameters; unset searches all Ireland. |
 | `DAFT_SECTION_PATH` | `new-homes-for-sale` | Daft section path before `/ireland`. |
 | `DAFT_PRICE_MIN_EUR` | unset | Non-negative euro amount. |
@@ -215,9 +216,9 @@ This produces a URL shaped like:
 https://www.daft.ie/new-homes-for-sale/ireland/houses?location=dublin-city&location=drogheda-and-surrounds-louth
 ```
 
-The Daft base URL, `/ireland` scope, browser and notification timeouts,
-Shoutrrr executable/title, and `/data` state/heartbeat paths are fixed
-application defaults; they are not environment variables.
+`DAFT_BASE_URL` defaults to the Daft origin. The `/ireland` scope, browser and
+notification timeouts, Shoutrrr executable/title, and `/data` state/heartbeat
+paths are fixed application defaults; they are not environment variables.
 
 Requests matching a `robots.txt` disallow rule fail rather than being
 rewritten to evade it.
@@ -272,6 +273,20 @@ opened. The container still writes `/data/heartbeat` for the healthcheck, so
 `/data` must be writable, but its persistence is not required for listing
 history. Without `DATABASE_URL`, SQLite state is stored at
 `/data/state.sqlite`; persist `/data` across restarts.
+
+### Production-image acceptance check
+
+The production-image e2e check starts a local Daft-compatible fixture, runs one
+real browser poll from the built image, and runs the image healthcheck. It does
+not make live Daft requests, so it is deterministic and safe to run in CI.
+
+Build an image, then run:
+
+```bash
+E2E_IMAGE=bellwatch:e2e npm run e2e
+```
+
+CI builds the image and runs this check before publishing `latest`.
 
 ## Operate and update
 
