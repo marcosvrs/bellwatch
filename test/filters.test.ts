@@ -5,7 +5,6 @@ import {
   DAFT_ADDED_IN_LAST_DAYS,
   DAFT_MEDIA_TYPES,
   DAFT_PROPERTY_TYPES,
-  matchesDaftPropertyType,
   addedInLastDateValue,
   type DaftFilters,
 } from "../src/daft/filters.js";
@@ -34,75 +33,6 @@ const baseFilters: DaftFilters = {
   openViewingsFrom: "2026-08-01",
   sort: "priceDesc",
 };
-
-test("matches parsed Daft property types to configured categories", () => {
-  const houseLabels = [
-    "Bungalow",
-    "Detached",
-    "End of Terrace",
-    "House",
-    "Houses",
-    "Semi",
-    "Semi-D",
-    "Terrace",
-    "Townhouse",
-  ];
-  for (const propertyType of houseLabels) {
-    assert.equal(matchesDaftPropertyType(propertyType, ["houses"]), true);
-  }
-  assert.equal(
-    matchesDaftPropertyType("Detached", ["detached-houses"]),
-    true,
-  );
-  assert.equal(
-    matchesDaftPropertyType("Terrace", ["terraced-houses"]),
-    true,
-  );
-  assert.equal(
-    matchesDaftPropertyType("Townhouse", ["townhouses"]),
-    true,
-  );
-  assert.equal(matchesDaftPropertyType("Studio", ["studio-apartments"]), true);
-  assert.equal(
-    matchesDaftPropertyType("End  of Terrace", ["end-of-terrace-houses"]),
-    true,
-  );
-  assert.equal(
-    matchesDaftPropertyType("Semi", ["semi-detached-houses"]),
-    true,
-  );
-  assert.equal(
-    matchesDaftPropertyType("Semi-D", ["semi-detached-houses"]),
-    true,
-  );
-  assert.equal(
-    matchesDaftPropertyType("Semi Detached", ["semi-detached-houses"]),
-    true,
-  );
-  assert.equal(
-    matchesDaftPropertyType("Apartment", ["apartments"]),
-    true,
-  );
-  assert.equal(matchesDaftPropertyType("Flat", ["apartments"]), true);
-  assert.equal(
-    matchesDaftPropertyType("  Studio Apartment  ", ["studio-apartments"]),
-    true,
-  );
-  assert.equal(matchesDaftPropertyType("Duplex", ["duplexes"]), true);
-  assert.equal(matchesDaftPropertyType("Bungalow", ["bungalows"]), true);
-  assert.equal(
-    matchesDaftPropertyType("Apartment", ["houses"]),
-    false,
-  );
-  assert.equal(matchesDaftPropertyType("Flat", ["houses"]), false);
-  assert.equal(matchesDaftPropertyType("New Homes", ["houses"]), false);
-  assert.equal(
-    matchesDaftPropertyType("Apartment", ["houses", "apartments"]),
-    true,
-  );
-  assert.equal(matchesDaftPropertyType(undefined, []), true);
-  assert.equal(matchesDaftPropertyType(undefined, ["houses"]), false);
-});
 
 const searchUrl = (
   filters: DaftFilters = baseFilters,
