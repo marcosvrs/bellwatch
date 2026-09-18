@@ -99,23 +99,25 @@ const soldComparisonLines = (
           : comparison.verdict === "unavailable"
             ? "Market check: asking price unavailable for comparison"
             : undefined;
-  return [range, verdict].filter(
-    (line): line is string => line !== undefined,
-  );
+  const lines = [range];
+  if (verdict !== undefined) lines.push(verdict);
+  return lines;
 };
 
 export const formatFindingMessage = (finding: DaftFinding): string => {
   const details = [
     `Price: ${finding.priceText}`,
-    finding.bedrooms === undefined ? undefined : `Beds: ${finding.bedrooms}`,
-    finding.bathrooms === undefined
-      ? undefined
-      : `Baths: ${finding.bathrooms}`,
-    finding.propertyType ? `Type: ${finding.propertyType}` : undefined,
+    ...(finding.bedrooms === undefined
+      ? []
+      : [`Beds: ${finding.bedrooms}`]),
+    ...(finding.bathrooms === undefined
+      ? []
+      : [`Baths: ${finding.bathrooms}`]),
+    ...(finding.propertyType ? [`Type: ${finding.propertyType}`] : []),
     `Development: ${finding.developmentTitle}`,
     ...soldComparisonLines(finding),
     `Daft: ${finding.url}`,
-  ].filter((line): line is string => line !== undefined);
+  ];
   return [finding.title, ...details].join("\n");
 };
 

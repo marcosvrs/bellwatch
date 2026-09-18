@@ -8,6 +8,10 @@ import {
   addedInLastDateValue,
   type DaftFilters,
 } from "../src/daft/filters.js";
+import {
+  DAFT_SECTION_PATHS,
+  daftSectionForPath,
+} from "../src/daft/sections.js";
 import { buildDaftSearchUrl } from "../src/daft/url.js";
 import {
   ConfigurationError,
@@ -1049,5 +1053,285 @@ test("reports exact optional-choice and section-path errors", () => {
         DAFT_SECTION_PATH: "/property-to-rent",
       }),
     "DAFT_SECTION_PATH must be a Daft URL path without spaces, query, or fragment",
+  );
+});
+
+test("covers section metadata and profile validation boundaries", () => {
+  assert.deepEqual(DAFT_SECTION_PATHS, [
+    "new-homes-for-sale",
+    "property-for-sale",
+    "property-for-rent",
+  ]);
+  assert.deepEqual(daftSectionForPath("unknown"), undefined);
+  assert.deepEqual(
+    {
+      ...daftSectionForPath("new-homes-for-sale"),
+      encodeFilters: undefined,
+    },
+    {
+      id: "new-homes",
+      path: "new-homes-for-sale",
+      priceParameter: "salePrice",
+      defaultPriceMaxEur: 499_999,
+      supportsShps: true,
+      notificationTitlePrefix: "Bellwatch new home",
+      allowedFacilities: [],
+      encodeFilters: undefined,
+    },
+  );
+  assert.deepEqual(
+    {
+      ...daftSectionForPath("property-for-sale"),
+      encodeFilters: undefined,
+    },
+    {
+      id: "property-sale",
+      path: "property-for-sale",
+      priceParameter: "salePrice",
+      supportsShps: false,
+      notificationTitlePrefix: "Bellwatch property sale",
+      allowedFacilities: [
+        "alarm",
+        "gas-fired-central-heating",
+        "oil-fired-central-heating",
+        "parking",
+        "wheelchair-access",
+        "wired-for-cable-television",
+      ],
+      encodeFilters: undefined,
+    },
+  );
+  assert.deepEqual(
+    {
+      ...daftSectionForPath("property-for-rent"),
+      encodeFilters: undefined,
+    },
+    {
+      id: "property-rent",
+      path: "property-for-rent",
+      priceParameter: "rentalPrice",
+      supportsShps: false,
+      notificationTitlePrefix: "Bellwatch rental",
+      allowedFacilities: [
+        "alarm",
+        "cable-television",
+        "central-heating",
+        "dishwasher",
+        "dryer",
+        "garden-patio-balcony",
+        "internet",
+        "microwave",
+        "parking",
+        "pets-allowed",
+        "serviced-property",
+        "smoking",
+        "washing-machine",
+        "wheelchair-access",
+      ],
+      encodeFilters: undefined,
+    },
+  );
+
+  const saleWithFalseOffers = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_ONLINE_OFFERS: "false",
+    DAFT_FACILITIES: "any",
+  });
+  assert.equal(saleWithFalseOffers.daft.filters.onlineOffers, false);
+  assert.deepEqual(saleWithFalseOffers.daft.filters.facilities, undefined);
+
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-rent",
+        DAFT_FACILITIES: "any,parking",
+      }),
+    /cannot combine any with specific values/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-sale",
+        DAFT_LEASE_LENGTH_MIN_MONTHS: "6",
+      }),
+    /DAFT_LEASE_LENGTH_MIN_MONTHS, DAFT_LEASE_LENGTH_MAX_MONTHS, DAFT_FURNISHING is not supported/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-rent",
+        DAFT_FLOOR_SIZE_MIN_SQM: "100",
+      }),
+    /DAFT_FLOOR_SIZE_MIN_SQM, DAFT_FLOOR_SIZE_MAX_SQM, DAFT_BER_MIN/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-sale",
+        DAFT_BER_MIN: "A",
+        DAFT_BER_MAX: "C",
+      }),
+    /DAFT_BER_MIN must not exceed DAFT_BER_MAX/,
+  );
+  assert.equal(
+    parseEnvironment({
+      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+      DAFT_SECTION_PATH: "property-for-sale",
+      DAFT_BER_MIN: "C",
+    }).daft.filters.berMin,
+    "C",
+  );
+  assert.equal(
+    parseEnvironment({
+      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+      DAFT_SECTION_PATH: "property-for-sale",
+      DAFT_BER_MAX: "A",
+    }).daft.filters.berMax,
+    "A",
+  );
+});
+
+test("covers remaining section encoders and configuration failure messages", () => {
+  const saleWithoutOptionalFilters = new URL(
+    buildDaftSearchUrl({
+      baseUrl: "https://www.daft.ie",
+      sectionPath: "property-for-sale",
+      locations: ["dublin"],
+      filters: {
+        ...baseFilters,
+        facilities: undefined,
+        onlineOffers: false,
+      },
+    }),
+  );
+  assert.equal(
+    saleWithoutOptionalFilters.searchParams.get("offersEnabledDisabled"),
+    "false",
+  );
+  assert.equal(
+    saleWithoutOptionalFilters.searchParams.get("simplifiedBer_from"),
+    null,
+  );
+  assert.equal(
+    saleWithoutOptionalFilters.searchParams.get("simplifiedBer_to"),
+    null,
+  );
+  assert.deepEqual(
+    saleWithoutOptionalFilters.searchParams.getAll("facilities"),
+    [],
+  );
+  const saleWithoutOnlineOffers = new URL(
+    buildDaftSearchUrl({
+      baseUrl: "https://www.daft.ie",
+      sectionPath: "property-for-sale",
+      locations: ["dublin"],
+      filters: { ...baseFilters, facilities: [] },
+    }),
+  );
+  assert.equal(
+    saleWithoutOnlineOffers.searchParams.get("offersEnabledDisabled"),
+    null,
+  );
+
+
+  const rentWithoutFacilities = new URL(
+    buildDaftSearchUrl({
+      baseUrl: "https://www.daft.ie",
+      sectionPath: "property-for-rent",
+      locations: ["dublin"],
+      filters: { ...baseFilters, facilities: undefined },
+    }),
+  );
+  assert.deepEqual(rentWithoutFacilities.searchParams.getAll("facilities"), []);
+  assert.equal(daftSectionForPath("toString"), undefined);
+
+  const invalidFacility = () =>
+    parseEnvironment({
+      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+      DAFT_FACILITIES: "not-a-facility,another-invalid-facility",
+    });
+  assert.throws(
+    invalidFacility,
+    /DAFT_FACILITIES contains unsupported values: not-a-facility, another-invalid-facility/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_FACILITIES: "parking",
+      }),
+    /DAFT_FACILITIES is not supported for new-homes-for-sale/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-sale",
+        DAFT_FACILITIES: "pets-allowed,central-heating",
+      }),
+    /DAFT_FACILITIES contains values unsupported for property-for-sale: pets-allowed, central-heating/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-rent",
+        DAFT_FLOOR_SIZE_MIN_SQM: "100",
+        DAFT_FLOOR_SIZE_MAX_SQM: "200",
+        DAFT_BER_MIN: "A",
+        DAFT_BER_MAX: "C",
+        DAFT_SALE_TYPE: "auction",
+        DAFT_ONLINE_OFFERS: "true",
+      }),
+    /DAFT_FLOOR_SIZE_MIN_SQM, DAFT_FLOOR_SIZE_MAX_SQM, DAFT_BER_MIN, DAFT_BER_MAX, DAFT_SALE_TYPE, DAFT_ONLINE_OFFERS is not supported for property-for-rent/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-rent",
+        DAFT_LEASE_LENGTH_MIN_MONTHS: "12",
+        DAFT_LEASE_LENGTH_MAX_MONTHS: "6",
+      }),
+    /DAFT_LEASE_LENGTH minimum cannot exceed maximum/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-sale",
+        DAFT_FLOOR_SIZE_MIN_SQM: "200",
+        DAFT_FLOOR_SIZE_MAX_SQM: "100",
+      }),
+    /DAFT_FLOOR_SIZE minimum cannot exceed maximum/,
+  );
+  assert.equal(
+    parseEnvironment({
+      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+      DAFT_SECTION_PATH: "property-for-sale",
+      DAFT_BER_MIN: "A",
+      DAFT_BER_MAX: "A",
+    }).daft.filters.berMin,
+    "A",
+  );
+  assert.deepEqual(
+    parseEnvironment({
+      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+      DAFT_LOCATION: "dublin///city///",
+    }).daft.locations,
+    ["dublin///city"],
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "not-a-daft-section",
+      }),
+    /DAFT_SECTION_PATH must be one of: new-homes-for-sale, property-for-sale, property-for-rent/,
   );
 });

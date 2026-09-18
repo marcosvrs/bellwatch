@@ -113,8 +113,7 @@ const fetchSoldPrices = (
   Effect.gen(function* () {
     const prices: number[] = [];
     for (let page = 1; ; page += 1) {
-      const url = buildDaftSoldSearchUrl(request, page);
-      if (url === undefined) return prices;
+      const url = buildDaftSoldSearchUrl(request, page)!;
       const payload = yield* Effect.mapError(
         dependencies.fetchPage(url),
         (cause) =>
@@ -187,7 +186,7 @@ const enrichWithSoldComparables = (
         enriched.push(finding);
         continue;
       }
-      const cacheKey = `${comparableUrls.join("\u0001")}\u0000${finding.priceText}`;
+      const cacheKey = `${JSON.stringify(comparableUrls)}\u0000${finding.priceText}`;
       let comparison = cached.get(cacheKey);
       if (!cached.has(cacheKey)) {
         comparison = yield* Effect.catch(

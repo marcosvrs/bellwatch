@@ -60,7 +60,7 @@ const numberValue = (
   key: string,
 ): number | undefined => {
   const value = record?.[key];
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Number.isFinite(value)) return value as number;
   if (
     typeof value === "string" &&
     value.trim() &&
@@ -128,13 +128,15 @@ export const parseDaftListingDetails = (
 
 const unitTitle = (
   developmentTitle: string,
-  unit: JsonRecord,
+  unit: JsonRecord | undefined,
 ): string => {
+  const bedrooms = parseCount(stringValue(unit, "numBedrooms"));
+  const bathrooms = parseCount(stringValue(unit, "numBathrooms"));
   const details = [
-    stringValue(unit, "numBedrooms"),
-    stringValue(unit, "numBathrooms"),
+    bedrooms === undefined ? undefined : `${bedrooms} Bed`,
+    bathrooms === undefined ? undefined : `${bathrooms} Bath`,
     stringValue(unit, "propertyType"),
-  ].filter(Boolean);
+  ].filter((value): value is string => value !== undefined);
   return details.length > 0
     ? `${developmentTitle} — ${details.join(" · ")}`
     : developmentTitle;
@@ -147,7 +149,7 @@ interface FindingOverrides {
 }
 
 const parseFinding = (
-  listing: JsonRecord,
+  listing: JsonRecord | undefined,
   baseUrl: string,
   fallbackPath: string,
   overrides: FindingOverrides = {},
@@ -158,14 +160,13 @@ const parseFinding = (
     overrides.title ??
     stringValue(listing, "title") ??
     `Daft listing ${id}`;
-  const developmentTitle =
-    overrides.developmentTitle ?? stringValue(listing, "title") ?? title;
+  const developmentTitle = overrides.developmentTitle ?? title;
   const bedrooms = parseCount(stringValue(listing, "numBedrooms"));
   const bathrooms = parseCount(stringValue(listing, "numBathrooms"));
   const propertyType = stringValue(listing, "propertyType");
   const floorSizeSqm = parseListingFloorSize(listing);
-  const berRating = stringValue(asRecord(listing.ber), "rating");
-  const addressDetails = asRecord(listing.addressDetails);
+  const berRating = stringValue(asRecord(listing!.ber), "rating");
+  const addressDetails = asRecord(listing!.addressDetails);
   const address = stringValue(addressDetails, "streetAddress");
   const eircode = stringValue(addressDetails, "postalCode");
   return {
@@ -194,37 +195,34 @@ const listingRecord = (value: unknown): JsonRecord | undefined =>
 
 const parseNewHomeListing: ListingParser = (value, baseUrl) => {
   const listing = listingRecord(value);
-  if (!listing) return [];
   const parentId = identifier(listing);
   if (parentId === undefined) return [];
-  const newHome = asRecord(listing.newHome);
+  const record = listing ?? {};
+  const newHome = asRecord(record.newHome);
   const developmentTitle =
     stringValue(newHome, "developmentName") ??
-    stringValue(listing, "title") ??
+    stringValue(record, "title") ??
     `Daft development ${parentId}`;
   const units = Array.isArray(newHome?.subUnits) ? newHome.subUnits : [];
 
   if (units.length === 0) {
-    const finding = parseFinding(
-      listing,
-      baseUrl,
-      "/new-home-for-sale",
-      { id: parentId, title: developmentTitle, developmentTitle },
-    );
-    return finding ? [finding] : [];
+    return [
+      parseFinding(
+        record,
+        baseUrl,
+        "/new-home-for-sale",
+        { id: parentId, title: developmentTitle, developmentTitle },
+      )!,
+    ];
   }
 
   return units.flatMap((value) => {
     const unit = asRecord(value);
-    if (!unit) return [];
-    const id = identifier(unit);
-    if (id === undefined) return [];
     const finding = parseFinding(
       unit,
       baseUrl,
       "/new-home-for-sale",
       {
-        id,
         title: unitTitle(developmentTitle, unit),
         developmentTitle,
       },
@@ -239,7 +237,6 @@ const parseDirectListing = (
   fallbackPath: string,
 ): DaftFinding[] => {
   const listing = listingRecord(value) ?? asRecord(value);
-  if (!listing) return [];
   const finding = parseFinding(listing, baseUrl, fallbackPath);
   return finding ? [finding] : [];
 };
@@ -249,8 +246,7 @@ const parsePropertySaleListing: ListingParser = (value, baseUrl) =>
 
 const parsePropertyRentListing: ListingParser = (value, baseUrl) => {
   const listing = listingRecord(value);
-  if (!listing) return [];
-  const prs = asRecord(listing.prs);
+  const prs = asRecord(listing?.prs);
   const units = Array.isArray(prs?.subUnits) ? prs.subUnits : [];
   if (units.length === 0) {
     const finding = parseFinding(listing, baseUrl, "/for-rent");
@@ -263,15 +259,11 @@ const parsePropertyRentListing: ListingParser = (value, baseUrl) => {
     (parentId === undefined ? "Daft rental" : `Daft rental ${parentId}`);
   return units.flatMap((value) => {
     const unit = asRecord(value);
-    if (!unit) return [];
-    const id = identifier(unit);
-    if (id === undefined) return [];
     const finding = parseFinding(
       unit,
       baseUrl,
       "/for-rent",
       {
-        id,
         title: unitTitle(developmentTitle, unit),
         developmentTitle,
       },

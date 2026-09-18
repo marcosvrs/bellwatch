@@ -42,20 +42,13 @@ const asRecord = (value: unknown): JsonRecord | undefined =>
     ? (value as JsonRecord)
     : undefined;
 
-const stringValue = (
-  record: JsonRecord | undefined,
-  key: string,
-): string | undefined => {
-  const value = record?.[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-};
 
 const numberValue = (
   record: JsonRecord | undefined,
   key: string,
 ): number | undefined => {
   const value = record?.[key];
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Number.isFinite(value)) return value as number;
   if (
     typeof value === "string" &&
     value.trim() &&
@@ -68,7 +61,7 @@ const numberValue = (
 
 export const parseDaftMoney = (value: string | undefined): number | undefined => {
   if (!value) return undefined;
-  const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+  const normalized = value.toLowerCase().replaceAll(/\s/g, "");
   const multiplier = normalized.endsWith("m")
     ? 1_000_000
     : normalized.endsWith("k")
@@ -83,8 +76,8 @@ export const parseDaftMoney = (value: string | undefined): number | undefined =>
 };
 
 const parseMoneyValue = (value: unknown): number | undefined =>
-  typeof value === "number" && Number.isFinite(value)
-    ? value
+  Number.isFinite(value)
+    ? (value as number)
     : parseDaftMoney(typeof value === "string" ? value : undefined);
 
 const parsePropertySize = (value: string | undefined): number | undefined => {
@@ -109,7 +102,7 @@ const berValue = (rating: string | undefined): number | undefined => {
 };
 
 const normalizedPropertyType = (value: string): string =>
-  value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  value.toLowerCase().replace(/[^a-z0-9]+/g, " ");
 
 export const soldPropertyTypePath = (
   value: string | undefined,
@@ -150,7 +143,7 @@ const addOptional = (
   name: string,
   value: string | number | undefined,
 ): void => {
-  if (value !== undefined && value !== "") params.append(name, String(value));
+  if (value !== undefined) params.append(name, String(value));
 };
 
 const hasSpatialConstraint = (request: DaftSoldSearchRequest): boolean =>
@@ -271,6 +264,12 @@ export const summarizeDaftSoldPrices = (
 
 export const parseListingFloorSize = (
   listing: JsonRecord | undefined,
-): number | undefined =>
-  numberValue(asRecord(listing?.floorArea), "value") ??
-  parsePropertySize(stringValue(listing, "propertySize"));
+): number | undefined => {
+  const propertySize = listing?.propertySize;
+  return (
+    numberValue(asRecord(listing?.floorArea), "value") ??
+    parsePropertySize(
+      typeof propertySize === "string" ? propertySize : undefined,
+    )
+  );
+};

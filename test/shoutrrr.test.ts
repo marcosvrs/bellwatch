@@ -128,6 +128,88 @@ test("includes the sold comparable range and market check", () => {
   );
 });
 
+test("formats every sold comparison verdict and missing-range state", () => {
+  const messages = new Map([
+    ["within", "Market check: within comparable sold range"],
+    ["below", "Market check: below comparable sold range"],
+    ["unavailable", "Market check: asking price unavailable for comparison"],
+  ]);
+  for (const [verdict, line] of messages) {
+    const message = formatFindingMessage({
+      ...finding,
+      soldComparison: {
+        year: 2026,
+        comparableCount: 1,
+        minPriceEur: 400_000,
+        maxPriceEur: 450_000,
+        verdict: verdict as "within" | "below" | "unavailable",
+      },
+    });
+    assert.equal(message.includes(line), true);
+  }
+
+  const noRange = formatFindingMessage({
+    ...finding,
+    soldComparison: {
+      year: 2026,
+      comparableCount: 0,
+      verdict: "unavailable",
+    },
+  });
+  assert.equal(noRange.includes("Sold comparables 2026: no matching sales"), true);
+  assert.equal(
+    noRange.includes("Market check: asking price unavailable for comparison"),
+    true,
+  );
+
+  const missingVerdict = formatFindingMessage({
+    ...finding,
+    soldComparison: {
+      year: 2026,
+      comparableCount: 1,
+      minPriceEur: 400_000,
+    },
+  });
+  assert.equal(missingVerdict.includes("no matching sales"), true);
+  assert.equal(missingVerdict.includes("Market check:"), false);
+});
+
+test("omits incomplete sold ranges and missing verdict lines", () => {
+  const incompleteRange = formatFindingMessage({
+    ...finding,
+    soldComparison: {
+      year: 2026,
+      comparableCount: 1,
+      maxPriceEur: 450_000,
+      verdict: "unavailable",
+    },
+  });
+  assert.equal(incompleteRange.includes("no matching sales"), true);
+
+  const missingVerdict = formatFindingMessage({
+    ...finding,
+    soldComparison: {
+      year: 2026,
+      comparableCount: 1,
+      minPriceEur: 400_000,
+      maxPriceEur: 450_000,
+    },
+  });
+  assert.equal(
+    missingVerdict,
+    [
+      finding.title,
+      "Price: €315,000",
+      "Beds: 3",
+      "Baths: 2",
+      "Type: Terrace",
+      "Development: Example Development",
+      "Sold comparables 2026: €400,000–€450,000 (1 sales)",
+      `Daft: ${finding.url}`,
+    ].join("\n"),
+  );
+});
+
 test("streams the message to the Shoutrrr CLI", async () => {
   const executable = await createExecutable(`
 const chunks = [];
