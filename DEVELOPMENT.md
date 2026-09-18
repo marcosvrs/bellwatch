@@ -8,15 +8,18 @@ Container Registry and does not require a repository checkout.
 
 Requirements:
 
-- Node.js 22 or newer;
-- npm;
+- Node.js 22.23.2; use the checked-in `.node-version` with a version manager;
+- npm bundled with that Node.js release;
 - Gitleaks (`brew install gitleaks` on macOS);
 - an internet connection for dependency installation and browser/image pulls.
 
 Install dependencies and run the full project check:
 
 ```bash
-npm ci --legacy-peer-deps
+npm cache verify
+npm ci --legacy-peer-deps --ignore-scripts
+npm run prepare
+npm run security:local
 npm run check
 ```
 
@@ -26,6 +29,15 @@ executed by Node's native test runner; no TypeScript runtime loader is needed.
 The mutation check enforces a 99% score across the configured source files.
 The local hooks also run staged Gitleaks scanning before commits and
 full-history Gitleaks scanning before pushes.
+The checked-in `.npmrc` pins npm to `registry.npmjs.org` and disables
+dependency lifecycle scripts. Keep `--ignore-scripts` on installs, including
+installs of tools from an untrusted or newly changed dependency graph. Run
+`npm run prepare` explicitly only after reviewing the repository; it installs
+the tracked Git hooks and does not execute dependency lifecycle scripts.
+
+Do not use `npx <package>` in a repository unless the package is already in the
+lockfile and installed. Prefer `npm exec --offline -- <local-command>` so npm
+cannot silently download a missing executable.
 
 Useful focused commands:
 
@@ -33,6 +45,8 @@ Useful focused commands:
 npm test
 npm run coverage
 npm run mutation
+npm run security:deps
+npm run security:local
 npm run scan:secrets
 npm run scan:secrets:staged
 ```
@@ -47,8 +61,8 @@ Socket-provided `v1.3.2` commit, and the CI commands use the explicit
 To use the same protection locally:
 
 ```bash
-npm install --global sfw
-sfw npm ci --legacy-peer-deps
+npm install --global --ignore-scripts sfw@2.0.6
+sfw npm ci --legacy-peer-deps --ignore-scripts
 ```
 
 Socket Firewall Free requires no API key. It protects network downloads from
@@ -120,24 +134,28 @@ publishes the multi-architecture tags.
 image from `Dockerfile`, creates the persistent state volume, creates the
 healthchecked monitor container, and can target a remote Docker Engine over SSH.
 
-Install dependencies, set the required runtime configuration, then preview and
-apply the deployment:
+Install dependencies, verify them, set the required runtime configuration, then
+preview and apply the deployment:
 
 ```bash
-npm ci --legacy-peer-deps
+npm ci --legacy-peer-deps --ignore-scripts
+npm run prepare
+npm run security:deps
 export SHOUTRRR_URL=ntfy://ntfy.sh/bellwatch
 export ALCHEMY_DOCKER_HOST='host=ssh://user@remote-host'
 export MONITOR_DOCKER_NETWORK='the-existing-browser-network'
 export PLAYWRIGHT_WS_ENDPOINT='ws://browser-sockpuppet-chrome:3000/?--window-size=1920,1080'
 
-npx alchemy plan
-npx alchemy deploy
+npm exec --offline -- alchemy plan
+npm exec --offline -- alchemy deploy
 ```
 
 Omit `ALCHEMY_DOCKER_HOST` for the default local Docker target. The target
 engine must be able to build the Dockerfile and reach the configured external
-services. Use `npx alchemy deploy --adopt` only after inspecting the plan and
-confirming that an existing state volume is the intended one.
+services. Use `npm exec --offline -- alchemy deploy --adopt` only after
+inspecting the plan and confirming that an existing state volume is the
+intended one. `--offline` prevents npm from resolving an uninstalled package
+from the network.
 
 Resource names can be changed with:
 
@@ -146,8 +164,8 @@ Resource names can be changed with:
 - `MONITOR_CONTAINER_NAME`;
 - `MONITOR_VOLUME_NAME`.
 
-`npx alchemy destroy` is destructive: it removes the managed container, image,
-and volume, including listing history.
+`npm exec --offline -- alchemy destroy` is destructive: it removes the managed
+container, image, and volume, including listing history.
 
 ## GitHub Container Registry publishing
 

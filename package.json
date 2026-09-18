@@ -19,6 +19,8 @@
     "e2e": "node scripts/e2e.mjs",
     "scan:secrets": "gitleaks git . --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore --no-banner --redact --ignore-gitleaks-allow",
     "scan:secrets:staged": "gitleaks git --staged --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore --no-banner --redact --ignore-gitleaks-allow",
+    "security:deps": "npm audit --audit-level=high && npm audit signatures",
+    "security:local": "npm run security:deps && npm run scan:secrets",
     "prepare": "simple-git-hooks",
     "start": "node dist/main.js",
     "healthcheck": "node dist/healthcheck.js",
