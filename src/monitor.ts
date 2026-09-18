@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import * as Effect from "effect/Effect";
 import type { MonitorConfig } from "./config.js";
 import { buildDaftSearchUrl } from "./daft/url.js";
+import { matchesDaftPropertyType } from "./daft/filters.js";
 import {
   parseDaftListingDetails,
   parseDaftPage,
@@ -93,7 +94,17 @@ const collectFindings = (
           new MonitorError(`Could not parse Daft page ${page}`, { cause }),
       });
       pages += 1;
-      for (const finding of parsed.findings) byId.set(finding.id, finding);
+      for (const finding of parsed.findings) {
+        if (
+          !matchesDaftPropertyType(
+            finding.propertyType,
+            config.daft.filters.propertyTypes,
+          )
+        ) {
+          continue;
+        }
+        byId.set(finding.id, finding);
+      }
       if (parsed.currentPage >= parsed.totalPages) break;
     }
     const candidates =

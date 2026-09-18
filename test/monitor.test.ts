@@ -50,6 +50,7 @@ const payload = (findings: readonly DaftFinding[]) => ({
           title: finding.title,
           price: finding.priceText,
           seoFriendlyPath: `/new-home-for-sale/example/${finding.id}`,
+          propertyType: finding.propertyType,
           newHome: { subUnits: [] },
         },
       })),
@@ -80,6 +81,44 @@ const config = parseEnvironment({
   SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
   DAFT_MAX_PAGES: "1",
   NOTIFY_EXISTING_ON_FIRST_RUN: "false",
+});
+
+test("does not notify apartments when houses are configured", async () => {
+  const sent: string[] = [];
+  const result = await Effect.runPromise(
+    runOnce(
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_MAX_PAGES: "1",
+        DAFT_PROPERTY_TYPES: "houses",
+        NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+      }),
+      {
+        fetchPage: () =>
+          Effect.succeed(
+            payload([
+              makeFinding("901", { propertyType: "Terrace" }),
+              makeFinding("902", { propertyType: "Apartment" }),
+            ]),
+          ),
+        publish: (finding) =>
+          Effect.sync(() => {
+            sent.push(finding.id);
+          }),
+        publishError: () => Effect.void,
+        state: makeState(),
+        heartbeat: () => Effect.void,
+      },
+    ),
+  );
+
+  assert.deepEqual(result, {
+    pages: 1,
+    findings: 1,
+    notified: 1,
+    seeded: 0,
+  });
+  assert.deepEqual(sent, ["901"]);
 });
 
 test("seeds first results and notifies only later unseen findings", async () => {

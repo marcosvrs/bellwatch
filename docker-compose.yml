@@ -19,39 +19,36 @@ services:
       # Active for this Compose stack: use shared Postgres state.
       DATABASE_URL: "postgresql://daft:${POSTGRES_PASSWORD}@postgres:5432/daft"
 
-      # Optional state and healthcheck overrides.
-      # HEALTHCHECK_MAX_AGE_SECONDS: "86400" # default; increase for sparse cron schedules
-      # Set TZ here or in .env to propagate the host's configured timezone.
-      # Unset means the process detects the container runtime timezone.
-      TZ:
+      # Optional state and healthcheck overrides. Empty values use application defaults.
+      HEALTHCHECK_MAX_AGE_SECONDS: "${HEALTHCHECK_MAX_AGE_SECONDS:-}"
+      TZ: "${TZ:-}"
       POLL_CRON: "${POLL_CRON:-0 */8 * * *}"
-      # NOTIFY_EXISTING_ON_FIRST_RUN: "false"
+      NOTIFY_EXISTING_ON_FIRST_RUN: "${NOTIFY_EXISTING_ON_FIRST_RUN:-}"
 
       # Active for this Compose stack: use the Browserless service.
       PLAYWRIGHT_WS_ENDPOINT: "ws://browserless:3000?token=${BROWSERLESS_TOKEN}"
-      # BROWSER_USER_AGENT: "" # unset
+      BROWSER_USER_AGENT: "${BROWSER_USER_AGENT:-}"
 
-      # Optional search overrides. Leaving these unset intentionally keeps the
-      # default search broad; uncomment only the constraints you want.
-      # DAFT_LOCATION: "dublin-city,drogheda-and-surrounds-louth"
-      # DAFT_SECTION_PATH: "new-homes-for-sale" # e.g. another Daft section
-      # DAFT_RADIUS_KM: "20"
-      # DAFT_PRICE_MIN_EUR: "" # unset; no minimum
-      # DAFT_PRICE_MAX_EUR: "499999"
-      # DAFT_BEDS_MIN: "3"
-      # DAFT_BEDS_MAX: "" # unset
-      # DAFT_PROPERTY_TYPES: "houses"
-      # DAFT_BATHS_MIN: "" # unset
-      # DAFT_BATHS_MAX: "" # unset
-      # DAFT_MEDIA_TYPES: "" # unset; equivalent to any
-      # DAFT_KEYWORD: "" # unset
-      # DAFT_AVAILABILITY: "published"
-      # DAFT_ADDED_IN_LAST_DAYS: "1"
-      # DAFT_OPEN_VIEWINGS_FROM: "" # unset
-      # DAFT_SORT: "publishDateDesc"
-      # DAFT_MAX_PAGES: "1" # unset = follow all Daft result pages
-      # DAFT_REQUEST_DELAY_MS: "1000" # minimum gap between Daft navigations
-      # SHPS_FILTER: "off" # use "only" to keep SHPS-only or "exclude" to remove them
+      # Optional search overrides. Empty values keep the search unconstrained.
+      DAFT_LOCATION: "${DAFT_LOCATION:-}"
+      DAFT_SECTION_PATH: "${DAFT_SECTION_PATH:-}"
+      DAFT_RADIUS_KM: "${DAFT_RADIUS_KM:-}"
+      DAFT_PRICE_MIN_EUR: "${DAFT_PRICE_MIN_EUR:-}"
+      DAFT_PRICE_MAX_EUR: "${DAFT_PRICE_MAX_EUR:-}"
+      DAFT_BEDS_MIN: "${DAFT_BEDS_MIN:-}"
+      DAFT_BEDS_MAX: "${DAFT_BEDS_MAX:-}"
+      DAFT_PROPERTY_TYPES: "${DAFT_PROPERTY_TYPES:-}"
+      DAFT_BATHS_MIN: "${DAFT_BATHS_MIN:-}"
+      DAFT_BATHS_MAX: "${DAFT_BATHS_MAX:-}"
+      DAFT_MEDIA_TYPES: "${DAFT_MEDIA_TYPES:-}"
+      DAFT_KEYWORD: "${DAFT_KEYWORD:-}"
+      DAFT_AVAILABILITY: "${DAFT_AVAILABILITY:-}"
+      DAFT_ADDED_IN_LAST_DAYS: "${DAFT_ADDED_IN_LAST_DAYS:-}"
+      DAFT_OPEN_VIEWINGS_FROM: "${DAFT_OPEN_VIEWINGS_FROM:-}"
+      DAFT_SORT: "${DAFT_SORT:-}"
+      DAFT_MAX_PAGES: "${DAFT_MAX_PAGES:-}"
+      DAFT_REQUEST_DELAY_MS: "${DAFT_REQUEST_DELAY_MS:-}"
+      SHPS_FILTER: "${SHPS_FILTER:-}"
 
       # Image defaults already supplied by Dockerfile.
       # NODE_ENV: "production"
