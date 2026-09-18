@@ -86,22 +86,46 @@ const loadRobotsText = async (config: MonitorConfig): Promise<string> => {
   }
 
   await daftRequestGate(config.daft.requestDelayMs);
+  let session: BrowserSession | undefined;
+  let page: Page | undefined;
+  let succeeded = false;
   try {
-    const response = await fetch(new URL("/robots.txt", origin), {
-      headers: {
-        "user-agent": resolveBrowserUserAgent(config.browser),
-      },
-      signal: AbortSignal.timeout(config.browser.timeoutMs),
+    session = await getBrowserSession(config.browser);
+    page = await session.context.newPage();
+    page.setDefaultNavigationTimeout(config.browser.timeoutMs);
+    const response = await page.goto(new URL("/robots.txt", origin).toString(), {
+      waitUntil: "domcontentloaded",
+      timeout: config.browser.timeoutMs,
     });
-    if (response.status !== 404 && !response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    const status = response?.status();
+    if (status !== 404 && status !== 200) {
+      throw new Error(
+        `HTTP ${status === undefined ? "no response" : status}`,
+      );
     }
-    const text = response.status === 404 ? "" : (await response.text()).slice(0, 1_000_000);
+    const text =
+      status === 404
+        ? ""
+        : ((await page.locator("body").textContent()) ?? "").slice(
+            0,
+            1_000_000,
+          );
     robotsCache = { origin, fetchedAt: Date.now(), text };
+    succeeded = true;
     return text;
   } catch (cause) {
     if (cause instanceof BrowserError) throw cause;
     throw new BrowserError("Could not fetch Daft robots.txt", { cause });
+  } finally {
+    try {
+      await page?.close();
+    } catch {
+      // Closing a failed robots page should not mask the original error.
+    }
+    if (session) {
+      if (succeeded) scheduleBrowserClose(session);
+      else await closeBrowserSession(session);
+    }
   }
 };
 
@@ -111,9 +135,10 @@ const ensureDaftRobotsAllowed = async (
 ): Promise<void> => {
   const robotsText = await loadRobotsText(config);
   if (
-    !isRobotsAllowed(
+    isRobotsAllowed(
       robotsText,
-      "*",
+      url,
+      resolveBrowserUserAgent(config.browser),
     )
   ) {
     throw new BrowserError(`Daft robots.txt disallows ${url}`);
