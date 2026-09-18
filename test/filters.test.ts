@@ -32,6 +32,7 @@ const baseFilters: DaftFilters = {
   addedInLastDays: 7,
   openViewingsFrom: "2026-08-01",
   sort: "priceDesc",
+  facilities: [],
 };
 
 const searchUrl = (
@@ -53,10 +54,8 @@ const searchUrl = (
 
 test("maps every Daft web filter to its URL parameter", () => {
   const url = searchUrl();
-  assert.equal(url.pathname, "/new-homes-for-sale/ireland/houses");
-  assert.deepEqual(url.searchParams.getAll("location"), [
-    "dublin-city-centre-dublin",
-  ]);
+  assert.equal(url.pathname, "/new-homes-for-sale/dublin-city-centre-dublin/houses");
+  assert.deepEqual(url.searchParams.getAll("location"), []);
   assert.equal(url.searchParams.get("radius"), "20000");
   assert.equal(url.searchParams.get("salePrice_from"), "300000");
   assert.equal(url.searchParams.get("salePrice_to"), "499999");
@@ -79,10 +78,8 @@ test("maps multi-select property and media filters exactly like Daft", () => {
     propertyTypes: ["houses", "apartments"],
     mediaTypes: ["video", "virtual-tour"],
   });
-  assert.equal(url.pathname, "/new-homes-for-sale/ireland");
-  assert.deepEqual(url.searchParams.getAll("location"), [
-    "dublin-city-centre-dublin",
-  ]);
+  assert.equal(url.pathname, "/new-homes-for-sale/dublin-city-centre-dublin");
+  assert.deepEqual(url.searchParams.getAll("location"), []);
   assert.deepEqual(url.searchParams.getAll("propertyType"), [
     "houses",
     "apartments",
@@ -90,6 +87,78 @@ test("maps multi-select property and media filters exactly like Daft", () => {
   assert.deepEqual(url.searchParams.getAll("mediaTypes"), [
     "video",
     "virtual-tour",
+  ]);
+});
+test("encodes sale and rental section-specific filters", () => {
+  const sale = new URL(
+    buildDaftSearchUrl({
+      baseUrl: "https://www.daft.ie",
+      sectionPath: "property-for-sale",
+      locations: ["dublin"],
+      filters: {
+        ...baseFilters,
+        propertyTypes: ["sites"],
+        facilities: ["parking", "wired-for-cable-television"],
+        floorSizeMinSqm: 100,
+        floorSizeMaxSqm: 250,
+        berMin: "C",
+        berMax: "A",
+        saleType: "auction",
+        onlineOffers: true,
+        openViewingsFrom: undefined,
+      },
+    }),
+  );
+  assert.equal(sale.pathname, "/property-for-sale/dublin/sites");
+  assert.deepEqual(sale.searchParams.getAll("location"), []);
+  assert.equal(sale.searchParams.get("radius"), "20000");
+  assert.equal(sale.searchParams.get("salePrice_from"), "300000");
+  assert.equal(sale.searchParams.get("rentalPrice_from"), null);
+  assert.equal(sale.searchParams.get("floorSize_from"), "100");
+  assert.equal(sale.searchParams.get("floorSize_to"), "250");
+  assert.equal(sale.searchParams.get("simplifiedBer_from"), "5");
+  assert.equal(sale.searchParams.get("simplifiedBer_to"), "7");
+  assert.equal(sale.searchParams.get("saleType"), "auction");
+  assert.equal(sale.searchParams.get("offersEnabledDisabled"), "true");
+  assert.deepEqual(sale.searchParams.getAll("facilities"), [
+    "parking",
+    "wired-for-cable-television",
+  ]);
+
+  const rent = new URL(
+    buildDaftSearchUrl({
+      baseUrl: "https://www.daft.ie",
+      sectionPath: "property-for-rent",
+      locations: ["kildare"],
+      filters: {
+        ...baseFilters,
+        propertyTypes: ["houses", "apartments"],
+        priceMinEur: 1_500,
+        priceMaxEur: 2_500,
+        facilities: ["parking", "pets-allowed"],
+        leaseLengthMinMonths: 6,
+        leaseLengthMaxMonths: 12,
+        furnishing: "furnished",
+        openViewingsFrom: undefined,
+      },
+    }),
+  );
+  assert.equal(rent.pathname, "/property-for-rent/kildare");
+  assert.deepEqual(rent.searchParams.getAll("location"), []);
+  assert.equal(rent.searchParams.get("radius"), "20000");
+  assert.equal(rent.searchParams.get("salePrice_from"), null);
+  assert.equal(rent.searchParams.get("rentalPrice_from"), "1500");
+  assert.equal(rent.searchParams.get("rentalPrice_to"), "2500");
+  assert.deepEqual(rent.searchParams.getAll("propertyType"), [
+    "houses",
+    "apartments",
+  ]);
+  assert.equal(rent.searchParams.get("leaseLength_from"), "6");
+  assert.equal(rent.searchParams.get("leaseLength_to"), "12");
+  assert.equal(rent.searchParams.get("furnishing"), "furnished");
+  assert.deepEqual(rent.searchParams.getAll("facilities"), [
+    "parking",
+    "pets-allowed",
   ]);
 });
 
@@ -144,6 +213,14 @@ test("handles empty optional filters and rejects invalid page counts", () => {
   assert.throws(() => buildDaftSearchUrl(request, 0), /positive integer/);
   assert.throws(() => buildDaftSearchUrl(request, 1.5), /positive integer/);
 });
+test("requires one location per Daft search URL", () => {
+  assert.throws(
+    () => searchUrl(baseFilters, 1, ["dublin", "kildare"]),
+    /one location at a time/,
+  );
+  const ireland = searchUrl(baseFilters, 1, []);
+  assert.equal(ireland.searchParams.get("radius"), null);
+});
 
 test("accepts Daft web filters from environment variables", () => {
   const config = parseEnvironment({
@@ -175,6 +252,74 @@ test("accepts Daft web filters from environment variables", () => {
   assert.equal(config.daft.filters.addedInLastDays, 14);
   assert.equal(config.daft.filters.openViewingsFrom, "2026-08-01");
   assert.equal(config.daft.filters.sort, "publishDateDesc");
+});
+test("parses profile-specific filters and rejects incompatible combinations", () => {
+  const sale = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_FLOOR_SIZE_MIN_SQM: "100",
+    DAFT_FLOOR_SIZE_MAX_SQM: "250",
+    DAFT_BER_MIN: "C",
+    DAFT_BER_MAX: "A",
+    DAFT_SALE_TYPE: "auction",
+    DAFT_ONLINE_OFFERS: "true",
+    DAFT_FACILITIES: "parking,wired-for-cable-television",
+  });
+  assert.equal(sale.daft.sectionPath, "property-for-sale");
+  assert.equal(sale.daft.filters.priceMaxEur, undefined);
+  assert.equal(sale.daft.filters.floorSizeMinSqm, 100);
+  assert.equal(sale.daft.filters.floorSizeMaxSqm, 250);
+  assert.equal(sale.daft.filters.berMin, "C");
+  assert.equal(sale.daft.filters.berMax, "A");
+  assert.equal(sale.daft.filters.saleType, "auction");
+  assert.equal(sale.daft.filters.onlineOffers, true);
+  assert.deepEqual(sale.daft.filters.facilities, [
+    "parking",
+    "wired-for-cable-television",
+  ]);
+  assert.equal(sale.shoutrrr.titlePrefix, "Bellwatch property sale");
+
+  const rent = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-rent",
+    DAFT_LEASE_LENGTH_MIN_MONTHS: "6",
+    DAFT_LEASE_LENGTH_MAX_MONTHS: "12",
+    DAFT_FURNISHING: "furnished",
+    DAFT_FACILITIES: "parking,pets-allowed",
+  });
+  assert.equal(rent.daft.filters.leaseLengthMinMonths, 6);
+  assert.equal(rent.daft.filters.leaseLengthMaxMonths, 12);
+  assert.equal(rent.daft.filters.furnishing, "furnished");
+  assert.deepEqual(rent.daft.filters.facilities, ["parking", "pets-allowed"]);
+  assert.equal(rent.shoutrrr.titlePrefix, "Bellwatch rental");
+
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-rent",
+        DAFT_OPEN_VIEWINGS_FROM: "2026-08-01",
+      }),
+    /DAFT_OPEN_VIEWINGS_FROM is not supported for property-for-rent/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-sale",
+        SHPS_FILTER: "only",
+      }),
+    /SHPS_FILTER is only supported for new-homes-for-sale/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_SECTION_PATH: "property-for-sale",
+        DAFT_FACILITIES: "pets-allowed",
+      }),
+    /DAFT_FACILITIES contains values unsupported for property-for-sale/,
+  );
 });
 
 test("parses cron polling schedules in the configured timezone", () => {
@@ -351,7 +496,7 @@ test("parses optional resource settings and rejects malformed environment values
   const configured = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_BASE_URL: "http://fixture.example:8080/",
-    DAFT_SECTION_PATH: "property-to-rent",
+    DAFT_SECTION_PATH: "property-for-rent",
     DAFT_REQUEST_DELAY_MS: "2500",
     PLAYWRIGHT_WS_ENDPOINT: "wss://browser.example/playwright",
     DATABASE_URL: "postgresql://user:password@db.example/daft",
@@ -359,7 +504,7 @@ test("parses optional resource settings and rejects malformed environment values
   });
   assert.equal(configured.shoutrrr.url, "ntfy://ntfy.sh/daft");
   assert.equal(configured.daft.baseUrl, "http://fixture.example:8080");
-  assert.equal(configured.daft.sectionPath, "property-to-rent");
+  assert.equal(configured.daft.sectionPath, "property-for-rent");
   assert.equal(configured.daft.requestDelayMs, 2_500);
   assert.equal(
     configured.browser.externalEndpoint,
@@ -696,7 +841,7 @@ test("normalizes and encodes custom Daft base paths", () => {
   );
   assert.equal(
     url.toString(),
-    "https://example.test/root/property%20to%20rent/ireland?location=dublin+city&salePrice_from=300000&salePrice_to=499999&numBeds_from=3&numBeds_to=6&numBaths_from=2&numBaths_to=4&propertyType=houses&propertyType=apartments&mediaTypes=video&terms=garage&adState=sale-agreed&firstPublishDate_from=now-7d%2Fd&viewingTimes_from=2026-08-01&sort=priceDesc",
+    "https://example.test/root/property%20to%20rent/dublin%20city?salePrice_from=300000&salePrice_to=499999&numBeds_from=3&numBeds_to=6&numBaths_from=2&numBaths_to=4&propertyType=houses&propertyType=apartments&mediaTypes=video&terms=garage&adState=sale-agreed&firstPublishDate_from=now-7d%2Fd&viewingTimes_from=2026-08-01&sort=priceDesc",
   );
 });
 
@@ -748,7 +893,7 @@ test("covers empty values, parser boundaries, and canonical URL forms", () => {
     DAFT_MAX_PAGES: "20",
     DAFT_REQUEST_DELAY_MS: "60000",
     DAFT_LOCATION: " dublin-city , dublin-city ",
-    DAFT_SECTION_PATH: "property-to-rent///",
+    DAFT_SECTION_PATH: "property-for-rent///",
     DAFT_KEYWORD: "x".repeat(50),
     DATABASE_URL: "postgres://db.example/daft",
   });
@@ -758,7 +903,7 @@ test("covers empty values, parser boundaries, and canonical URL forms", () => {
   assert.equal(boundaries.daft.maxPages, 20);
   assert.equal(boundaries.daft.requestDelayMs, 60_000);
   assert.deepEqual(boundaries.daft.locations, ["dublin-city"]);
-  assert.equal(boundaries.daft.sectionPath, "property-to-rent");
+  assert.equal(boundaries.daft.sectionPath, "property-for-rent");
   assert.equal(boundaries.daft.filters.keyword, "x".repeat(50));
   assert.equal(boundaries.state.databaseUrl, "postgres://db.example/daft");
 
@@ -876,10 +1021,10 @@ test("covers list trimming, exact validation, and remaining defaults", () => {
     HERMES_WEBHOOK_URL: "https://hermes.example/webhook/",
     HERMES_WEBHOOK_SECRET: "secret",
     HERMES_CHAT_ID: "chat",
-    DAFT_SECTION_PATH: "property//to-rent///",
+    DAFT_SECTION_PATH: "property-for-rent///",
   });
   assert.equal(https.hermes?.url, "https://hermes.example/webhook");
-  assert.equal(https.daft.sectionPath, "property//to-rent");
+  assert.equal(https.daft.sectionPath, "property-for-rent");
 });
 
 test("reports exact optional-choice and section-path errors", () => {

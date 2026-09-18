@@ -2,18 +2,34 @@ import * as Cron from "effect/Cron";
 import {
   DAFT_ADDED_IN_LAST_DAYS,
   DAFT_AVAILABILITIES,
+  DAFT_BER_RATINGS,
+  DAFT_FACILITIES,
+  DAFT_FURNISHINGS,
+  DAFT_LEASE_LENGTH_MONTHS,
   DAFT_MEDIA_TYPES,
   DAFT_PROPERTY_TYPES,
   DAFT_RADIUS_KM_OPTIONS,
+  DAFT_SALE_TYPES,
   DAFT_SORTS,
   type DaftAddedInLastDays,
   type DaftAvailability,
+  type DaftBerRating,
+  type DaftFacility,
   type DaftFilters,
+  type DaftFurnishing,
+  type DaftLeaseLengthMonths,
   type DaftMediaType,
   type DaftPropertyType,
   type DaftRadiusKm,
+  type DaftSaleType,
   type DaftSort,
 } from "./daft/filters.js";
+import {
+  DAFT_SECTION_PATHS,
+  DEFAULT_DAFT_SECTION_PATH,
+  daftSectionForPath,
+  type DaftSectionPath,
+} from "./daft/sections.js";
 import {
   SHPS_FILTER_MODES,
   type ShpsConfig,
@@ -53,14 +69,12 @@ export const detectRuntimeTimezone = (
 };
 
 export const DEFAULT_TIMEZONE = detectRuntimeTimezone();
-
 export interface ShoutrrrConfig {
   readonly url: string;
   readonly binary: string;
   readonly titlePrefix: string;
   readonly timeoutMs: number;
 }
-
 export interface HermesConfig {
   readonly url: string;
   readonly secret: string;
@@ -71,7 +85,7 @@ export interface HermesConfig {
 export interface MonitorConfig {
   readonly daft: {
     readonly baseUrl: string;
-    readonly sectionPath: string;
+    readonly sectionPath: DaftSectionPath;
     readonly locations: readonly string[];
     readonly filters: DaftFilters;
     readonly maxPages?: number;
@@ -189,6 +203,35 @@ const boolean = (
     default:
       throw new ConfigurationError(`${name} must be a boolean`);
   }
+};
+const optionalBoolean = (
+  env: NodeJS.ProcessEnv,
+  name: string,
+): boolean | undefined => {
+  if (trimmed(env, name) === undefined) return undefined;
+  return boolean(env, name, false);
+};
+
+const parseFacilities = (env: NodeJS.ProcessEnv): DaftFacility[] => {
+  const values = list(env, "DAFT_FACILITIES");
+  if (values.includes("any")) {
+    if (values.length > 1) {
+      throw new ConfigurationError(
+        "DAFT_FACILITIES cannot combine any with specific values",
+      );
+    }
+    return [];
+  }
+  const invalid = values.filter(
+    (value): value is string =>
+      !(DAFT_FACILITIES as readonly string[]).includes(value),
+  );
+  if (invalid.length > 0) {
+    throw new ConfigurationError(
+      `DAFT_FACILITIES contains unsupported values: ${invalid.join(", ")}`,
+    );
+  }
+  return unique(values) as DaftFacility[];
 };
 
 const list = (env: NodeJS.ProcessEnv, name: string): string[] =>
@@ -386,6 +429,29 @@ export const parseEnvironment = (
   env: NodeJS.ProcessEnv = process.env,
 ): MonitorConfig => {
   const baseUrl = parseDaftBaseUrl(env);
+  const sectionPath = validatePath(
+    "DAFT_SECTION_PATH",
+    trimmed(env, "DAFT_SECTION_PATH") ?? DEFAULT_DAFT_SECTION_PATH,
+  );
+  const section = daftSectionForPath(sectionPath);
+  if (section === undefined) {
+    throw new ConfigurationError(
+      `DAFT_SECTION_PATH must be one of: ${DAFT_SECTION_PATHS.join(", ")}`,
+    );
+  }
+  const rejectUnsupported = (
+    names: readonly string[],
+    allowedPaths: readonly DaftSectionPath[],
+  ): void => {
+    if (
+      !allowedPaths.includes(section.path) &&
+      names.some((name) => trimmed(env, name) !== undefined)
+    ) {
+      throw new ConfigurationError(
+        `${names.join(", ")} is not supported for ${section.path}`,
+      );
+    }
+  };
   const shoutrrrUrl = trimmed(env, "SHOUTRRR_URL");
   const hermesWebhookUrl = trimmed(env, "HERMES_WEBHOOK_URL");
   const hermesWebhookSecret = trimmed(env, "HERMES_WEBHOOK_SECRET");
@@ -414,6 +480,26 @@ export const parseEnvironment = (
       "At least one notification backend must be configured: SHOUTRRR_URL or all Hermes variables",
     );
   }
+  rejectUnsupported(["DAFT_OPEN_VIEWINGS_FROM"], ["new-homes-for-sale"]);
+  rejectUnsupported(
+    [
+      "DAFT_LEASE_LENGTH_MIN_MONTHS",
+      "DAFT_LEASE_LENGTH_MAX_MONTHS",
+      "DAFT_FURNISHING",
+    ],
+    ["property-for-rent"],
+  );
+  rejectUnsupported(
+    [
+      "DAFT_FLOOR_SIZE_MIN_SQM",
+      "DAFT_FLOOR_SIZE_MAX_SQM",
+      "DAFT_BER_MIN",
+      "DAFT_BER_MAX",
+      "DAFT_SALE_TYPE",
+      "DAFT_ONLINE_OFFERS",
+    ],
+    ["property-for-sale"],
+  );
   const externalEndpoint = websocketUrl(env, "PLAYWRIGHT_WS_ENDPOINT");
 
   const priceMinEur = optionalInteger(env, "DAFT_PRICE_MIN_EUR", 0, 100_000_000);
@@ -425,6 +511,82 @@ export const parseEnvironment = (
   validateRange("DAFT_PRICE", priceMinEur, priceMaxEur);
   validateRange("DAFT_BEDS", bedsMin, bedsMax);
   validateRange("DAFT_BATHS", bathsMin, bathsMax);
+  const facilities = parseFacilities(env);
+  if (
+    trimmed(env, "DAFT_FACILITIES") !== undefined &&
+    section.allowedFacilities.length === 0
+  ) {
+    throw new ConfigurationError(
+      `DAFT_FACILITIES is not supported for ${section.path}`,
+    );
+  }
+  const invalidFacilities = facilities.filter(
+    (facility) => !section.allowedFacilities.includes(facility),
+  );
+  if (invalidFacilities.length > 0) {
+    throw new ConfigurationError(
+      `DAFT_FACILITIES contains values unsupported for ${section.path}: ${invalidFacilities.join(", ")}`,
+    );
+  }
+  const leaseLengthMinMonths = optionalChoice<DaftLeaseLengthMonths>(
+    env,
+    "DAFT_LEASE_LENGTH_MIN_MONTHS",
+    DAFT_LEASE_LENGTH_MONTHS,
+  );
+  const leaseLengthMaxMonths = optionalChoice<DaftLeaseLengthMonths>(
+    env,
+    "DAFT_LEASE_LENGTH_MAX_MONTHS",
+    DAFT_LEASE_LENGTH_MONTHS,
+  );
+  validateRange(
+    "DAFT_LEASE_LENGTH",
+    leaseLengthMinMonths,
+    leaseLengthMaxMonths,
+  );
+  const furnishing = optionalChoice<DaftFurnishing>(
+    env,
+    "DAFT_FURNISHING",
+    DAFT_FURNISHINGS,
+  );
+  const floorSizeMinSqm = optionalInteger(
+    env,
+    "DAFT_FLOOR_SIZE_MIN_SQM",
+    0,
+    100_000,
+  );
+  const floorSizeMaxSqm = optionalInteger(
+    env,
+    "DAFT_FLOOR_SIZE_MAX_SQM",
+    0,
+    100_000,
+  );
+  validateRange("DAFT_FLOOR_SIZE", floorSizeMinSqm, floorSizeMaxSqm);
+  const berMin = optionalChoice<DaftBerRating>(
+    env,
+    "DAFT_BER_MIN",
+    DAFT_BER_RATINGS,
+  );
+  const berMax = optionalChoice<DaftBerRating>(
+    env,
+    "DAFT_BER_MAX",
+    DAFT_BER_RATINGS,
+  );
+  if (
+    berMin !== undefined &&
+    berMax !== undefined &&
+    DAFT_BER_RATINGS.indexOf(berMin) > DAFT_BER_RATINGS.indexOf(berMax)
+  ) {
+    throw new ConfigurationError(
+      "DAFT_BER_MIN must not exceed DAFT_BER_MAX",
+    );
+  }
+  const saleType = optionalChoice<DaftSaleType>(
+    env,
+    "DAFT_SALE_TYPE",
+    DAFT_SALE_TYPES,
+  );
+  const onlineOffers = optionalBoolean(env, "DAFT_ONLINE_OFFERS");
+  const openViewingsFrom = validateDate(env, "DAFT_OPEN_VIEWINGS_FROM");
 
   const locations = parseLocations(env);
   const shpsFilter = choice<ShpsFilterMode>(
@@ -436,6 +598,11 @@ export const parseEnvironment = (
   const shps: ShpsConfig = {
     filter: shpsFilter,
   };
+  if (shpsFilter !== "off" && !section.supportsShps) {
+    throw new ConfigurationError(
+      `SHPS_FILTER is only supported for ${DEFAULT_DAFT_SECTION_PATH}`,
+    );
+  }
   const pollingSchedule = parsePollingSchedule(env);
 
   const filters: DaftFilters = {
@@ -445,7 +612,7 @@ export const parseEnvironment = (
       DAFT_RADIUS_KM_OPTIONS,
     ),
     priceMinEur,
-    priceMaxEur: priceMaxEur ?? 499_999,
+    priceMaxEur: priceMaxEur ?? section.defaultPriceMaxEur,
     bedsMin,
     bedsMax,
     propertyTypes: parsePropertyTypes(env),
@@ -470,18 +637,29 @@ export const parseEnvironment = (
       "DAFT_ADDED_IN_LAST_DAYS",
       DAFT_ADDED_IN_LAST_DAYS,
     ),
-    openViewingsFrom: validateDate(env, "DAFT_OPEN_VIEWINGS_FROM"),
+    openViewingsFrom,
     sort: optionalChoice<DaftSort>(env, "DAFT_SORT", DAFT_SORTS),
+    ...(facilities.length > 0 ? { facilities } : {}),
+    ...(leaseLengthMinMonths === undefined
+      ? {}
+      : { leaseLengthMinMonths }),
+    ...(leaseLengthMaxMonths === undefined
+      ? {}
+      : { leaseLengthMaxMonths }),
+    ...(furnishing === undefined ? {} : { furnishing }),
+    ...(floorSizeMinSqm === undefined ? {} : { floorSizeMinSqm }),
+    ...(floorSizeMaxSqm === undefined ? {} : { floorSizeMaxSqm }),
+    ...(berMin === undefined ? {} : { berMin }),
+    ...(berMax === undefined ? {} : { berMax }),
+    ...(saleType === undefined ? {} : { saleType }),
+    ...(onlineOffers === undefined ? {} : { onlineOffers }),
   };
 
   return {
     notificationBackends,
     daft: {
       baseUrl,
-      sectionPath: validatePath(
-        "DAFT_SECTION_PATH",
-        trimmed(env, "DAFT_SECTION_PATH") ?? "new-homes-for-sale",
-      ),
+      sectionPath: section.path,
       locations,
       filters,
       maxPages: optionalInteger(env, "DAFT_MAX_PAGES", 1, 20),
@@ -502,7 +680,7 @@ export const parseEnvironment = (
     shoutrrr: {
       url: shoutrrrUrl ?? "",
       binary: "shoutrrr",
-      titlePrefix: "Bellwatch new home",
+      titlePrefix: section.notificationTitlePrefix,
       timeoutMs: SHOUTRRR_TIMEOUT_DEFAULT_MS,
     },
     hermes: hermesConfigured

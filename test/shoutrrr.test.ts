@@ -99,6 +99,35 @@ test("formats notifications without optional unit fields", () => {
   );
 });
 
+test("includes the sold comparable range and market check", () => {
+  const message = formatFindingMessage({
+    ...finding,
+    soldComparison: {
+      year: 2026,
+      comparableCount: 2,
+      minPriceEur: 400000,
+      maxPriceEur: 450000,
+      askingPriceEur: 500000,
+      verdict: "above",
+    },
+  });
+
+  assert.equal(
+    message,
+    [
+      finding.title,
+      "Price: €315,000",
+      "Beds: 3",
+      "Baths: 2",
+      "Type: Terrace",
+      "Development: Example Development",
+      "Sold comparables 2026: €400,000–€450,000 (2 sales)",
+      "Market check: potentially overpriced (asking price above comparable sold range)",
+      `Daft: ${finding.url}`,
+    ].join("\n"),
+  );
+});
+
 test("streams the message to the Shoutrrr CLI", async () => {
   const executable = await createExecutable(`
 const chunks = [];

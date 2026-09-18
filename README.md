@@ -48,6 +48,7 @@ SHOUTRRR_URL=ntfy://ntfy.sh/replace-with-a-random-topic
 # Optional search, request pacing, and schedule overrides:
 # DAFT_LOCATION=galway-city
 # DAFT_SECTION_PATH=new-homes-for-sale
+# DAFT_PROPERTY_TYPES=houses
 # DAFT_PRICE_MAX_EUR=450000
 # DAFT_REQUEST_DELAY_MS=1000
 # TZ=Europe/Dublin
@@ -137,11 +138,21 @@ The default search is:
 - published listings; and
 - all result pages.
 
-Search URLs always use `/<DAFT_SECTION_PATH>/ireland`. Location filters are
-repeated `location` query parameters, not path segments. Results from multiple
-locations are combined and de-duplicated. Configuration is validated before
-polling starts; an invalid value stops the container with a configuration
-error.
+Set `DAFT_SECTION_PATH` to `property-for-sale` for direct sale listings or
+`property-for-rent` for direct and private-rental-sector listings. The €499,999
+maximum applies only to `new-homes-for-sale`; sale and rental searches have no
+implicit price maximum.
+
+Search URLs follow Daft's UI URL shape. With exactly one configured location,
+the location is a path segment:
+`/<DAFT_SECTION_PATH>/<location>`. When multiple locations are configured,
+Daft's multi-location UI disables radius filtering and resolves only the first
+location. Bellwatch therefore performs one single-location search per
+configured location, applies the radius to each URL, and combines and
+de-duplicates the results. Without configured locations, the path remains
+`/<DAFT_SECTION_PATH>/ireland` and radius is omitted because there is no
+location anchor. Configuration is validated before polling starts; an invalid
+value stops the container with a configuration error.
 
 The first poll runs immediately. Existing results are seeded silently unless
 `NOTIFY_EXISTING_ON_FIRST_RUN=true`.
@@ -150,6 +161,19 @@ Notifications contain the listing title, price, bedrooms, bathrooms, property
 type, development, and Daft URL. A listing is marked seen only after every
 configured notification backend accepts it. If one backend fails, it can be
 sent again on a later poll.
+
+For `new-homes-for-sale` and `property-for-sale` notifications, Bellwatch also
+looks up Daft sold properties from the current calendar year when the listing
+has matching bedrooms, bathrooms, property type, BER, and floor-size data.
+Sold comparable lookups use the same per-location strategy: each configured
+location is queried separately with one `location` parameter, then prices are
+merged before the comparison. The sold-search path stays under
+`/sold-properties/ireland`.
+Without configured locations, Bellwatch falls back to the listing's Eircode or
+address when detail-page data provides one. Notifications include the sold
+price range, comparable-sale count, and whether the asking price is potentially
+overpriced, within the range, or below it. Rental notifications do not perform
+this lookup.
 
 Poll failures, including Daft responses other than HTTP 200 and browser,
 parser, state, or notification-cycle errors, are sent through every configured
@@ -186,22 +210,44 @@ rejected.
 | Variable | Default | Accepted values / result |
 | --- | --- | --- |
 | `DAFT_BASE_URL` | `https://www.daft.ie` | HTTP(S) origin for Daft-compatible searches; useful for deterministic acceptance fixtures. |
-| `DAFT_LOCATION` | unset | Comma-separated location slugs sent as repeated `location` query parameters; unset searches all Ireland. |
-| `DAFT_SECTION_PATH` | `new-homes-for-sale` | Daft section path before `/ireland`. |
-| `DAFT_PRICE_MIN_EUR` | unset | Non-negative euro amount. |
-| `DAFT_PRICE_MAX_EUR` | `499999` | Non-negative euro amount. |
+| `DAFT_LOCATION` | unset | Comma-separated Daft location slugs; each configured location is searched separately and listings are de-duplicated. Unset searches all Ireland. |
+| `DAFT_SECTION_PATH` | `new-homes-for-sale` | `new-homes-for-sale`, `property-for-sale`, or `property-for-rent`; controls the result shape and supported filters. |
+| `DAFT_PRICE_MIN_EUR` | unset | Non-negative euro amount; encoded as `salePrice` for sale sections and `rentalPrice` for rentals. |
+| `DAFT_PRICE_MAX_EUR` | `499999` for new homes; unset otherwise | Non-negative euro amount. |
 | `DAFT_BEDS_MIN`, `DAFT_BEDS_MAX` | unset | Integer `0`–`15`. |
 | `DAFT_BATHS_MIN`, `DAFT_BATHS_MAX` | unset | Integer `1`–`5`. |
-| `DAFT_RADIUS_KM` | unset | `0`, `1`, `3`, `5`, `10`, or `20`; unset means no radius restriction. |
-| `DAFT_PROPERTY_TYPES` | unset | Comma-separated Daft types, or `any`; unset means all types. |
+| `DAFT_RADIUS_KM` | unset | `0`, `1`, `3`, `5`, `10`, or `20`; applied around each configured location. Without a location, radius is omitted. |
+| `DAFT_PROPERTY_TYPES` | unset | Comma-separated Daft types, including `sites`, or `any`; unset means all types. |
 | `DAFT_MEDIA_TYPES` | unset | `video`, `virtual-tour`, or `any`; unset means any. |
 | `DAFT_KEYWORD` | unset | Keyword or address, up to 50 characters. |
 | `DAFT_AVAILABILITY` | `published` | `published` or `sale-agreed`. |
 | `DAFT_ADDED_IN_LAST_DAYS` | unset | `0`, `1`, `3`, `7`, `14`, or `30`; unset means any age. |
-| `DAFT_OPEN_VIEWINGS_FROM` | unset | Date in `YYYY-MM-DD` format. |
+| `DAFT_OPEN_VIEWINGS_FROM` | unset | Date in `YYYY-MM-DD`; supported only for `new-homes-for-sale`. |
+| `DAFT_FACILITIES` | unset | Section-specific facility slugs; see the profile list below. |
+| `DAFT_LEASE_LENGTH_MIN_MONTHS`, `DAFT_LEASE_LENGTH_MAX_MONTHS` | unset | Rental only: `3`, `6`, `9`, `12`, `24`, or `36`. |
+| `DAFT_FURNISHING` | unset | Rental only: `furnished` or `unfurnished`. |
+| `DAFT_FLOOR_SIZE_MIN_SQM`, `DAFT_FLOOR_SIZE_MAX_SQM` | unset | Sale only: non-negative square metres. |
+| `DAFT_BER_MIN`, `DAFT_BER_MAX` | unset | Sale only: `exempt`, `G`, `F`, `E`, `D`, `C`, `B`, `A`, or `A0`. |
+| `DAFT_SALE_TYPE` | unset | Sale only: `auction`. |
+| `DAFT_ONLINE_OFFERS` | unset | Sale only: boolean; `true` enables online-offer listings. |
 | `DAFT_SORT` | Daft default | `bestMatch`, `publishDateDesc`, `priceAsc`, or `priceDesc`. |
-| `DAFT_MAX_PAGES` | unset | Integer `1`–`20`; unset means all result pages. |
+| `DAFT_MAX_PAGES` | unset | Integer `1`–`20` per configured location; unset means all result pages for every location. |
 | `DAFT_REQUEST_DELAY_MS` | `1000` | Minimum milliseconds between browser navigations to Daft; `1000`–`60000`. |
+
+Profile-specific filters are rejected when used with another section:
+
+- `property-for-sale`: `DAFT_FLOOR_SIZE_MIN_SQM`, `DAFT_FLOOR_SIZE_MAX_SQM`,
+  `DAFT_BER_MIN`, `DAFT_BER_MAX` (`exempt`, `G`, `F`, `E`, `D`, `C`, `B`, `A`,
+  or `A0`), `DAFT_SALE_TYPE=auction`, `DAFT_ONLINE_OFFERS`, and
+  `DAFT_FACILITIES` (`alarm`, `gas-fired-central-heating`,
+  `oil-fired-central-heating`, `parking`, `wheelchair-access`, or
+  `wired-for-cable-television`).
+- `property-for-rent`: `DAFT_LEASE_LENGTH_MIN_MONTHS`,
+  `DAFT_LEASE_LENGTH_MAX_MONTHS` (`3`, `6`, `9`, `12`, `24`, or `36`),
+  `DAFT_FURNISHING=furnished|unfurnished`, and `DAFT_FACILITIES` (`alarm`,
+  `cable-television`, `central-heating`, `dishwasher`, `dryer`,
+  `garden-patio-balcony`, `internet`, `microwave`, `parking`, `pets-allowed`,
+  `serviced-property`, `smoking`, `washing-machine`, or `wheelchair-access`).
 
 For example:
 

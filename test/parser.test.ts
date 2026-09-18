@@ -71,6 +71,31 @@ test("parses detail-page scheme evidence", () => {
   });
 });
 
+test("parses matching fields from detail pages", () => {
+  assert.deepEqual(
+    parseDaftListingDetails({
+      props: {
+        pageProps: {
+          listing: {
+            floorArea: { value: "105", unit: "METRES_SQUARED" },
+            ber: { rating: "B2" },
+            addressDetails: {
+              postalCode: "A12B345",
+              streetAddress: "1 Example Road",
+            },
+          },
+        },
+      },
+    }),
+    {
+      floorSizeSqm: 105,
+      berRating: "B2",
+      address: "1 Example Road",
+      eircode: "A12B345",
+    },
+  );
+});
+
 test("parses unit findings and development fallbacks", () => {
   const result = parseDaftPage(payload, "https://www.daft.ie");
   assert.equal(result.currentPage, 1);
@@ -197,6 +222,133 @@ test("preserves fallback fields and deduplicates unit ids", () => {
   assert.equal(result.findings[1].title, "Daft development 304 — 2 Bed · 1 Bath · Flat");
   assert.equal(result.findings[1].url, "https://www.daft.ie/new-home-for-sale/listing/305");
 });
+test("parses direct sale and rental listings by section", () => {
+  const sale = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 400,
+                title: "Apartment 3, Dublin 2",
+                price: "€495,000",
+                numBedrooms: "2 Bed",
+                numBathrooms: "2 Bath",
+                propertyType: "Apartment",
+                seoFriendlyPath: "/for-sale/apartment-3-dublin-2/400",
+              },
+            },
+          ],
+          paging: { currentPage: 1, totalPages: 1 },
+        },
+      },
+    },
+    "https://www.daft.ie",
+    "property-for-sale",
+  );
+  assert.deepEqual(sale.findings, [
+    {
+      id: "400",
+      title: "Apartment 3, Dublin 2",
+      developmentTitle: "Apartment 3, Dublin 2",
+      priceText: "€495,000",
+      bedrooms: 2,
+      bathrooms: 2,
+      propertyType: "Apartment",
+      url: "https://www.daft.ie/for-sale/apartment-3-dublin-2/400",
+    },
+  ]);
+
+  const directRent = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 500,
+                title: "12 Main Street, Dublin 8",
+                price: "€1,800 per month",
+                numBedrooms: "2 Bed",
+                numBathrooms: "1 Bath",
+                propertyType: "Apartment",
+                seoFriendlyPath: "/for-rent/12-main-street-dublin-8/500",
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+    "property-for-rent",
+  );
+  assert.equal(directRent.findings[0].id, "500");
+  assert.equal(directRent.findings[0].priceText, "€1,800 per month");
+  assert.equal(directRent.findings[0].bathrooms, 1);
+  assert.equal(directRent.findings[0].url, "https://www.daft.ie/for-rent/12-main-street-dublin-8/500");
+
+  const prsRent = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 600,
+                title: "Riverside Apartments",
+                prs: {
+                  subUnits: [
+                    {
+                      id: 601,
+                      price: "€2,700 per month",
+                      numBedrooms: "1 Bed",
+                      numBathrooms: "1 Bath",
+                      propertyType: "Apartment",
+                      seoFriendlyPath: "/for-rent/riverside-apartments/601",
+                    },
+                    {
+                      id: 602,
+                      price: "€3,000 per month",
+                      numBedrooms: "2 Bed",
+                      numBathrooms: "2 Bath",
+                      propertyType: "Apartment",
+                      seoFriendlyPath: "/for-rent/riverside-apartments/602",
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+    "property-for-rent",
+  );
+  assert.deepEqual(
+    prsRent.findings.map(({ id, title, developmentTitle, priceText }) => ({
+      id,
+      title,
+      developmentTitle,
+      priceText,
+    })),
+    [
+      {
+        id: "601",
+        title: "Riverside Apartments — 1 Bed · 1 Bath · Apartment",
+        developmentTitle: "Riverside Apartments",
+        priceText: "€2,700 per month",
+      },
+      {
+        id: "602",
+        title: "Riverside Apartments — 2 Bed · 2 Bath · Apartment",
+        developmentTitle: "Riverside Apartments",
+        priceText: "€3,000 per month",
+      },
+    ],
+  );
+});
 
 
 test("handles missing parent data and custom fallback paths", () => {
@@ -319,6 +471,53 @@ test("omits blank detail fields from scheme evidence", () => {
     }),
     { schemeText: "Description only" },
   );
+});
+
+test("parses comparable fields from direct sale listings", () => {
+  const result = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 510,
+                title: "Semi-detached home",
+                price: "€500,000",
+                numBedrooms: "3 Bed",
+                numBathrooms: "2 Bath",
+                propertyType: "Semi-D",
+                floorArea: { value: "105", unit: "METRES_SQUARED" },
+                ber: { rating: "B2" },
+                addressDetails: {
+                  postalCode: "A12B345",
+                  streetAddress: "1 Example Road",
+                },
+                seoFriendlyPath: "/for-sale/semi-detached-home/510",
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+    "property-for-sale",
+  );
+
+  assert.deepEqual(result.findings[0], {
+    id: "510",
+    title: "Semi-detached home",
+    developmentTitle: "Semi-detached home",
+    priceText: "€500,000",
+    bedrooms: 3,
+    bathrooms: 2,
+    propertyType: "Semi-D",
+    floorSizeSqm: 105,
+    berRating: "B2",
+    address: "1 Example Road",
+    eircode: "A12B345",
+    url: "https://www.daft.ie/for-sale/semi-detached-home/510",
+  });
 });
 
 test("rejects arrays and non-finite numeric identifiers at every nesting level", () => {
