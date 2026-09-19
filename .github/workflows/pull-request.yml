@@ -55,7 +55,7 @@ jobs:
           restore-keys: |
             validation-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
       - name: Install dependencies
-        run: sfw npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+        run: sfw npm ci --ignore-scripts --no-audit --no-fund
       - name: Audit npm dependencies
         run: sfw npm audit --audit-level=high
       - name: Verify npm registry signatures
