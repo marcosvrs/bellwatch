@@ -1,6 +1,6 @@
 import type { DaftFinding } from "./parser.js";
-import { DAFT_BER_RATINGS, type DaftBerRating } from "./filters.js";
-
+import { DAFT_BER_RATINGS } from "./filters.js";
+import { asJsonRecord as asRecord, type JsonRecord } from "./json.js";
 export type DaftSoldVerdict = "above" | "within" | "below" | "unavailable";
 
 export interface DaftSoldComparison {
@@ -40,20 +40,12 @@ export interface DaftSoldPageResult {
   readonly totalPages: number;
 }
 
-type JsonRecord = Record<string, unknown>;
-
-const asRecord = (value: unknown): JsonRecord | undefined =>
-  typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : undefined;
-
-
 const numberValue = (
   record: JsonRecord | undefined,
   key: string,
 ): number | undefined => {
   const value = record?.[key];
-  if (Number.isFinite(value)) return value as number;
+  if (typeof value === "number" && Number.isFinite(value)) {return value;}
   if (
     typeof value === "string" &&
     value.trim() &&
@@ -65,7 +57,7 @@ const numberValue = (
 };
 const listingIdentifier = (record: JsonRecord): string | undefined => {
   const numeric = numberValue(record, "id");
-  if (numeric !== undefined) return String(numeric);
+  if (numeric !== undefined) {return String(numeric);}
   const value = record["id"];
   return typeof value === "string" ? value.trim() || undefined : undefined;
 };
@@ -76,7 +68,7 @@ const areaInSquareMetres = (
   value: number,
   unit: string | undefined,
 ): number | undefined => {
-  if (unit === undefined || unit === "METRES_SQUARED") return value;
+  if (unit === undefined || unit === "METRES_SQUARED") {return value;}
   if (unit === "FEET_SQUARED") {
     return value * SQUARE_FEET_TO_SQUARE_METRES;
   }
@@ -84,9 +76,9 @@ const areaInSquareMetres = (
 };
 
 export const parseDaftMoney = (value: string | undefined): number | undefined => {
-  if (!value) return undefined;
+  if (!value) {return undefined;}
   const matches = value.match(/\d+(?:[\s,.]\d+)*(?:\s*[km])?/gi);
-  if (matches?.length !== 1) return undefined;
+  if (matches?.length !== 1) {return undefined;}
   const token = matches[0].toLowerCase();
   const multiplier = token.endsWith("m")
     ? 1_000_000
@@ -96,18 +88,18 @@ export const parseDaftMoney = (value: string | undefined): number | undefined =>
   const numeric = token
     .replace(/[^0-9.,]/g, "")
     .replaceAll(",", "");
-  if (!numeric) return undefined;
+  if (!numeric) {return undefined;}
   const amount = Number(numeric) * multiplier;
   return Number.isFinite(amount) ? amount : undefined;
 };
 
 const parseMoneyValue = (value: unknown): number | undefined =>
-  Number.isFinite(value)
-    ? (value as number)
+  typeof value === "number" && Number.isFinite(value)
+    ? value
     : parseDaftMoney(typeof value === "string" ? value : undefined);
 
 const parsePropertySize = (value: string | undefined): number | undefined => {
-  if (!value) return undefined;
+  if (!value) {return undefined;}
   const normalized = value.toLowerCase();
   if (normalized.includes("ft") || normalized.includes("feet")) {
     return undefined;
@@ -117,16 +109,22 @@ const parsePropertySize = (value: string | undefined): number | undefined => {
 };
 
 const berValue = (rating: string | undefined): number | undefined => {
-  if (!rating) return undefined;
+  if (!rating) {return undefined;}
   const normalized = rating.trim().toUpperCase();
   const candidate =
     normalized === "EXEMPT"
       ? "exempt"
       : normalized === "A0"
         ? "A0"
-        : normalized[0];
-  const index = DAFT_BER_RATINGS.indexOf(candidate as DaftBerRating);
-  if (index < 0) return undefined;
+        : DAFT_BER_RATINGS.find(
+            (value) =>
+              value !== "exempt" &&
+              value !== "A0" &&
+              value === normalized[0],
+          );
+  if (candidate === undefined) {return undefined;}
+  const index = DAFT_BER_RATINGS.indexOf(candidate);
+  if (index < 0) {return undefined;}
   // Sold-search simplifiedBer values are one-based for graded BERs.
   return candidate === "exempt" ? 0 : index + 1;
 };
@@ -137,19 +135,19 @@ const normalizedPropertyType = (value: string): string =>
 export const soldPropertyTypePath = (
   value: string | undefined,
 ): string | undefined => {
-  if (!value) return undefined;
+  if (!value) {return undefined;}
   const type = normalizedPropertyType(value);
-  if (type.includes("studio")) return "studio-apartments";
-  if (type.includes("duplex")) return "duplexes";
-  if (type.includes("end of terrace")) return "end-of-terrace-houses";
-  if (type.includes("semi")) return "semi-detached-houses";
-  if (type.includes("detached")) return "detached-houses";
-  if (type.includes("terrace")) return "terraced-houses";
-  if (type.includes("townhouse")) return "townhouses";
-  if (type.includes("bungalow")) return "bungalows";
-  if (type.includes("apartment")) return "apartments";
-  if (type.includes("site")) return "sites";
-  if (type.includes("house")) return "houses";
+  if (type.includes("studio")) {return "studio-apartments";}
+  if (type.includes("duplex")) {return "duplexes";}
+  if (type.includes("end of terrace")) {return "end-of-terrace-houses";}
+  if (type.includes("semi")) {return "semi-detached-houses";}
+  if (type.includes("detached")) {return "detached-houses";}
+  if (type.includes("terrace")) {return "terraced-houses";}
+  if (type.includes("townhouse")) {return "townhouses";}
+  if (type.includes("bungalow")) {return "bungalows";}
+  if (type.includes("apartment")) {return "apartments";}
+  if (type.includes("site")) {return "sites";}
+  if (type.includes("house")) {return "houses";}
   return undefined;
 };
 
@@ -174,7 +172,7 @@ const addOptional = (
   name: string,
   value: string | number | undefined,
 ): void => {
-  if (value !== undefined) params.append(name, String(value));
+  if (value !== undefined) {params.append(name, String(value));}
 };
 
 const hasSpatialConstraint = (request: DaftSoldSearchRequest): boolean =>
@@ -194,7 +192,7 @@ export const buildDaftSoldSearchUrl = (
       "Daft sold URLs must be built one location at a time",
     );
   }
-  if (!hasSpatialConstraint(request)) return undefined;
+  if (!hasSpatialConstraint(request)) {return undefined;}
 
   const base = new URL(request.baseUrl);
   const basePath = base.pathname.replace(/\/+$/, "");
@@ -209,7 +207,7 @@ export const buildDaftSoldSearchUrl = (
 
   const params = new URLSearchParams();
   if (request.locations.length > 0) {
-    for (const location of request.locations) params.append("location", location);
+    for (const location of request.locations) {params.append("location", location);}
   } else if (request.finding.eircode !== undefined) {
     params.append("name", "eircode");
     params.append("filterType", "Eircode");
@@ -218,11 +216,15 @@ export const buildDaftSoldSearchUrl = (
     params.append("eircode", request.finding.eircode);
     params.append("rad", "1000");
   } else {
+    const address = request.finding.address;
+    if (address === undefined) {
+      throw new Error("Sold search requires an address or Eircode");
+    }
     params.append("name", "eircode");
     params.append("filterType", "Eircode");
     params.append("searchQueryGroup", "geoFilter");
     params.append("geoSearchType", "POINT_AND_EIRCODE");
-    params.append("address", request.finding.address!);
+    params.append("address", address);
     params.append("rad", "1000");
   }
 
@@ -232,7 +234,7 @@ export const buildDaftSoldSearchUrl = (
   const simplifiedBer = berValue(request.finding.berRating);
   addOptional(params, "simplifiedBer_from", simplifiedBer);
   addOptional(params, "floorSize_from", request.finding.floorSizeSqm);
-  if (page > 1) params.append("page", String(page));
+  if (page > 1) {params.append("page", String(page));}
 
   base.search = params.toString();
   return base.toString();
@@ -248,7 +250,7 @@ export const parseDaftSoldPage = (
   if (Array.isArray(pageProps["listings"])) {
     for (const value of pageProps["listings"]) {
       const listing = asRecord(asRecord(value)?.["listing"]);
-      if (listing === undefined) continue;
+      if (listing === undefined) {continue;}
       const price = parseMoneyValue(
         listing["soldPrice"] ?? listing["price"],
       );

@@ -26,7 +26,7 @@ const addOptional = (
   name: string,
   value: string | number | boolean | undefined,
 ): void => {
-  if (value !== undefined) params.append(name, String(value));
+  if (value !== undefined) {params.append(name, String(value));}
 };
 
 const appendRepeated = (
@@ -34,7 +34,7 @@ const appendRepeated = (
   name: string,
   values: readonly string[],
 ): void => {
-  for (const value of values) params.append(name, value);
+  for (const value of values) {params.append(name, value);}
 };
 
 const encodeNewHomeFilters: FilterEncoder = (params, filters) => {
@@ -118,8 +118,6 @@ export const DEFAULT_DAFT_SECTION = definitions[DEFAULT_DAFT_SECTION_PATH];
 export const daftSectionForPath = (
   path: string,
 ): DaftSectionDefinition | undefined => {
-  if (!(DAFT_SECTION_PATHS as readonly string[]).includes(path)) {
-    return undefined;
-  }
-  return definitions[path as DaftSectionPath];
+  const sectionPath = DAFT_SECTION_PATHS.find((candidate) => candidate === path);
+  return sectionPath === undefined ? undefined : definitions[sectionPath];
 };

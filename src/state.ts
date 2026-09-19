@@ -19,7 +19,7 @@ export interface StateStore {
   readonly markInitialized: () => Effect.Effect<void, StateError>;
   readonly isSeen: (id: string) => Effect.Effect<boolean, StateError>;
   readonly markSeen: (finding: DaftFinding) => Effect.Effect<void, StateError>;
-  readonly close: () => Effect.Effect<void, never>;
+  readonly close: () => Effect.Effect<void>;
 }
 
 const SCHEMA = `
@@ -153,22 +153,24 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
 
 export const createStateStore = (
   config: MonitorConfigLike,
-): Effect.Effect<StateStore, StateError> =>
-  config.databaseUrl
+): Effect.Effect<StateStore, StateError> => {
+  const databaseUrl = config.databaseUrl;
+  return databaseUrl !== undefined
     ? Effect.tryPromise({
-        try: () => createPostgresStore(config.databaseUrl!),
+        try: async () => createPostgresStore(databaseUrl),
         catch: (cause) =>
           cause instanceof StateError
             ? cause
             : new StateError("Could not open Postgres state", { cause }),
       })
     : Effect.tryPromise({
-        try: () => createSqliteStore(config.file),
+        try: async () => createSqliteStore(config.file),
         catch: (cause) =>
           cause instanceof StateError
             ? cause
             : new StateError("Could not open SQLite state", { cause }),
       });
+};
 
 interface MonitorConfigLike {
   readonly file: string;

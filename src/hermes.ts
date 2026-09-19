@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import * as Effect from "effect/Effect";
 import type { HermesConfig } from "./config.js";
 import type { DaftFinding } from "./daft/parser.js";
@@ -29,9 +30,11 @@ export interface HermesTransport {
 }
 
 const defaultTransport: HermesTransport = {
-  request: (url, init) => fetch(url, init),
+  request: async (url, init) => fetch(url, init),
   now: () => Date.now(),
-  sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  sleep: async (milliseconds) => {
+    await sleep(milliseconds);
+  },
 };
 
 const responseDetail = async (response: Response): Promise<string> => {
@@ -70,7 +73,7 @@ const sendHermes = async (
         body,
         signal: AbortSignal.timeout(config.timeoutMs),
       });
-      if (response.status >= 200 && response.status < 300) return;
+      if (response.status >= 200 && response.status < 300) {return;}
 
       const detail = await responseDetail(response);
       const retryable = response.status >= 500;
@@ -81,19 +84,18 @@ const sendHermes = async (
         undefined,
         retryable,
       );
-      if (!retryable) throw error;
+      if (!retryable) {throw error;}
       lastError = error;
     } catch (cause) {
-      if (cause instanceof HermesError && !cause.retryable) throw cause;
+      if (cause instanceof HermesError && !cause.retryable) {throw cause;}
       lastError =
         cause instanceof HermesError
           ? cause
           : new HermesError("Hermes webhook request failed", { cause });
     }
 
-    if (attempt < RETRY_DELAYS_MS.length) {
-      await transport.sleep(RETRY_DELAYS_MS[attempt]!);
-    }
+    const delay = RETRY_DELAYS_MS[attempt];
+    if (delay !== undefined) {await transport.sleep(delay);}
   }
 
   throw lastError ?? new HermesError("Hermes webhook request failed");
@@ -105,7 +107,7 @@ export const publishHermesMessage = (
   transport: HermesTransport = defaultTransport,
 ): Effect.Effect<void, HermesError> =>
   Effect.tryPromise({
-    try: () => sendHermes(config, message, transport),
+    try: async () => sendHermes(config, message, transport),
     catch: (cause) =>
       cause instanceof HermesError
         ? cause

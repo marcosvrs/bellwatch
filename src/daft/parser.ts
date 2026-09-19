@@ -1,3 +1,4 @@
+import { asJsonRecord as asRecord, type JsonRecord } from "./json.js";
 import {
   DEFAULT_DAFT_SECTION_PATH,
   daftSectionForPath,
@@ -39,13 +40,8 @@ interface DaftPageResult {
   readonly totalPages: number;
 }
 
-type JsonRecord = Record<string, unknown>;
 type ListingParser = (value: unknown, baseUrl: string) => DaftFinding[];
 
-const asRecord = (value: unknown): JsonRecord | undefined =>
-  typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : undefined;
 
 const stringValue = (
   record: JsonRecord | undefined,
@@ -60,7 +56,7 @@ const numberValue = (
   key: string,
 ): number | undefined => {
   const value = record?.[key];
-  if (Number.isFinite(value)) return value as number;
+  if (typeof value === "number" && Number.isFinite(value)) {return value;}
   if (
     typeof value === "string" &&
     value.trim() &&
@@ -73,12 +69,12 @@ const numberValue = (
 
 const identifier = (record: JsonRecord | undefined): string | undefined => {
   const numeric = numberValue(record, "id");
-  if (numeric !== undefined) return String(numeric);
+  if (numeric !== undefined) {return String(numeric);}
   return stringValue(record, "id");
 };
 
 const parseCount = (value: string | undefined): number | undefined => {
-  if (!value) return undefined;
+  if (!value) {return undefined;}
   const matches = value.match(/\d+/g);
   return matches?.length === 1 ? Number(matches[0]) : undefined;
 };
@@ -153,7 +149,7 @@ const parseFinding = (
   overrides: FindingOverrides = {},
 ): DaftFinding | undefined => {
   const id = overrides.id ?? identifier(listing);
-  if (id === undefined) return undefined;
+  if (id === undefined) {return undefined;}
   const record = listing ?? {};
   const title =
     overrides.title ??
@@ -195,7 +191,7 @@ const listingRecord = (value: unknown): JsonRecord | undefined =>
 const parseNewHomeListing: ListingParser = (value, baseUrl) => {
   const listing = listingRecord(value);
   const parentId = identifier(listing);
-  if (parentId === undefined) return [];
+  if (parentId === undefined) {return [];}
   const record = listing ?? {};
   const newHome = asRecord(record["newHome"]);
   const developmentTitle =
@@ -205,14 +201,13 @@ const parseNewHomeListing: ListingParser = (value, baseUrl) => {
   const units = Array.isArray(newHome?.["subUnits"]) ? newHome["subUnits"] : [];
 
   if (units.length === 0) {
-    return [
-      parseFinding(
-        record,
-        baseUrl,
-        "/new-home-for-sale",
-        { id: parentId, title: developmentTitle, developmentTitle },
-      )!,
-    ];
+    const finding = parseFinding(
+      record,
+      baseUrl,
+      "/new-home-for-sale",
+      { id: parentId, title: developmentTitle, developmentTitle },
+    );
+    return finding === undefined ? [] : [finding];
   }
 
   return units.flatMap((value) => {
@@ -292,7 +287,7 @@ export const parseDaftPage = (
   if (Array.isArray(pageProps["listings"])) {
     for (const listing of pageProps["listings"]) {
       for (const finding of parser(listing, baseUrl)) {
-        if (seen.has(finding.id)) continue;
+        if (seen.has(finding.id)) {continue;}
         seen.add(finding.id);
         findings.push(finding);
       }

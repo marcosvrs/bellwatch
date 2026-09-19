@@ -135,7 +135,14 @@ const fetchSoldComparables = (
   Effect.gen(function* () {
     const comparables: DaftSoldComparable[] = [];
     for (let page = 1; ; page += 1) {
-      const url = buildDaftSoldSearchUrl(request, page)!;
+      const url = buildDaftSoldSearchUrl(request, page);
+      if (url === undefined) {
+        return yield* Effect.fail(
+          new MonitorError(
+            `Could not build sold comparables URL for ${request.finding.propertyType}`,
+          ),
+        );
+      }
       const payload = yield* Effect.mapError(
         dependencies.fetchPage(url),
         (cause) =>
@@ -152,7 +159,7 @@ const fetchSoldComparables = (
           }),
       });
       comparables.push(...parsed.comparables);
-      if (parsed.currentPage >= parsed.totalPages) break;
+      if (parsed.currentPage >= parsed.totalPages) {break;}
     }
     return comparables;
   });
@@ -173,12 +180,17 @@ const fetchSoldComparison = (
           prices.push(comparable.price);
           continue;
         }
-        if (seenListingIds.has(comparable.id)) continue;
+        if (seenListingIds.has(comparable.id)) {continue;}
         seenListingIds.add(comparable.id);
         prices.push(comparable.price);
       }
     }
-    const request = requests[0]!;
+    const request = requests.at(0);
+    if (request === undefined) {
+      return yield* Effect.fail(
+        new MonitorError("Sold comparison requires at least one request"),
+      );
+    }
     return summarizeDaftSoldPrices(
       prices,
       request.year,
@@ -190,7 +202,7 @@ const enrichWithSoldComparables = (
   findings: readonly DaftFinding[],
   config: MonitorConfig,
   dependencies: MonitorDependencies,
-): Effect.Effect<readonly DaftFinding[], never> =>
+): Effect.Effect<readonly DaftFinding[]> =>
   Effect.gen(function* () {
     const year = new Date().getFullYear();
     const cached = new Map<string, DaftSoldComparison | undefined>();
@@ -287,8 +299,8 @@ const collectFindings = (
             ),
         });
         pages += 1;
-        for (const finding of parsed.findings) byId.set(finding.id, finding);
-        if (parsed.currentPage >= parsed.totalPages) break;
+        for (const finding of parsed.findings) {byId.set(finding.id, finding);}
+        if (parsed.currentPage >= parsed.totalPages) {break;}
       }
     }
     const rawFindings = [...byId.values()];
@@ -326,7 +338,7 @@ const runPoll = (
       }
     } else {
       for (const finding of collected.findings) {
-        if (yield* dependencies.state.isSeen(finding.id)) continue;
+        if (yield* dependencies.state.isSeen(finding.id)) {continue;}
         pending.push(finding);
       }
       const publishable =
@@ -353,7 +365,7 @@ const runPoll = (
 const notifyPollError = (
   dependencies: MonitorDependencies,
   error: Error,
-): Effect.Effect<void, never> =>
+): Effect.Effect<void> =>
   Effect.catch(
     dependencies.publishError(error),
     (notificationError) =>

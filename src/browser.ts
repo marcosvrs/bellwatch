@@ -48,7 +48,7 @@ export const assertDaftHttpStatus = (
       ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     };
     throw new BrowserError(
-      `Daft page returned HTTP ${status === undefined ? "no response" : status}`,
+      `Daft page returned HTTP ${status ?? "no response"}`,
       options,
     );
   }
@@ -59,7 +59,7 @@ const DAFT_429_BACKOFF_MS = 30_000;
 const MAX_DAFT_RETRY_DELAY_MS = 120_000;
 
 const parseRetryAfterMs = (value: string | undefined): number | undefined => {
-  if (!value) return undefined;
+  if (!value) {return undefined;}
   const seconds = Number(value);
   if (Number.isFinite(seconds) && seconds >= 0) {
     return Math.min(seconds * 1_000, MAX_DAFT_RETRY_DELAY_MS);
@@ -99,7 +99,7 @@ let browserSession: BrowserSession | undefined;
 export const createDaftRequestGate = (
   now: () => number = () => Date.now(),
   sleep: (milliseconds: number) =>
-    Promise<void> = (milliseconds) =>
+    Promise<void> = async (milliseconds) =>
       new Promise<void>((resolve) => {
         setTimeout(resolve, milliseconds);
       }),
@@ -109,7 +109,7 @@ export const createDaftRequestGate = (
     if (lastRequestAt !== undefined) {
       const elapsedMs = now() - lastRequestAt;
       const waitMs = Math.max(0, minimumDelayMs - elapsedMs);
-      if (waitMs > 0) await sleep(waitMs);
+      if (waitMs > 0) {await sleep(waitMs);}
     }
     lastRequestAt = now();
   };
@@ -150,8 +150,8 @@ const loadRobotsText = async (config: MonitorConfig): Promise<string> => {
     });
     const status = response?.status();
     const retryAfterMs =
-      status === 429 && response !== null && response !== undefined
-        ? parseRetryAfterMs(response.headers()["retry-after"])
+      status === 429
+        ? parseRetryAfterMs(response?.headers()["retry-after"])
         : undefined;
     if (status === 429) {
       const options: BrowserErrorOptions =
@@ -160,7 +160,7 @@ const loadRobotsText = async (config: MonitorConfig): Promise<string> => {
     }
     if (status !== 404 && status !== 200) {
       throw new Error(
-        `HTTP ${status === undefined ? "no response" : status}`,
+        `HTTP ${status ?? "no response"}`,
       );
     }
     const text =
@@ -174,7 +174,7 @@ const loadRobotsText = async (config: MonitorConfig): Promise<string> => {
     succeeded = true;
     return text;
   } catch (cause) {
-    if (cause instanceof BrowserError) throw cause;
+    if (cause instanceof BrowserError) {throw cause;}
     const detail = cause instanceof Error ? `: ${cause.message}` : `: ${String(cause)}`;
     throw new BrowserError(`Could not fetch Daft robots.txt${detail}`, { cause });
   } finally {
@@ -184,8 +184,8 @@ const loadRobotsText = async (config: MonitorConfig): Promise<string> => {
       // Closing a failed robots page should not mask the original error.
     }
     if (session) {
-      if (succeeded) scheduleBrowserClose(session);
-      else await closeBrowserSession(session);
+      if (succeeded) {scheduleBrowserClose(session);}
+      else {await closeBrowserSession(session);}
     }
   }
 };
@@ -208,7 +208,7 @@ const ensureDaftRobotsAllowed = async (
 
 
 const closeBrowserSession = async (session: BrowserSession): Promise<void> => {
-  if (browserSession !== session) return;
+  if (browserSession !== session) {return;}
   browserSession = undefined;
   clearTimeout(session.closeTimer);
   try {
@@ -219,7 +219,7 @@ const closeBrowserSession = async (session: BrowserSession): Promise<void> => {
 };
 
 const scheduleBrowserClose = (session: BrowserSession): void => {
-  if (browserSession !== session) return;
+  if (browserSession !== session) {return;}
   clearTimeout(session.closeTimer);
   session.closeTimer = setTimeout(() => {
     void closeBrowserSession(session);
@@ -292,8 +292,8 @@ const fetchDaftPayloadOnce = async (
     });
     const status = response?.status();
     const retryAfterMs =
-      status === 429 && response !== null && response !== undefined
-        ? parseRetryAfterMs(response.headers()["retry-after"])
+      status === 429
+        ? parseRetryAfterMs(response?.headers()["retry-after"])
         : undefined;
     assertDaftHttpStatus(status, retryAfterMs);
     const nextData = await page
@@ -306,7 +306,8 @@ const fetchDaftPayloadOnce = async (
     }
     try {
       succeeded = true;
-      return JSON.parse(nextData) as unknown;
+      const payload: unknown = JSON.parse(nextData);
+      return payload;
     } catch (error) {
       throw new BrowserError("Daft __NEXT_DATA__ was not valid JSON", {
         cause: error,
@@ -319,8 +320,8 @@ const fetchDaftPayloadOnce = async (
       // Closing a failed page should not mask the original error.
     }
     if (session) {
-      if (succeeded) scheduleBrowserClose(session);
-      else await closeBrowserSession(session);
+      if (succeeded) {scheduleBrowserClose(session);}
+      else {await closeBrowserSession(session);}
     }
   }
 };
@@ -351,7 +352,7 @@ export const fetchDaftPayload = (
   url: string,
 ): Effect.Effect<unknown, BrowserError> =>
   Effect.tryPromise({
-    try: (signal) => fetchDaftPayloadWithRetry(config, url, signal),
+    try: async (signal) => fetchDaftPayloadWithRetry(config, url, signal),
     catch: (cause) =>
       cause instanceof BrowserError
         ? cause

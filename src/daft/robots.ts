@@ -23,7 +23,7 @@ const parseRobots = (robotsText: string): RobotsGroup[] => {
   let current: RobotsGroup | undefined;
   let sawRule: boolean | undefined;
   for (const rawLine of robotsText.split(/\r?\n/)) {
-    const line = rawLine.split("#", 1)[0]!.trim();
+    const line = (rawLine.split("#", 1).at(0) ?? "").trim();
     if (!line) {
       current = undefined;
       continue;
@@ -37,7 +37,7 @@ const parseRobots = (robotsText: string): RobotsGroup[] => {
         groups.push(current);
         sawRule = false;
       }
-      if (value) current.agents.push(value.toLowerCase());
+      if (value) {current.agents.push(value.toLowerCase());}
       continue;
     }
     if (
@@ -60,7 +60,7 @@ export const isRobotsAllowed = (
 ): boolean => {
   const target = new URL(targetUrl);
   const path = `${target.pathname}${target.search}`;
-  const token = userAgent.trim().toLowerCase().split(/[\s/]/)[0]!;
+  const token = userAgent.trim().toLowerCase().split(/[\s/]/).at(0) ?? "";
   const parsedGroups = parseRobots(robotsText);
   const specificGroups = parsedGroups.filter((group) =>
     group.agents.some((agent) => token.startsWith(agent)),
@@ -73,7 +73,7 @@ export const isRobotsAllowed = (
 
   for (const group of groups) {
     for (const rule of group.rules) {
-      if (!matchesRule(rule.pattern, path)) continue;
+      if (!matchesRule(rule.pattern, path)) {continue;}
       const length = rule.pattern.replaceAll("*", "").replace(/\$$/, "").length;
       if (!best || length > best.length || (length === best.length && rule.allow)) {
         best = { allow: rule.allow, length };

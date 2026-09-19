@@ -43,10 +43,11 @@ const without = <T extends object, K extends keyof T>(
   value: T,
   ...keys: readonly K[]
 ): Omit<T, K> => {
-  const copy = { ...value };
+  const copy: Partial<T> = { ...value };
   for (const key of keys) {
-    delete (copy as Partial<T>)[key];
+    delete copy[key];
   }
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- Generic key deletion is not expressible without a boundary assertion.
   return copy as Omit<T, K>;
 };
 
@@ -856,8 +857,9 @@ test("covers empty values, parser boundaries, and canonical URL forms", () => {
         HERMES_CHAT_ID: "chat",
       }),
     (error: unknown) => {
+      assert.ok(error instanceof Error);
       assert.equal(
-        (error as Error).message,
+        error.message,
         "HERMES_WEBHOOK_URL, HERMES_WEBHOOK_SECRET, and HERMES_CHAT_ID must be set together",
       );
       return true;
@@ -870,7 +872,8 @@ test("covers empty values, parser boundaries, and canonical URL forms", () => {
         DAFT_BEDS_MIN: "x1",
       }),
     (error: unknown) => {
-      assert.equal((error as Error).message, "DAFT_BEDS_MIN must be an integer");
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, "DAFT_BEDS_MIN must be an integer");
       return true;
     },
   );
@@ -954,7 +957,8 @@ test("covers list trimming, exact validation, and remaining defaults", () => {
 
   const assertMessage = (run: () => unknown, message: string) =>
     assert.throws(run, (error: unknown) => {
-      assert.equal((error as Error).message, message);
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, message);
       return true;
     });
 
@@ -1022,7 +1026,8 @@ test("covers list trimming, exact validation, and remaining defaults", () => {
 test("reports exact optional-choice and section-path errors", () => {
   const assertMessage = (run: () => unknown, message: string) =>
     assert.throws(run, (error: unknown) => {
-      assert.equal((error as Error).message, message);
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, message);
       return true;
     });
 

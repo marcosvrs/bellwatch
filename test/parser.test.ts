@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseDaftListingDetails, parseDaftPage } from "../src/daft/parser.js";
+import { defined } from "./helpers.js";
 
 const payload = {
   props: {
@@ -109,7 +110,7 @@ test("parses unit findings and development fallbacks", () => {
     propertyType: "Terrace",
     url: "https://www.daft.ie/new-home-for-sale/3-bed-example/101",
   });
-  assert.equal(result.findings[1]!.id, "200");
+  assert.equal(defined(result.findings[1]).id, "200");
 });
 
 test("handles malformed and string-valued listing data", () => {
@@ -144,12 +145,12 @@ test("handles malformed and string-valued listing data", () => {
     "https://www.daft.ie",
   );
   assert.equal(result.findings.length, 2);
-  assert.equal(result.findings[0]!.id, "301");
-  assert.equal(result.findings[0]!.title, "String-valued Development");
-  assert.equal(result.findings[0]!.priceText, "Price unavailable");
-  assert.equal(result.findings[1]!.id, "302");
-  assert.equal(result.findings[1]!.title, "Daft development 302");
-  assert.equal(result.findings[1]!.priceText, "Price unavailable");
+  assert.equal(defined(result.findings[0]).id, "301");
+  assert.equal(defined(result.findings[0]).title, "String-valued Development");
+  assert.equal(defined(result.findings[0]).priceText, "Price unavailable");
+  assert.equal(defined(result.findings[1]).id, "302");
+  assert.equal(defined(result.findings[1]).title, "Daft development 302");
+  assert.equal(defined(result.findings[1]).priceText, "Price unavailable");
   assert.deepEqual(parseDaftPage(null, "https://www.daft.ie"), {
     findings: [],
     currentPage: 1,
@@ -217,8 +218,8 @@ test("preserves fallback fields and deduplicates unit ids", () => {
     propertyType: "Semi",
     url: "https://www.daft.ie/new-home-for-sale/listing/303",
   });
-  assert.equal(result.findings[1]!.title, "Daft development 304 — 2 Bed · 1 Bath · Flat");
-  assert.equal(result.findings[1]!.url, "https://www.daft.ie/new-home-for-sale/listing/305");
+  assert.equal(defined(result.findings[1]).title, "Daft development 304 — 2 Bed · 1 Bath · Flat");
+  assert.equal(defined(result.findings[1]).url, "https://www.daft.ie/new-home-for-sale/listing/305");
 });
 test("parses direct sale and rental listings by section", () => {
   const sale = parseDaftPage(
@@ -281,10 +282,10 @@ test("parses direct sale and rental listings by section", () => {
     "https://www.daft.ie",
     "property-for-rent",
   );
-  assert.equal(directRent.findings[0]!.id, "500");
-  assert.equal(directRent.findings[0]!.priceText, "€1,800 per month");
-  assert.equal(directRent.findings[0]!.bathrooms, 1);
-  assert.equal(directRent.findings[0]!.url, "https://www.daft.ie/for-rent/12-main-street-dublin-8/500");
+  assert.equal(defined(directRent.findings[0]).id, "500");
+  assert.equal(defined(directRent.findings[0]).priceText, "€1,800 per month");
+  assert.equal(defined(directRent.findings[0]).bathrooms, 1);
+  assert.equal(defined(directRent.findings[0]).url, "https://www.daft.ie/for-rent/12-main-street-dublin-8/500");
 
   const prsRent = parseDaftPage(
     {
@@ -380,10 +381,10 @@ test("does not invent scalar counts from multi-range listing values", () => {
     "https://www.daft.ie",
   );
 
-  assert.equal(result.findings[0]!.bedrooms, undefined);
-  assert.equal(result.findings[0]!.bathrooms, undefined);
-  assert.equal(result.findings[1]!.bedrooms, undefined);
-  assert.equal(result.findings[1]!.bathrooms, undefined);
+  assert.equal(defined(result.findings[0]).bedrooms, undefined);
+  assert.equal(defined(result.findings[0]).bathrooms, undefined);
+  assert.equal(defined(result.findings[1]).bedrooms, undefined);
+  assert.equal(defined(result.findings[1]).bathrooms, undefined);
 });
 
 
@@ -438,15 +439,15 @@ test("handles missing parent data and custom fallback paths", () => {
     "https://www.daft.ie",
   );
   assert.equal(result.findings.length, 4);
-  assert.equal(result.findings[0]!.title, "Trimmed Parent");
-  assert.equal(result.findings[0]!.priceText, "€2");
-  assert.equal(result.findings[0]!.bedrooms, undefined);
-  assert.equal(result.findings[1]!.url, "https://www.daft.ie/custom/path/309");
-  assert.equal(result.findings[1]!.bedrooms, 12);
-  assert.equal(result.findings[1]!.propertyType, "Flat");
-  assert.equal(result.findings[2]!.title, "Missing New Home");
-  assert.equal(result.findings[2]!.url, "https://www.daft.ie/new-home-for-sale/listing/310");
-  assert.equal(result.findings[3]!.title, "Daft development 311");
+  assert.equal(defined(result.findings[0]).title, "Trimmed Parent");
+  assert.equal(defined(result.findings[0]).priceText, "€2");
+  assert.equal(defined(result.findings[0]).bedrooms, undefined);
+  assert.equal(defined(result.findings[1]).url, "https://www.daft.ie/custom/path/309");
+  assert.equal(defined(result.findings[1]).bedrooms, 12);
+  assert.equal(defined(result.findings[1]).propertyType, "Flat");
+  assert.equal(defined(result.findings[2]).title, "Missing New Home");
+  assert.equal(defined(result.findings[2]).url, "https://www.daft.ie/new-home-for-sale/listing/310");
+  assert.equal(defined(result.findings[3]).title, "Daft development 311");
 });
 test("rejects invalid records and preserves numeric paging", () => {
   const arrayPayload = Object.assign([], {
@@ -491,7 +492,7 @@ test("rejects invalid records and preserves numeric paging", () => {
     "https://www.daft.ie",
   );
   assert.equal(result.findings.length, 1);
-  assert.equal(result.findings[0]!.id, "412");
+  assert.equal(defined(result.findings[0]).id, "412");
   assert.equal(result.currentPage, 2);
   assert.equal(result.totalPages, 3);
 });
@@ -626,8 +627,8 @@ test("rejects arrays and non-finite numeric identifiers at every nesting level",
     "https://www.daft.ie",
   );
   assert.equal(arrayResult.findings.length, 1);
-  assert.equal(arrayResult.findings[0]!.id, "996");
-  assert.equal(arrayResult.findings[0]!.title, "Parent development");
+  assert.equal(defined(arrayResult.findings[0]).id, "996");
+  assert.equal(defined(arrayResult.findings[0]).title, "Parent development");
 
   const invalidResult = parseDaftPage(
     {
@@ -776,7 +777,7 @@ test("covers direct records, rental fallbacks, and invalid section paths", () =>
       },
     ],
   );
-  assert.equal(Object.hasOwn(rental.findings[3]!, "propertyType"), false);
+  assert.equal(Object.hasOwn(defined(rental.findings[3]), "propertyType"), false);
 
   const fallback = parseDaftPage(
     {
@@ -797,9 +798,9 @@ test("covers direct records, rental fallbacks, and invalid section paths", () =>
     "https://www.daft.ie",
     "not-a-section",
   );
-  assert.equal(fallback.findings[0]!.id, "820");
+  assert.equal(defined(fallback.findings[0]).id, "820");
   assert.equal(
-    fallback.findings[0]!.url,
+    defined(fallback.findings[0]).url,
     "https://www.daft.ie/new-home-for-sale/listing/820",
   );
 
@@ -862,8 +863,8 @@ test("preserves string ids and omits absent optional finding fields", () => {
     "property-for-sale",
   );
   assert.deepEqual(result.findings.map(({ id }) => id), ["text-id", "904"]);
-  assert.equal(Object.hasOwn(result.findings[0]!, "bedrooms"), false);
-  assert.equal(Object.hasOwn(result.findings[1]!, "bedrooms"), false);
+  assert.equal(Object.hasOwn(defined(result.findings[0]), "bedrooms"), false);
+  assert.equal(Object.hasOwn(defined(result.findings[1]), "bedrooms"), false);
 });
 
 test("ignores malformed direct sale listings", () => {

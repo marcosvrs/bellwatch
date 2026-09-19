@@ -8,6 +8,7 @@ import {
   publishHermesFinding,
   type HermesTransport,
 } from "../src/hermes.js";
+import { defined } from "./helpers.js";
 
 const finding = {
   id: "101",
@@ -50,18 +51,23 @@ test("publishes a signed Hermes WhatsApp payload", async () => {
 
   await Effect.runPromise(publishHermesFinding(config, finding, transport));
 
-  assert.equal(invocation?.url, config.url);
-  assert.equal(invocation?.init.method, "POST");
-  const headers = invocation?.init.headers as Record<string, string>;
-  assert.equal(headers["Content-Type"], "application/json");
-  assert.equal(headers["X-Webhook-Timestamp"], "1700000000");
-  const body = String(invocation?.init.body);
+  assert.ok(invocation);
+  assert.equal(invocation.url, config.url);
+  assert.equal(invocation.init.method, "POST");
+  const headers = new Headers(invocation.init.headers);
+  assert.equal(headers.get("Content-Type"), "application/json");
+  assert.equal(headers.get("X-Webhook-Timestamp"), "1700000000");
+  const bodyValue = invocation.init.body;
+  if (typeof bodyValue !== "string") {
+    throw new Error("Expected Hermes request body to be a string");
+  }
+  const body = bodyValue;
   assert.deepEqual(JSON.parse(body), {
     message: expectedMessage,
     chat_id: config.chatId,
   });
   assert.equal(
-    headers["X-Webhook-Signature-V2"],
+    headers.get("X-Webhook-Signature-V2"),
     createHmac("sha256", config.secret)
       .update(`1700000000.${body}`, "utf8")
       .digest("hex"),
@@ -74,7 +80,7 @@ test("retries Hermes server failures with the same signed request", async () => 
   let calls = 0;
   const transport: HermesTransport = {
     request: async () => {
-      const status = statuses[calls]!;
+      const status = defined(statuses[calls]);
       calls += 1;
       return new Response(status === 503 ? "temporary failure" : null, {
         status,
@@ -110,8 +116,9 @@ test("does not retry Hermes client failures", async () => {
     Effect.runPromise(publishHermesFinding(config, finding, transport)),
     (error: unknown) => {
       assert.equal(error instanceof HermesError, true);
+      assert.ok(error instanceof Error);
       assert.equal(
-        (error as Error).message,
+        error.message,
         "Hermes webhook returned HTTP 401: invalid signature",
       );
       return true;
@@ -128,7 +135,7 @@ test("retries network failures and preserves the final error", async () => {
     request: async () => {
       const currentCall = calls;
       calls += 1;
-      if (currentCall === 0) throw new HermesError("already wrapped");
+      if (currentCall === 0) {throw new HermesError("already wrapped");}
       throw new Error("connection refused");
     },
     now: () => 1_700_000_000_000,
@@ -140,8 +147,8 @@ test("retries network failures and preserves the final error", async () => {
   await assert.rejects(
     Effect.runPromise(publishHermesFinding(config, finding, transport)),
     (error: unknown) => {
-      assert.equal(error instanceof HermesError, true);
-      assert.equal((error as Error).message, "Hermes webhook request failed");
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, "Hermes webhook request failed");
       return true;
     },
   );
@@ -150,12 +157,12 @@ test("retries network failures and preserves the final error", async () => {
 });
 
 test("handles an unreadable Hermes error response", async () => {
-  const response = {
-    status: 400,
-    text: async () => {
+  const response = new Response(null, { status: 400 });
+  Object.defineProperty(response, "text", {
+    value: async () => {
       throw new Error("body unavailable");
     },
-  } as unknown as Response;
+  });
   const transport: HermesTransport = {
     request: async () => response,
     now: () => 1_700_000_000_000,
@@ -165,7 +172,8 @@ test("handles an unreadable Hermes error response", async () => {
   await assert.rejects(
     Effect.runPromise(publishHermesFinding(config, finding, transport)),
     (error: unknown) => {
-      assert.equal((error as Error).message, "Hermes webhook returned HTTP 400");
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, "Hermes webhook returned HTTP 400");
       return true;
     },
   );
@@ -184,8 +192,9 @@ test("wraps failures before the Hermes request starts", async () => {
     Effect.runPromise(publishHermesFinding(config, finding, transport)),
     (error: unknown) => {
       assert.equal(error instanceof HermesError, true);
+      assert.ok(error instanceof Error);
       assert.equal(
-        (error as Error).message,
+        error.message,
         "Could not publish Hermes notification",
       );
       return true;

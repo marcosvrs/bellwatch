@@ -22,13 +22,14 @@ const finding = {
   schemeText: "Private address details must remain in process memory",
   url: "https://www.daft.ie/new-home-for-sale/example/101",
 };
-const unitlessFinding = (() => {
-  const { bedrooms, bathrooms, propertyType, ...rest } = finding;
-  void bedrooms;
-  void bathrooms;
-  void propertyType;
-  return rest;
-})();
+const unitlessFinding = {
+  id: finding.id,
+  title: finding.title,
+  developmentTitle: finding.developmentTitle,
+  priceText: finding.priceText,
+  schemeText: finding.schemeText,
+  url: finding.url,
+};
 
 const config = {
   url: "ntfy://ntfy.sh/daft?priority=5&tags=house,new-home",
@@ -85,7 +86,8 @@ test("publishes a Shoutrrr message with its title and URL", async () => {
     ].join("\n"),
     timeoutMs: 5000,
   });
-  assert.equal(invocation?.message.includes("Private address details"), false);
+  assert.ok(invocation);
+  assert.equal(invocation.message.includes("Private address details"), false);
 });
 
 test("formats notifications without optional unit fields", () => {
@@ -131,11 +133,11 @@ test("includes the sold comparable range and market check", () => {
 });
 
 test("formats every sold comparison verdict and missing-range state", () => {
-  const messages = new Map([
+  const messages = [
     ["within", "Market check: within comparable sold range"],
     ["below", "Market check: below comparable sold range"],
     ["unavailable", "Market check: asking price unavailable for comparison"],
-  ]);
+  ] as const;
   for (const [verdict, line] of messages) {
     const message = formatFindingMessage({
       ...finding,
@@ -144,7 +146,7 @@ test("formats every sold comparison verdict and missing-range state", () => {
         comparableCount: 1,
         minPriceEur: 400_000,
         maxPriceEur: 450_000,
-        verdict: verdict as "within" | "below" | "unavailable",
+        verdict,
       },
     });
     assert.equal(message.includes(line), true);
@@ -240,7 +242,7 @@ test("reports a missing Shoutrrr executable", async () => {
     ),
     (error: unknown) => {
       assert.match(String(error), /Could not start Shoutrrr notification/);
-      assert.equal((error as Error).cause instanceof Error, true);
+      assert.equal(error instanceof Error && error.cause instanceof Error, true);
       return true;
     },
   );
@@ -272,9 +274,9 @@ test("wraps a notification runner failure as a Shoutrrr error", async () => {
     ),
     (error: unknown) => {
       assert.match(String(error), /Could not publish Shoutrrr notification/);
-      const cause = (error as Error).cause;
-      assert.equal(cause instanceof Error, true);
-      assert.equal((cause as Error).message, "network down");
+      assert.ok(error instanceof Error);
+      assert.ok(error.cause instanceof Error);
+      assert.equal(error.cause.message, "network down");
       return true;
     },
   );
@@ -291,8 +293,9 @@ process.exit(2);
         publishFinding({ ...config, binary: executable.binary }, finding),
       ),
       (error: unknown) => {
+        assert.ok(error instanceof Error);
         assert.equal(
-          (error as Error).message,
+          error.message,
           "Shoutrrr exited with code 2: provider unavailable",
         );
         return true;

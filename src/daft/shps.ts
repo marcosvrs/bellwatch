@@ -101,10 +101,10 @@ export const classifyShpsAvailability = (
   const text = [finding.title, finding.developmentTitle, finding.schemeText].join(
     "\n",
   );
-  if (!hasShpsMarker(text)) return "not-shps";
-  if (!finding.schemeText?.trim()) return "unknown";
-  if (hasOtherSchemeAvailability(text)) return "shps-and-other";
-  if (hasUnrecognisedSchemeAvailability(text)) return "shps-and-other";
+  if (!hasShpsMarker(text)) {return "not-shps";}
+  if (!finding.schemeText?.trim()) {return "unknown";}
+  if (hasOtherSchemeAvailability(text)) {return "shps-and-other";}
+  if (hasUnrecognisedSchemeAvailability(text)) {return "shps-and-other";}
   return "shps-only";
 };
 

@@ -126,7 +126,7 @@ const integer = (
   max: number,
 ): number => {
   const raw = trimmed(env, name);
-  if (raw === undefined) return defaultValue;
+  if (raw === undefined) {return defaultValue;}
   if (!/^-?\d+$/.test(raw)) {
     throw new ConfigurationError(`${name} must be an integer`);
   }
@@ -144,7 +144,7 @@ const optionalInteger = (
   max: number,
 ): number | undefined => {
   const raw = trimmed(env, name);
-  if (raw === undefined) return undefined;
+  if (raw === undefined) {return undefined;}
   return integer(env, name, 0, min, max);
 };
 
@@ -155,14 +155,13 @@ const choice = <T extends string>(
   allowed: readonly T[],
 ): T => {
   const raw = trimmed(env, name);
-  const value = raw === undefined ? defaultValue : raw;
-  const converted = String(value) as T;
-  if (!allowed.includes(converted)) {
+  const candidate = raw ?? defaultValue;
+  if (!isMember(allowed, candidate)) {
     throw new ConfigurationError(
       `${name} must be one of: ${allowed.join(", ")}`,
     );
   }
-  return converted;
+  return candidate;
 };
 
 const optionalChoice = <T extends string | number>(
@@ -171,15 +170,15 @@ const optionalChoice = <T extends string | number>(
   allowed: readonly T[],
 ): T | undefined => {
   const raw = trimmed(env, name);
-  if (raw === undefined) return undefined;
-  const converted =
-    typeof allowed[0] === "number" ? Number(raw) : String(raw);
-  if (!allowed.includes(converted as T)) {
+  if (raw === undefined) {return undefined;}
+  const first = allowed[0];
+  const candidate = typeof first === "number" ? Number(raw) : raw;
+  if (!isMember(allowed, candidate)) {
     throw new ConfigurationError(
       `${name} must be one of: ${allowed.join(", ")}`,
     );
   }
-  return converted as T;
+  return candidate;
 };
 
 const boolean = (
@@ -188,7 +187,7 @@ const boolean = (
   defaultValue: boolean,
 ): boolean => {
   const raw = trimmed(env, name);
-  if (raw === undefined) return defaultValue;
+  if (raw === undefined) {return defaultValue;}
   switch (raw.toLowerCase()) {
     case "1":
     case "true":
@@ -208,7 +207,7 @@ const optionalBoolean = (
   env: NodeJS.ProcessEnv,
   name: string,
 ): boolean | undefined => {
-  if (trimmed(env, name) === undefined) return undefined;
+  if (trimmed(env, name) === undefined) {return undefined;}
   return boolean(env, name, false);
 };
 
@@ -223,15 +222,16 @@ const parseFacilities = (env: NodeJS.ProcessEnv): DaftFacility[] => {
     return [];
   }
   const invalid = values.filter(
-    (value): value is string =>
-      !(DAFT_FACILITIES as readonly string[]).includes(value),
+    (value) => !isMember(DAFT_FACILITIES, value),
   );
   if (invalid.length > 0) {
     throw new ConfigurationError(
       `DAFT_FACILITIES contains unsupported values: ${invalid.join(", ")}`,
     );
   }
-  return unique(values) as DaftFacility[];
+  return unique(values).filter(
+    (value): value is DaftFacility => isMember(DAFT_FACILITIES, value),
+  );
 };
 
 const list = (env: NodeJS.ProcessEnv, name: string): string[] =>
@@ -241,6 +241,8 @@ const list = (env: NodeJS.ProcessEnv, name: string): string[] =>
     .filter(Boolean);
 
 const unique = <T>(values: readonly T[]): T[] => [...new Set(values)];
+const isMember = <T>(values: readonly T[], value: unknown): value is T =>
+  values.some((candidate) => candidate === value);
 
 const parsePropertyTypes = (env: NodeJS.ProcessEnv): DaftPropertyType[] => {
   const values = list(env, "DAFT_PROPERTY_TYPES");
@@ -253,15 +255,17 @@ const parsePropertyTypes = (env: NodeJS.ProcessEnv): DaftPropertyType[] => {
     return [];
   }
   const invalid = values.filter(
-    (value): value is string =>
-      !(DAFT_PROPERTY_TYPES as readonly string[]).includes(value),
+    (value) => !isMember(DAFT_PROPERTY_TYPES, value),
   );
   if (invalid.length > 0) {
     throw new ConfigurationError(
       `DAFT_PROPERTY_TYPES contains unsupported values: ${invalid.join(", ")}`,
     );
   }
-  return unique(values) as DaftPropertyType[];
+  return unique(values).filter(
+    (value): value is DaftPropertyType =>
+      isMember(DAFT_PROPERTY_TYPES, value),
+  );
 };
 
 const parseMediaTypes = (env: NodeJS.ProcessEnv): DaftMediaType[] => {
@@ -275,26 +279,30 @@ const parseMediaTypes = (env: NodeJS.ProcessEnv): DaftMediaType[] => {
     return [];
   }
   const invalid = values.filter(
-    (value): value is string =>
-      !(DAFT_MEDIA_TYPES as readonly string[]).includes(value),
+    (value) => !isMember(DAFT_MEDIA_TYPES, value),
   );
   if (invalid.length > 0) {
     throw new ConfigurationError(
       `DAFT_MEDIA_TYPES contains unsupported values: ${invalid.join(", ")}`,
     );
   }
-  return unique(values) as DaftMediaType[];
+  return unique(values).filter(
+    (value): value is DaftMediaType => isMember(DAFT_MEDIA_TYPES, value),
+  );
 };
 
 const httpUrl = (env: NodeJS.ProcessEnv, name: string): string => {
-  const value = trimmed(env, name)!;
+  const value = trimmed(env, name);
+  if (value === undefined) {
+    throw new ConfigurationError(`${name} must be set`);
+  }
   let url: URL;
   try {
     url = new URL(value);
-  } catch {
-    throw new ConfigurationError(`${name} must be a valid URL`);
+  } catch (cause) {
+    throw new ConfigurationError(`${name} must be a valid URL`, { cause });
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
+  if (!["http:", "https:"].includes(url.protocol)) {
     throw new ConfigurationError(`${name} must use http or https`);
   }
   return url.toString().replace(/\/$/, "");
@@ -305,7 +313,7 @@ const websocketUrl = (
   name: string,
 ): string | undefined => {
   const value = trimmed(env, name);
-  if (!value) return undefined;
+  if (!value) {return undefined;}
   if (!/^wss?:\/\//.test(value)) {
     throw new ConfigurationError(`${name} must use ws or wss`);
   }
@@ -314,7 +322,7 @@ const websocketUrl = (
 
 const databaseUrl = (env: NodeJS.ProcessEnv): string | undefined => {
   const value = trimmed(env, "DATABASE_URL");
-  if (!value) return undefined;
+  if (!value) {return undefined;}
   if (!/^postgres(?:ql)?:\/\//.test(value)) {
     throw new ConfigurationError(
       "DATABASE_URL must use postgres:// or postgresql://",
@@ -341,7 +349,7 @@ const validateDate = (
   name: string,
 ): string | undefined => {
   const value = trimmed(env, name);
-  if (!value) return undefined;
+  if (!value) {return undefined;}
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new ConfigurationError(`${name} must use YYYY-MM-DD`);
   }
@@ -378,14 +386,14 @@ const validateRange = (
   min: number | undefined,
   max: number | undefined,
 ): void => {
-  if ((min as number) > (max as number)) {
+  if (min !== undefined && max !== undefined && min > max) {
     throw new ConfigurationError(`${name} minimum cannot exceed maximum`);
   }
 };
 
 const parseLocations = (env: NodeJS.ProcessEnv): readonly string[] => {
   const value = trimmed(env, "DAFT_LOCATION");
-  if (value === undefined) return [];
+  if (value === undefined) {return [];}
   const locations = unique(
     value
       .split(",")
@@ -473,8 +481,8 @@ export const parseEnvironment = (
     );
   }
   const notificationBackends: NotificationBackend[] = [];
-  if (shoutrrrUrl !== undefined) notificationBackends.push("shoutrrr");
-  if (hermesConfigured) notificationBackends.push("hermes");
+  if (shoutrrrUrl !== undefined) {notificationBackends.push("shoutrrr");}
+  if (hermesConfigured) {notificationBackends.push("hermes");}
   if (notificationBackends.length === 0) {
     throw new ConfigurationError(
       "At least one notification backend must be configured: SHOUTRRR_URL or all Hermes variables",
@@ -661,6 +669,17 @@ export const parseEnvironment = (
   const maxPages = optionalInteger(env, "DAFT_MAX_PAGES", 1, 20);
   const userAgent = trimmed(env, "BROWSER_USER_AGENT");
   const stateDatabaseUrl = databaseUrl(env);
+  const hermes =
+    hermesWebhookUrl !== undefined &&
+    hermesWebhookSecret !== undefined &&
+    hermesChatId !== undefined
+      ? {
+          url: httpUrl(env, "HERMES_WEBHOOK_URL"),
+          secret: hermesWebhookSecret,
+          chatId: hermesChatId,
+          timeoutMs: HERMES_TIMEOUT_DEFAULT_MS,
+        }
+      : undefined;
   return {
     notificationBackends,
     daft: {
@@ -689,16 +708,7 @@ export const parseEnvironment = (
       titlePrefix: section.notificationTitlePrefix,
       timeoutMs: SHOUTRRR_TIMEOUT_DEFAULT_MS,
     },
-    ...(hermesConfigured
-      ? {
-          hermes: {
-            url: httpUrl(env, "HERMES_WEBHOOK_URL"),
-            secret: hermesWebhookSecret!,
-            chatId: hermesChatId!,
-            timeoutMs: HERMES_TIMEOUT_DEFAULT_MS,
-          },
-        }
-      : {}),
+    ...(hermes === undefined ? {} : { hermes }),
     state: {
       file: "/data/state.sqlite",
       ...(stateDatabaseUrl === undefined

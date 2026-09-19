@@ -54,6 +54,19 @@ interface RuntimeMetricsCollector {
 }
 
 const bytesToMb = (bytes: number): number => bytes / (1024 * 1024);
+const gcKind = (entry: PerformanceEntry): number | undefined => {
+  if (!("detail" in entry)) {return undefined;}
+  const detail = entry.detail;
+  if (
+    detail === null ||
+    typeof detail !== "object" ||
+    !("kind" in detail) ||
+    typeof detail.kind !== "number"
+  ) {
+    return undefined;
+  }
+  return detail.kind;
+};
 
 export const createRuntimeMetrics = (): RuntimeMetricsCollector => {
   let previousCpu = process.cpuUsage();
@@ -64,11 +77,7 @@ export const createRuntimeMetrics = (): RuntimeMetricsCollector => {
 
   const observer = new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) {
-      const kind = (
-        entry as PerformanceEntry & {
-          detail?: { kind?: number };
-        }
-      ).detail?.kind;
+      const kind = gcKind(entry);
       const next = {
         ...gcCounters,
         total: gcCounters.total + 1,
@@ -128,6 +137,6 @@ export const createRuntimeMetrics = (): RuntimeMetricsCollector => {
         gc,
       } satisfies RuntimeMetrics;
     },
-    close: () => observer.disconnect(),
+    close: () => { observer.disconnect(); },
   };
 };

@@ -9,6 +9,7 @@ import {
   soldPropertyTypePath,
   summarizeDaftSoldPrices,
 } from "../src/daft/sold.js";
+import { defined } from "./helpers.js";
 
 const finding = {
   address: "Apartment 3, 70 Leeson Close, Dublin 2",
@@ -24,21 +25,22 @@ const without = <T extends object, K extends keyof T>(
   value: T,
   ...keys: readonly K[]
 ): Omit<T, K> => {
-  const copy = { ...value };
+  const copy: Partial<T> = { ...value };
   for (const key of keys) {
-    delete (copy as Partial<T>)[key];
+    delete copy[key];
   }
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- Generic key deletion is not expressible without a boundary assertion.
   return copy as Omit<T, K>;
 };
 
 test("builds sold comparable URLs with one location and setup filters", () => {
   const url = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: ["dublin"],
       finding,
       year: 2026,
-    })!,
+    })),
   );
 
   assert.equal(url.pathname, "/sold-properties/ireland/semi-detached-houses");
@@ -52,39 +54,39 @@ test("builds sold comparable URLs with one location and setup filters", () => {
   assert.equal(url.searchParams.get("floorSize_from"), "68");
   assert.equal(url.searchParams.get("floorSize_to"), null);
   const aUrl = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: ["dublin"],
       finding: { ...finding, berRating: "A3" },
       year: 2026,
-    })!,
+    })),
   );
   assert.equal(aUrl.searchParams.get("simplifiedBer_from"), "8");
   const spacedBerUrl = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: ["dublin"],
       finding: { ...finding, berRating: " A " },
       year: 2026,
-    })!,
+    })),
   );
   assert.equal(spacedBerUrl.searchParams.get("simplifiedBer_from"), "8");
   const emptyBerUrl = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: ["dublin"],
       finding: { ...finding, berRating: "" },
       year: 2026,
-    })!,
+    })),
   );
   assert.equal(emptyBerUrl.searchParams.get("simplifiedBer_from"), null);
   const missingBerUrl = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: ["dublin"],
       finding: without(finding, "berRating"),
       year: 2026,
-    })!,
+    })),
   );
   assert.equal(missingBerUrl.searchParams.get("simplifiedBer_from"), null);
   assert.equal(url.searchParams.get("soldDate_from"), "2026");
@@ -105,20 +107,20 @@ test("requires one location per sold URL", () => {
 
 test("falls back to exact-address geofiltering when no location is configured", () => {
   const url = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: [],
       finding,
       year: 2026,
-    }, 2)!,
+    }, 2)),
   );
   const addressUrl = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: [],
-        finding: without(finding, "eircode"),
+      finding: without(finding, "eircode"),
       year: 2026,
-    })!,
+    })),
   );
   assert.equal(addressUrl.searchParams.get("name"), "eircode");
   assert.equal(addressUrl.searchParams.get("filterType"), "Eircode");
@@ -238,7 +240,13 @@ test("covers sold parsing, property types, and comparison boundaries", () => {
     berRating: "B2",
     propertyType: "House",
   };
-  for (const field of Object.keys(complete) as (keyof typeof complete)[]) {
+  for (const field of [
+    "bedrooms",
+    "bathrooms",
+    "floorSizeSqm",
+    "berRating",
+    "propertyType",
+  ] as const) {
     assert.equal(
       hasDaftSoldMatchFields({ ...complete, [field]: undefined }),
       false,
@@ -348,7 +356,7 @@ test("covers sold parsing, property types, and comparison boundaries", () => {
 
 test("encodes sold URL fallbacks and optional filters", () => {
   const addressUrl = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie/root///",
       locations: [],
       finding: {
@@ -364,7 +372,7 @@ test("encodes sold URL fallbacks and optional filters", () => {
         propertyType: "A0",
       },
       year: 2026,
-    }, 2)!,
+    }, 2)),
   );
   assert.equal(
     addressUrl.pathname,
@@ -404,12 +412,12 @@ test("rejects malformed sold payload values and encodes every geofilter", () => 
   assert.equal(parseDaftMoney("  1 250  "), 1_250);
 
   const eircodeUrl = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: [],
-        finding: without(finding, "address"),
+      finding: without(finding, "address"),
       year: 2026,
-    })!,
+    })),
   );
   assert.equal(eircodeUrl.searchParams.get("filterType"), "Eircode");
   assert.equal(eircodeUrl.searchParams.get("searchQueryGroup"), "geoFilter");
@@ -421,31 +429,31 @@ test("rejects malformed sold payload values and encodes every geofilter", () => 
   assert.equal(eircodeUrl.searchParams.get("numBaths_to"), null);
 
   const a0Url = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: ["dublin"],
       finding: { ...finding, berRating: "a0", propertyType: "Semi-D" },
       year: 2026,
-    })!,
+    })),
   );
   assert.equal(a0Url.searchParams.get("simplifiedBer_from"), "9");
   const unknownBerUrl = new URL(
-    buildDaftSoldSearchUrl({
+    defined(buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: ["dublin"],
       finding: { ...finding, berRating: "Z" },
       year: 2026,
-    })!,
+    })),
   );
   assert.equal(unknownBerUrl.searchParams.get("simplifiedBer_from"), null);
   assert.equal(
     new URL(
-      buildDaftSoldSearchUrl({
+      defined(buildDaftSoldSearchUrl({
         baseUrl: "https://www.daft.ie",
         locations: ["dublin"],
         finding: { ...finding, propertyType: "End--of terrace" },
         year: 2026,
-      })!,
+      })),
     ).pathname,
     "/sold-properties/ireland/end-of-terrace-houses",
   );
