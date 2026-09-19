@@ -53,7 +53,9 @@ jobs:
           job-summary: errors
 
       - name: Install dependencies
-        run: sfw npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+        run: sfw npm ci --ignore-scripts --no-audit --no-fund
+      - name: Use npm bulk audit endpoint
+        run: sfw npm install --global npm@11.19.1 --ignore-scripts --no-audit --no-fund
       - name: Audit npm dependencies
         run: sfw npm audit --audit-level=high
       - name: Verify npm registry signatures
