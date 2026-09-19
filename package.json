@@ -46,7 +46,7 @@
     "esbuild": "0.28.2",
     "redis": "^6.2.1",
     "simple-git-hooks": "^2.11.1",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "vitest": "^4.1.11"
   },
   "overrides": {
