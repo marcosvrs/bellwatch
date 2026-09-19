@@ -105,7 +105,7 @@ export default Alchemy.Stack(
     if (Option.isSome(browserEndpoint)) {
       environment["PLAYWRIGHT_WS_ENDPOINT"] = browserEndpoint.value;
     }
-    const network = process.env["MONITOR_DOCKER_NETWORK"]?.trim();
+    const network = process.env["MONITOR_DOCKER_NETWORK"]?.trim() || undefined;
     const container = yield* Docker.Container("monitor", {
       name: process.env["MONITOR_CONTAINER_NAME"] ?? "bellwatch",
       image,

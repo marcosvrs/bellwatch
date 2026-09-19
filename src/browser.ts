@@ -328,6 +328,7 @@ const fetchDaftPayloadOnce = async (
 const fetchDaftPayloadWithRetry = async (
   config: MonitorConfig,
   url: string,
+  signal: AbortSignal,
 ): Promise<unknown> => {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -340,7 +341,7 @@ const fetchDaftPayloadWithRetry = async (
       ) {
         throw cause;
       }
-      await sleep(retryDelayMs(config, cause, attempt));
+      await sleep(retryDelayMs(config, cause, attempt), undefined, { signal });
     }
   }
 };
@@ -350,7 +351,7 @@ export const fetchDaftPayload = (
   url: string,
 ): Effect.Effect<unknown, BrowserError> =>
   Effect.tryPromise({
-    try: () => fetchDaftPayloadWithRetry(config, url),
+    try: (signal) => fetchDaftPayloadWithRetry(config, url, signal),
     catch: (cause) =>
       cause instanceof BrowserError
         ? cause
