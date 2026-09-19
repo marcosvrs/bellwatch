@@ -4,6 +4,7 @@
     "rootDir": ".",
     "outDir": "dist-alchemy",
     "noEmit": true,
+    "exactOptionalPropertyTypes": false,
     "tsBuildInfoFile": ".cache/tsconfig.alchemy.tsbuildinfo"
   },
   "include": ["alchemy.run.ts"]

@@ -92,7 +92,7 @@ const sendHermes = async (
     }
 
     if (attempt < RETRY_DELAYS_MS.length) {
-      await transport.sleep(RETRY_DELAYS_MS[attempt]);
+      await transport.sleep(RETRY_DELAYS_MS[attempt]!);
     }
   }
 

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as Effect from "effect/Effect";
 import type { ShoutrrrConfig } from "./config.js";
 import type { DaftFinding } from "./daft/parser.js";

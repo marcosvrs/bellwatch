@@ -23,7 +23,7 @@ const parseRobots = (robotsText: string): RobotsGroup[] => {
   let current: RobotsGroup | undefined;
   let sawRule: boolean | undefined;
   for (const rawLine of robotsText.split(/\r?\n/)) {
-    const line = rawLine.split("#", 1)[0].trim();
+    const line = rawLine.split("#", 1)[0]!.trim();
     if (!line) {
       current = undefined;
       continue;
@@ -60,7 +60,7 @@ export const isRobotsAllowed = (
 ): boolean => {
   const target = new URL(targetUrl);
   const path = `${target.pathname}${target.search}`;
-  const token = userAgent.trim().toLowerCase().split(/[\s/]/)[0];
+  const token = userAgent.trim().toLowerCase().split(/[\s/]/)[0]!;
   const parsedGroups = parseRobots(robotsText);
   const specificGroups = parsedGroups.filter((group) =>
     group.agents.some((agent) => token.startsWith(agent)),

@@ -22,6 +22,13 @@ const finding = {
   schemeText: "Private address details must remain in process memory",
   url: "https://www.daft.ie/new-home-for-sale/example/101",
 };
+const unitlessFinding = (() => {
+  const { bedrooms, bathrooms, propertyType, ...rest } = finding;
+  void bedrooms;
+  void bathrooms;
+  void propertyType;
+  return rest;
+})();
 
 const config = {
   url: "ntfy://ntfy.sh/daft?priority=5&tags=house,new-home",
@@ -82,12 +89,7 @@ test("publishes a Shoutrrr message with its title and URL", async () => {
 });
 
 test("formats notifications without optional unit fields", () => {
-  const message = formatFindingMessage({
-    ...finding,
-    bedrooms: undefined,
-    bathrooms: undefined,
-    propertyType: undefined,
-  });
+  const message = formatFindingMessage(unitlessFinding);
   assert.equal(
     message,
     [

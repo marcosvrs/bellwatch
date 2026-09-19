@@ -20,6 +20,16 @@ const finding = {
   priceText: "€500,000",
   propertyType: "Semi-D",
 };
+const without = <T extends object, K extends keyof T>(
+  value: T,
+  ...keys: readonly K[]
+): Omit<T, K> => {
+  const copy = { ...value };
+  for (const key of keys) {
+    delete (copy as Partial<T>)[key];
+  }
+  return copy as Omit<T, K>;
+};
 
 test("builds sold comparable URLs with one location and setup filters", () => {
   const url = new URL(
@@ -72,7 +82,7 @@ test("builds sold comparable URLs with one location and setup filters", () => {
     buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: ["dublin"],
-      finding: { ...finding, berRating: undefined },
+      finding: without(finding, "berRating"),
       year: 2026,
     })!,
   );
@@ -106,7 +116,7 @@ test("falls back to exact-address geofiltering when no location is configured", 
     buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: [],
-      finding: { ...finding, eircode: undefined },
+        finding: without(finding, "eircode"),
       year: 2026,
     })!,
   );
@@ -133,7 +143,7 @@ test("skips sold lookup without a spatial constraint", () => {
     buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: [],
-      finding: { ...finding, eircode: undefined, address: undefined },
+      finding: without(finding, "eircode", "address"),
       year: 2026,
     }),
     undefined,
@@ -148,8 +158,10 @@ test("parses sold prices and paging from Daft payloads", () => {
       props: {
         pageProps: {
           listings: [
-            { listing: { soldPrice: "€436,000" } },
-            { listing: { soldPrice: "€443,000" } },
+            { listing: { id: 9001, soldPrice: "€436,000" } },
+            { listing: { id: "9002", soldPrice: "€443,000" } },
+            { listing: { id: "sale-x", soldPrice: "€460,000" } },
+            { listing: { id: "  ", soldPrice: "€480,000" } },
             { listing: { price: "€470,000" } },
             { listing: { soldPrice: "Not disclosed" } },
           ],
@@ -157,7 +169,17 @@ test("parses sold prices and paging from Daft payloads", () => {
         },
       },
     }),
-    { prices: [436000, 443000, 470000], currentPage: 2, totalPages: 3 },
+    {
+      comparables: [
+        { id: "9001", price: 436000 },
+        { id: "9002", price: 443000 },
+        { id: "sale-x", price: 460000 },
+        { price: 480000 },
+        { price: 470000 },
+      ],
+      currentPage: 2,
+      totalPages: 3,
+    },
   );
 });
 
@@ -183,6 +205,7 @@ test("covers sold parsing, property types, and comparison boundaries", () => {
   assert.equal(parseDaftMoney("€1.25m"), 1_250_000);
   assert.equal(parseDaftMoney("450 K"), 450_000);
   assert.equal(parseDaftMoney("€1,250.50"), 1_250.5);
+  assert.equal(parseDaftMoney("€400,000–€450,000"), undefined);
   assert.equal(
     soldPropertyTypePath("  End   of\tTerrace "),
     "end-of-terrace-houses",
@@ -222,6 +245,10 @@ test("covers sold parsing, property types, and comparison boundaries", () => {
     );
   }
   assert.equal(hasDaftSoldMatchFields(complete), true);
+  assert.equal(
+    hasDaftSoldMatchFields({ ...complete, berRating: "N/A" }),
+    false,
+  );
 
   assert.deepEqual(
     parseDaftSoldPage({
@@ -233,10 +260,14 @@ test("covers sold parsing, property types, and comparison boundaries", () => {
       ],
       paging: { currentPage: "2", totalPages: "3" },
     }),
-    { prices: [123_000, 1_000], currentPage: 2, totalPages: 3 },
+    {
+      comparables: [{ price: 123_000 }, { price: 1_000 }],
+      currentPage: 2,
+      totalPages: 3,
+    },
   );
   assert.deepEqual(parseDaftSoldPage({ listings: [], paging: {} }), {
-    prices: [],
+    comparables: [],
     currentPage: 1,
     totalPages: 1,
   });
@@ -245,17 +276,50 @@ test("covers sold parsing, property types, and comparison boundaries", () => {
       listings: [],
       paging: { currentPage: " ", totalPages: "\t" },
     }),
-    { prices: [], currentPage: 1, totalPages: 1 },
+    { comparables: [], currentPage: 1, totalPages: 1 },
   );
 
   assert.equal(
     parseListingFloorSize({ floorArea: { value: 88 } }),
     88,
   );
+  assert.equal(
+    parseListingFloorSize({
+      floorArea: { value: 100, unit: "METRES_SQUARED" },
+    }),
+    100,
+  );
+  assert.equal(
+    parseListingFloorSize({
+      floorArea: { value: 100, unit: "FEET_SQUARED" },
+    }),
+    9.290304,
+  );
+  assert.equal(
+    parseListingFloorSize({
+      floorArea: { value: 100, unit: "UNKNOWN" },
+    }),
+    undefined,
+  );
   assert.equal(parseListingFloorSize({ propertySize: "105.5 sqm" }), 105.5);
   assert.equal(
     parseListingFloorSize({ propertySize: "1,234.56 square metres" }),
     1234.56,
+  );
+  assert.equal(
+    parseListingFloorSize({ propertySize: "100 sq ft" }),
+    undefined,
+  );
+  assert.equal(
+    parseListingFloorSize({ propertySize: "100 square feet" }),
+    undefined,
+  );
+  assert.equal(
+    parseListingFloorSize({
+      floorArea: { value: "bad", unit: "FEET_SQUARED" },
+      propertySize: "105 sqm",
+    }),
+    105,
   );
   assert.equal(parseListingFloorSize({ propertySize: 105 }), undefined);
   assert.equal(parseListingFloorSize({ propertySize: "unknown" }), undefined);
@@ -288,12 +352,14 @@ test("encodes sold URL fallbacks and optional filters", () => {
       baseUrl: "https://www.daft.ie/root///",
       locations: [],
       finding: {
-        ...finding,
-        eircode: undefined,
+        ...without(
+          finding,
+          "eircode",
+          "bedrooms",
+          "bathrooms",
+          "floorSizeSqm",
+        ),
         address: "1 Main Street, Dublin",
-        bedrooms: undefined,
-        bathrooms: undefined,
-        floorSizeSqm: undefined,
         berRating: "EXEMPT",
         propertyType: "A0",
       },
@@ -341,10 +407,7 @@ test("rejects malformed sold payload values and encodes every geofilter", () => 
     buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: [],
-      finding: {
-        ...finding,
-        address: undefined,
-      },
+        finding: without(finding, "address"),
       year: 2026,
     })!,
   );
@@ -388,7 +451,7 @@ test("rejects malformed sold payload values and encodes every geofilter", () => 
   );
 
   assert.deepEqual(parseDaftSoldPage(null), {
-    prices: [],
+    comparables: [],
     currentPage: 1,
     totalPages: 1,
   });
@@ -397,7 +460,7 @@ test("rejects malformed sold payload values and encodes every geofilter", () => 
       props: { pageProps: { listings: {}, paging: {} } },
     }),
     {
-      prices: [],
+      comparables: [],
       currentPage: 1,
       totalPages: 1,
     },
@@ -411,7 +474,7 @@ test("rejects malformed sold payload values and encodes every geofilter", () => 
       paging: { currentPage: Number.NaN, totalPages: Number.POSITIVE_INFINITY },
     }),
     {
-      prices: [],
+      comparables: [],
       currentPage: 1,
       totalPages: 1,
     },
@@ -435,7 +498,7 @@ test("ignores array-shaped sold payload roots", () => {
     },
   });
   assert.deepEqual(parseDaftSoldPage(arrayPayload), {
-    prices: [],
+    comparables: [],
     currentPage: 1,
     totalPages: 1,
   });
