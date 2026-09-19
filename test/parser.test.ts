@@ -365,6 +365,16 @@ test("does not invent scalar counts from multi-range listing values", () => {
                 newHome: { subUnits: [] },
               },
             },
+            {
+              listing: {
+                id: 313,
+                title: "Unknown Range",
+                price: "From €500,000",
+                numBedrooms: "Studio",
+                numBathrooms: "Not specified",
+                newHome: { subUnits: [] },
+              },
+            },
           ],
         },
       },
@@ -374,6 +384,8 @@ test("does not invent scalar counts from multi-range listing values", () => {
 
   assert.equal(result.findings[0].bedrooms, undefined);
   assert.equal(result.findings[0].bathrooms, undefined);
+  assert.equal(result.findings[1].bedrooms, undefined);
+  assert.equal(result.findings[1].bathrooms, undefined);
 });
 
 
