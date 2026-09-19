@@ -30,6 +30,10 @@ test("uses a browser user-agent for direct and local browser requests", () => {
     "CustomBrowser/1.0",
   );
 });
+
+test("uses a Daft-compatible default browser identity", () => {
+  assert.match(DEFAULT_BROWSER_USER_AGENT, /Macintosh/);
+});
 test("uses an external Playwright/CDP endpoint when set", () => {
   const browser = parseEnvironment({
     ...base,
@@ -50,7 +54,7 @@ test("rejects an invalid Playwright/CDP endpoint", () => {
 });
 test("accepts only HTTP 200 Daft pages", () => {
   assert.doesNotThrow(() => assertDaftHttpStatus(200));
-  for (const status of [204, 403, 404, 500]) {
+  for (const status of [204, 403, 404, 429, 500]) {
     assert.throws(
       () => assertDaftHttpStatus(status),
       new RegExp(`Daft page returned HTTP ${status}`),

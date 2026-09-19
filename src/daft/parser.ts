@@ -79,8 +79,8 @@ const identifier = (record: JsonRecord | undefined): string | undefined => {
 
 const parseCount = (value: string | undefined): number | undefined => {
   if (!value) return undefined;
-  const match = value.match(/\d+/);
-  return match ? Number(match[0]) : undefined;
+  const matches = value.match(/\d+/g);
+  return matches?.length === 1 ? Number(matches[0]) : undefined;
 };
 
 const absoluteUrl = (

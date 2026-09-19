@@ -349,6 +349,32 @@ test("parses direct sale and rental listings by section", () => {
     ],
   );
 });
+test("does not invent scalar counts from multi-range listing values", () => {
+  const result = parseDaftPage(
+    {
+      props: {
+        pageProps: {
+          listings: [
+            {
+              listing: {
+                id: 312,
+                title: "Range Development",
+                price: "From €400,000",
+                numBedrooms: "1 & 3 bed",
+                numBathrooms: "1 - 2 bath",
+                newHome: { subUnits: [] },
+              },
+            },
+          ],
+        },
+      },
+    },
+    "https://www.daft.ie",
+  );
+
+  assert.equal(result.findings[0].bedrooms, undefined);
+  assert.equal(result.findings[0].bathrooms, undefined);
+});
 
 
 test("handles missing parent data and custom fallback paths", () => {
