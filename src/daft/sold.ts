@@ -63,18 +63,11 @@ const numberValue = (
   }
   return undefined;
 };
-const stringValue = (
-  record: JsonRecord | undefined,
-  key: string,
-): string | undefined => {
-  const value = record?.[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-};
-
-const listingIdentifier = (record: JsonRecord | undefined): string | undefined => {
+const listingIdentifier = (record: JsonRecord): string | undefined => {
   const numeric = numberValue(record, "id");
   if (numeric !== undefined) return String(numeric);
-  return stringValue(record, "id");
+  const value = record.id;
+  return typeof value === "string" ? value.trim() || undefined : undefined;
 };
 
 const SQUARE_FEET_TO_SQUARE_METRES = 0.09290304;
@@ -83,25 +76,8 @@ const areaInSquareMetres = (
   value: number,
   unit: string | undefined,
 ): number | undefined => {
-  if (unit === undefined) return value;
-  const normalized = unit.toUpperCase().replaceAll(/[\s-]+/g, "_");
-  if (
-    normalized === "METRES_SQUARED" ||
-    normalized === "SQUARE_METRES" ||
-    normalized === "SQUARE_METERS" ||
-    normalized === "SQ_M" ||
-    normalized === "M2" ||
-    normalized === "M²"
-  ) {
-    return value;
-  }
-  if (
-    normalized === "FEET_SQUARED" ||
-    normalized === "SQUARE_FEET" ||
-    normalized === "SQ_FT" ||
-    normalized === "FT2" ||
-    normalized === "FT²"
-  ) {
+  if (unit === undefined || unit === "METRES_SQUARED") return value;
+  if (unit === "FEET_SQUARED") {
     return value * SQUARE_FEET_TO_SQUARE_METRES;
   }
   return undefined;
@@ -111,13 +87,13 @@ export const parseDaftMoney = (value: string | undefined): number | undefined =>
   if (!value) return undefined;
   const matches = value.match(/\d+(?:[\s,.]\d+)*(?:\s*[km])?/gi);
   if (matches?.length !== 1) return undefined;
-  const normalized = matches[0].toLowerCase().replaceAll(/\s/g, "");
-  const multiplier = normalized.endsWith("m")
+  const token = matches[0].toLowerCase();
+  const multiplier = token.trim().endsWith("m")
     ? 1_000_000
-    : normalized.endsWith("k")
+    : token.trim().endsWith("k")
       ? 1_000
       : 1;
-  const numeric = normalized
+  const numeric = token
     .replace(/[^0-9.,]/g, "")
     .replaceAll(",", "");
   if (!numeric) return undefined;
@@ -133,17 +109,11 @@ const parseMoneyValue = (value: unknown): number | undefined =>
 const parsePropertySize = (value: string | undefined): number | undefined => {
   if (!value) return undefined;
   const normalized = value.toLowerCase();
+  if (normalized.includes("ft") || normalized.includes("feet")) {
+    return undefined;
+  }
   const match = value.replaceAll(",", "").match(/\d+(?:\.\d+)?/);
-  if (!match) return undefined;
-  const numeric = Number(match[0]);
-  if (!Number.isFinite(numeric)) return undefined;
-  if (/\b(?:sq ?ft|square feet?|feet squared|ft2|ft²)\b/.test(normalized)) {
-    return areaInSquareMetres(numeric, "FEET_SQUARED");
-  }
-  if (/\b(?:sqm?|square metres?|metres squared|m2|m²)\b/.test(normalized)) {
-    return numeric;
-  }
-  return /[a-z]/i.test(value) ? undefined : numeric;
+  return match ? Number(match[0]) : undefined;
 };
 
 const berValue = (rating: string | undefined): number | undefined => {
@@ -282,7 +252,7 @@ export const parseDaftSoldPage = (
         listing?.soldPrice ?? listing?.price,
       );
       if (price !== undefined) {
-        const id = listingIdentifier(listing);
+        const id = listingIdentifier(listing!);
         comparables.push(id === undefined ? { price } : { id, price });
       }
     }
@@ -330,10 +300,12 @@ export const parseListingFloorSize = (
 ): number | undefined => {
   const floorArea = asRecord(listing?.floorArea);
   const floorAreaValue = numberValue(floorArea, "value");
+  const floorAreaUnit =
+    typeof floorArea?.unit === "string" ? floorArea.unit : undefined;
   const floorSizeSqm =
     floorAreaValue === undefined
       ? undefined
-      : areaInSquareMetres(floorAreaValue, stringValue(floorArea, "unit"));
+      : areaInSquareMetres(floorAreaValue, floorAreaUnit);
   const propertySize = listing?.propertySize;
   return (
     floorSizeSqm ??

@@ -169,15 +169,12 @@ const fetchSoldComparison = (
         request,
         dependencies,
       )) {
-        if (
-          comparable.id !== undefined &&
-          seenListingIds.has(comparable.id)
-        ) {
+        if (comparable.id === undefined) {
+          prices.push(comparable.price);
           continue;
         }
-        if (comparable.id !== undefined) {
-          seenListingIds.add(comparable.id);
-        }
+        if (seenListingIds.has(comparable.id)) continue;
+        seenListingIds.add(comparable.id);
         prices.push(comparable.price);
       }
     }

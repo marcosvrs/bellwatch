@@ -85,6 +85,7 @@ test("uses the configured rental section URL and parser", async () => {
   const rentalConfig = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_SECTION_PATH: "property-for-rent",
+    DAFT_LOCATION: "dublin",
     DAFT_PRICE_MAX_EUR: "2500",
     DAFT_MAX_PAGES: "1",
     NOTIFY_EXISTING_ON_FIRST_RUN: "true",
@@ -141,7 +142,7 @@ test("uses the configured rental section URL and parser", async () => {
 
   assert.equal(result.notified, 1);
   assert.deepEqual(sent, ["701"]);
-  assert.equal(new URL(requested[0]).pathname, "/property-for-rent/ireland");
+  assert.equal(new URL(requested[0]).pathname, "/property-for-rent/dublin");
   assert.equal(requested.length, 1);
   assert.equal(new URL(requested[0]).searchParams.get("rentalPrice_to"), "2500");
   assert.equal(
@@ -1018,6 +1019,10 @@ test("keeps comparable-only hydration failures fail-open", async () => {
   });
   const published: DaftFinding[] = [];
   const errors: Error[] = [];
+  const logs: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    logs.push(String(message));
+  });
   const searchPayload = {
     props: {
       pageProps: {
@@ -1055,13 +1060,16 @@ test("keeps comparable-only hydration failures fail-open", async () => {
         }),
       state: makeState(),
       heartbeat: () => Effect.void,
-    }),
+    }).pipe(Effect.provide(Logger.layer([logger]))),
   );
 
   assert.equal(result.notified, 1);
   assert.equal(published.length, 1);
   assert.equal(Object.hasOwn(published[0], "soldComparison"), false);
   assert.deepEqual(errors, []);
+  assert.deepEqual(logs, [
+    "Could not hydrate Daft listing 805: Could not fetch Daft listing https://www.daft.ie/new-home-for-sale/listing/805",
+  ]);
 });
 
 

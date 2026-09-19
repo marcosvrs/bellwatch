@@ -6,6 +6,7 @@ import {
   DAFT_MEDIA_TYPES,
   DAFT_PROPERTY_TYPES,
   addedInLastDateValue,
+  daftBerRatingValue,
   type DaftFilters,
 } from "../src/daft/filters.js";
 import {
@@ -122,6 +123,7 @@ test("encodes sale and rental section-specific filters", () => {
   assert.equal(sale.searchParams.get("floorSize_to"), "250");
   assert.equal(sale.searchParams.get("simplifiedBer_from"), "6");
   assert.equal(sale.searchParams.get("simplifiedBer_to"), "8");
+  assert.equal(daftBerRatingValue("exempt"), 0);
   assert.equal(sale.searchParams.get("saleType"), "auction");
   assert.equal(sale.searchParams.get("offersEnabledDisabled"), "true");
   assert.deepEqual(sale.searchParams.getAll("facilities"), [

@@ -271,6 +271,12 @@ test("covers sold parsing, property types, and comparison boundaries", () => {
   );
   assert.equal(
     parseListingFloorSize({
+      floorArea: { value: 100, unit: "METRES_SQUARED" },
+    }),
+    100,
+  );
+  assert.equal(
+    parseListingFloorSize({
       floorArea: { value: 100, unit: "FEET_SQUARED" },
     }),
     9.290304,
@@ -286,7 +292,21 @@ test("covers sold parsing, property types, and comparison boundaries", () => {
     parseListingFloorSize({ propertySize: "1,234.56 square metres" }),
     1234.56,
   );
-  assert.equal(parseListingFloorSize({ propertySize: "100 sq ft" }), 9.290304);
+  assert.equal(
+    parseListingFloorSize({ propertySize: "100 sq ft" }),
+    undefined,
+  );
+  assert.equal(
+    parseListingFloorSize({ propertySize: "100 square feet" }),
+    undefined,
+  );
+  assert.equal(
+    parseListingFloorSize({
+      floorArea: { value: "bad", unit: "FEET_SQUARED" },
+      propertySize: "105 sqm",
+    }),
+    105,
+  );
   assert.equal(parseListingFloorSize({ propertySize: 105 }), undefined);
   assert.equal(parseListingFloorSize({ propertySize: "unknown" }), undefined);
 
