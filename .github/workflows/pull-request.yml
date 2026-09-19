@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   validate:
-    name: Typecheck, build, changed-file coverage, and mutation
+    name: Validation and changed-file mutation testing
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
