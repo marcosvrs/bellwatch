@@ -249,6 +249,9 @@ test("accepts Daft web filters from environment variables", () => {
     "navan-and-surrounds-meath",
   ]);
   assert.equal(config.daft.filters.radiusKm, 5);
+  assert.equal(config.daft.filters.bedsMax, 6);
+  assert.equal(config.daft.filters.bathsMin, 2);
+  assert.equal(config.daft.filters.bathsMax, 4);
   assert.deepEqual(config.daft.filters.propertyTypes, ["houses", "apartments"]);
   assert.deepEqual(config.daft.filters.mediaTypes, ["video", "virtual-tour"]);
   assert.equal(config.daft.filters.addedInLastDays, 14);
@@ -693,6 +696,15 @@ test("covers trimming, defaults, and boundary validation", () => {
   assert.equal(trimmed.daft.filters.keyword, "garage");
   assert.equal(trimmed.shoutrrr.titlePrefix, "Bellwatch new home");
   assert.equal(trimmed.shoutrrr.binary, "shoutrrr");
+  assert.equal(Object.hasOwn(defaults.daft, "maxPages"), false);
+  assert.equal(Object.hasOwn(defaults.browser, "externalEndpoint"), false);
+  assert.equal(Object.hasOwn(defaults.browser, "userAgent"), false);
+  assert.equal(Object.hasOwn(defaults.state, "databaseUrl"), false);
+  const saleDefaults = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+  });
+  assert.equal(Object.hasOwn(saleDefaults.daft.filters, "priceMaxEur"), false);
   assert.equal(trimmed.shoutrrr.timeoutMs, 15_000);
   assert.equal(trimmed.state.file, "/data/state.sqlite");
   assert.equal(trimmed.state.heartbeatFile, "/data/heartbeat");

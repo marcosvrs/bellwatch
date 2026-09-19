@@ -160,6 +160,8 @@ test("parses sold prices and paging from Daft payloads", () => {
           listings: [
             { listing: { id: 9001, soldPrice: "€436,000" } },
             { listing: { id: "9002", soldPrice: "€443,000" } },
+            { listing: { id: "sale-x", soldPrice: "€460,000" } },
+            { listing: { id: "  ", soldPrice: "€480,000" } },
             { listing: { price: "€470,000" } },
             { listing: { soldPrice: "Not disclosed" } },
           ],
@@ -171,6 +173,8 @@ test("parses sold prices and paging from Daft payloads", () => {
       comparables: [
         { id: "9001", price: 436000 },
         { id: "9002", price: 443000 },
+        { id: "sale-x", price: 460000 },
+        { price: 480000 },
         { price: 470000 },
       ],
       currentPage: 2,

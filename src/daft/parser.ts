@@ -121,7 +121,7 @@ export const parseDaftListingDetails = (
     ...(address === undefined ? {} : { address }),
     ...(eircode === undefined ? {} : { eircode }),
   };
-  return Object.keys(details).length === 0 ? {} : details;
+  return details;
 };
 
 const unitTitle = (
@@ -154,24 +154,25 @@ const parseFinding = (
 ): DaftFinding | undefined => {
   const id = overrides.id ?? identifier(listing);
   if (id === undefined) return undefined;
+  const record = listing ?? {};
   const title =
     overrides.title ??
-    stringValue(listing, "title") ??
+    stringValue(record, "title") ??
     `Daft listing ${id}`;
   const developmentTitle = overrides.developmentTitle ?? title;
-  const bedrooms = parseCount(stringValue(listing, "numBedrooms"));
-  const bathrooms = parseCount(stringValue(listing, "numBathrooms"));
-  const propertyType = stringValue(listing, "propertyType");
-  const floorSizeSqm = parseListingFloorSize(listing);
-  const berRating = stringValue(asRecord(listing?.["ber"]), "rating");
-  const addressDetails = asRecord(listing?.["addressDetails"]);
+  const bedrooms = parseCount(stringValue(record, "numBedrooms"));
+  const bathrooms = parseCount(stringValue(record, "numBathrooms"));
+  const propertyType = stringValue(record, "propertyType");
+  const floorSizeSqm = parseListingFloorSize(record);
+  const berRating = stringValue(asRecord(record["ber"]), "rating");
+  const addressDetails = asRecord(record["addressDetails"]);
   const address = stringValue(addressDetails, "streetAddress");
   const eircode = stringValue(addressDetails, "postalCode");
   return {
     id,
     title,
     developmentTitle,
-    priceText: stringValue(listing, "price") ?? "Price unavailable",
+    priceText: stringValue(record, "price") ?? "Price unavailable",
     ...(bedrooms === undefined ? {} : { bedrooms }),
     ...(bathrooms === undefined ? {} : { bathrooms }),
     ...(propertyType === undefined ? {} : { propertyType }),
@@ -181,7 +182,7 @@ const parseFinding = (
     ...(eircode === undefined ? {} : { eircode }),
     url: absoluteUrl(
       baseUrl,
-      stringValue(listing, "seoFriendlyPath"),
+      stringValue(record, "seoFriendlyPath"),
       id,
       fallbackPath,
     ),
