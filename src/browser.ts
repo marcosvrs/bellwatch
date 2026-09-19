@@ -43,9 +43,13 @@ export const assertDaftHttpStatus = (
   retryAfterMs?: number,
 ): void => {
   if (status !== 200) {
+    const options: BrowserErrorOptions = {
+      ...(status === undefined ? {} : { status }),
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    };
     throw new BrowserError(
       `Daft page returned HTTP ${status === undefined ? "no response" : status}`,
-      { status, retryAfterMs },
+      options,
     );
   }
 };
@@ -150,10 +154,9 @@ const loadRobotsText = async (config: MonitorConfig): Promise<string> => {
         ? parseRetryAfterMs(response.headers()["retry-after"])
         : undefined;
     if (status === 429) {
-      throw new BrowserError("Daft robots.txt returned HTTP 429", {
-        status,
-        retryAfterMs,
-      });
+      const options: BrowserErrorOptions =
+        retryAfterMs === undefined ? { status } : { status, retryAfterMs };
+      throw new BrowserError("Daft robots.txt returned HTTP 429", options);
     }
     if (status !== 404 && status !== 200) {
       throw new Error(

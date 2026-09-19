@@ -46,7 +46,7 @@ export const buildDaftSearchUrl = (
     propertyTypes.length === 1 ? propertyTypes[0] : undefined;
   const hasSingleLocation = request.locations.length === 1;
   const locationPath = hasSingleLocation
-    ? encodeURIComponent(request.locations[0])
+    ? encodeURIComponent(request.locations[0]!)
     : "ireland";
   const pathParts = [
     basePath,

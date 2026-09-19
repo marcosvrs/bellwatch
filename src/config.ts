@@ -605,47 +605,50 @@ export const parseEnvironment = (
   }
   const pollingSchedule = parsePollingSchedule(env);
 
+  const radiusKm = optionalChoice<DaftRadiusKm>(
+    env,
+    "DAFT_RADIUS_KM",
+    DAFT_RADIUS_KM_OPTIONS,
+  );
+  const keyword = (() => {
+    const value = trimmed(env, "DAFT_KEYWORD");
+    if (value && value.length > 50) {
+      throw new ConfigurationError("DAFT_KEYWORD cannot exceed 50 characters");
+    }
+    return value;
+  })();
+  const availability = choice<DaftAvailability>(
+    env,
+    "DAFT_AVAILABILITY",
+    "published",
+    DAFT_AVAILABILITIES,
+  );
+  const addedInLastDays = optionalChoice<DaftAddedInLastDays>(
+    env,
+    "DAFT_ADDED_IN_LAST_DAYS",
+    DAFT_ADDED_IN_LAST_DAYS,
+  );
+  const sort = optionalChoice<DaftSort>(env, "DAFT_SORT", DAFT_SORTS);
   const filters: DaftFilters = {
-    radiusKm: optionalChoice<DaftRadiusKm>(
-      env,
-      "DAFT_RADIUS_KM",
-      DAFT_RADIUS_KM_OPTIONS,
-    ),
-    priceMinEur,
-    priceMaxEur: priceMaxEur ?? section.defaultPriceMaxEur,
-    bedsMin,
-    bedsMax,
     propertyTypes: parsePropertyTypes(env),
-    bathsMin,
-    bathsMax,
     mediaTypes: parseMediaTypes(env),
-    keyword: (() => {
-      const value = trimmed(env, "DAFT_KEYWORD");
-      if (value && value.length > 50) {
-        throw new ConfigurationError("DAFT_KEYWORD cannot exceed 50 characters");
-      }
-      return value;
-    })(),
-    availability: choice<DaftAvailability>(
-      env,
-      "DAFT_AVAILABILITY",
-      "published",
-      DAFT_AVAILABILITIES,
-    ),
-    addedInLastDays: optionalChoice<DaftAddedInLastDays>(
-      env,
-      "DAFT_ADDED_IN_LAST_DAYS",
-      DAFT_ADDED_IN_LAST_DAYS,
-    ),
-    openViewingsFrom,
-    sort: optionalChoice<DaftSort>(env, "DAFT_SORT", DAFT_SORTS),
+    availability,
+    ...(radiusKm === undefined ? {} : { radiusKm }),
+    ...(priceMinEur === undefined ? {} : { priceMinEur }),
+    ...((priceMaxEur ?? section.defaultPriceMaxEur) === undefined
+      ? {}
+      : { priceMaxEur: priceMaxEur ?? section.defaultPriceMaxEur }),
+    ...(bedsMin === undefined ? {} : { bedsMin }),
+    ...(bedsMax === undefined ? {} : { bedsMax }),
+    ...(bathsMin === undefined ? {} : { bathsMin }),
+    ...(bathsMax === undefined ? {} : { bathsMax }),
+    ...(keyword === undefined ? {} : { keyword }),
+    ...(addedInLastDays === undefined ? {} : { addedInLastDays }),
+    ...(openViewingsFrom === undefined ? {} : { openViewingsFrom }),
+    ...(sort === undefined ? {} : { sort }),
     ...(facilities.length > 0 ? { facilities } : {}),
-    ...(leaseLengthMinMonths === undefined
-      ? {}
-      : { leaseLengthMinMonths }),
-    ...(leaseLengthMaxMonths === undefined
-      ? {}
-      : { leaseLengthMaxMonths }),
+    ...(leaseLengthMinMonths === undefined ? {} : { leaseLengthMinMonths }),
+    ...(leaseLengthMaxMonths === undefined ? {} : { leaseLengthMaxMonths }),
     ...(furnishing === undefined ? {} : { furnishing }),
     ...(floorSizeMinSqm === undefined ? {} : { floorSizeMinSqm }),
     ...(floorSizeMaxSqm === undefined ? {} : { floorSizeMaxSqm }),
@@ -655,6 +658,9 @@ export const parseEnvironment = (
     ...(onlineOffers === undefined ? {} : { onlineOffers }),
   };
 
+  const maxPages = optionalInteger(env, "DAFT_MAX_PAGES", 1, 20);
+  const userAgent = trimmed(env, "BROWSER_USER_AGENT");
+  const stateDatabaseUrl = databaseUrl(env);
   return {
     notificationBackends,
     daft: {
@@ -662,7 +668,7 @@ export const parseEnvironment = (
       sectionPath: section.path,
       locations,
       filters,
-      maxPages: optionalInteger(env, "DAFT_MAX_PAGES", 1, 20),
+      ...(maxPages === undefined ? {} : { maxPages }),
       requestDelayMs: integer(
         env,
         "DAFT_REQUEST_DELAY_MS",
@@ -673,9 +679,9 @@ export const parseEnvironment = (
     },
     shps,
     browser: {
-      externalEndpoint,
       timeoutMs: BROWSER_TIMEOUT_DEFAULT_MS,
-      userAgent: trimmed(env, "BROWSER_USER_AGENT"),
+      ...(externalEndpoint === undefined ? {} : { externalEndpoint }),
+      ...(userAgent === undefined ? {} : { userAgent }),
     },
     shoutrrr: {
       url: shoutrrrUrl ?? "",
@@ -683,17 +689,21 @@ export const parseEnvironment = (
       titlePrefix: section.notificationTitlePrefix,
       timeoutMs: SHOUTRRR_TIMEOUT_DEFAULT_MS,
     },
-    hermes: hermesConfigured
+    ...(hermesConfigured
       ? {
-          url: httpUrl(env, "HERMES_WEBHOOK_URL"),
-          secret: hermesWebhookSecret!,
-          chatId: hermesChatId!,
-          timeoutMs: HERMES_TIMEOUT_DEFAULT_MS,
+          hermes: {
+            url: httpUrl(env, "HERMES_WEBHOOK_URL"),
+            secret: hermesWebhookSecret!,
+            chatId: hermesChatId!,
+            timeoutMs: HERMES_TIMEOUT_DEFAULT_MS,
+          },
         }
-      : undefined,
+      : {}),
     state: {
       file: "/data/state.sqlite",
-      databaseUrl: databaseUrl(env),
+      ...(stateDatabaseUrl === undefined
+        ? {}
+        : { databaseUrl: stateDatabaseUrl }),
       heartbeatFile: "/data/heartbeat",
     },
     polling: {

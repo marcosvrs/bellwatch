@@ -142,14 +142,14 @@ test("uses the configured rental section URL and parser", async () => {
 
   assert.equal(result.notified, 1);
   assert.deepEqual(sent, ["701"]);
-  assert.equal(new URL(requested[0]).pathname, "/property-for-rent/dublin");
+  assert.equal(new URL(requested[0]!).pathname, "/property-for-rent/dublin");
   assert.equal(requested.length, 1);
-  assert.equal(new URL(requested[0]).searchParams.get("rentalPrice_to"), "2500");
+  assert.equal(new URL(requested[0]!).searchParams.get("rentalPrice_to"), "2500");
   assert.equal(
     requested.some((url) => url.includes("/sold-properties/")),
     false,
   );
-  assert.equal(Object.hasOwn(published[0], "soldComparison"), false);
+  assert.equal(Object.hasOwn(published[0]!, "soldComparison"), false);
 });
 
 test("enriches sale findings with current-year sold comparables", async () => {
@@ -215,8 +215,8 @@ test("enriches sale findings with current-year sold comparables", async () => {
 
   assert.equal(result.notified, 1);
   assert.equal(requested.length, 2);
-  assert.equal(new URL(requested[1]).pathname, "/sold-properties/ireland/semi-detached-houses");
-  assert.deepEqual(published[0].soldComparison, {
+  assert.equal(new URL(requested[1]!).pathname, "/sold-properties/ireland/semi-detached-houses");
+  assert.deepEqual(published[0]!.soldComparison, {
     year: new Date().getFullYear(),
     comparableCount: 2,
     minPriceEur: 400000,
@@ -315,7 +315,7 @@ test("merges sold comparables across configured locations", async () => {
       .map((url) => new URL(url).searchParams.getAll("location")),
     [["dublin"], ["kildare"]],
   );
-  assert.deepEqual(published[0].soldComparison, {
+  assert.deepEqual(published[0]!.soldComparison, {
     year: new Date().getFullYear(),
     comparableCount: 3,
     minPriceEur: 400000,
@@ -473,11 +473,11 @@ test("hydrates new-home matching fields before sold comparison", async () => {
     }),
   );
 
-  assert.equal(published[0].floorSizeSqm, 105);
-  assert.equal(published[0].berRating, "B2");
-  assert.equal(published[0].address, "1 Example Road");
-  assert.equal(published[0].eircode, "A12B345");
-  assert.deepEqual(published[0].soldComparison, {
+  assert.equal(published[0]!.floorSizeSqm, 105);
+  assert.equal(published[0]!.berRating, "B2");
+  assert.equal(published[0]!.address, "1 Example Road");
+  assert.equal(published[0]!.eircode, "A12B345");
+  assert.deepEqual(published[0]!.soldComparison, {
     year: new Date().getFullYear(),
     comparableCount: 2,
     minPriceEur: 400000,
@@ -659,7 +659,7 @@ test("collects multiple Daft pages and deduplicates findings", async () => {
   assert.equal(result.notified, 2);
   assert.deepEqual(sent, ["401", "402"]);
   assert.equal(urls.length, 2);
-  assert.equal(new URL(urls[1]).searchParams.get("page"), "2");
+  assert.equal(new URL(urls[1]!).searchParams.get("page"), "2");
 });
 
 
@@ -733,8 +733,8 @@ test("searches configured locations separately and deduplicates findings", async
   assert.equal(result.notified, 3);
   assert.deepEqual(sent, ["501", "502", "503"]);
   assert.equal(urls.length, 2);
-  const firstUrl = new URL(urls[0]);
-  const secondUrl = new URL(urls[1]);
+  const firstUrl = new URL(urls[0]!);
+  const secondUrl = new URL(urls[1]!);
   assert.equal(firstUrl.pathname, "/new-homes-for-sale/dublin-city");
   assert.equal(firstUrl.searchParams.get("radius"), "20000");
   assert.equal(firstUrl.searchParams.get("location"), null);
@@ -1008,7 +1008,7 @@ test("notifies and preserves detail-fetch failures", async () => {
     },
   );
   assert.equal(notified.length, 1);
-  assert.equal(notified[0].cause, cause);
+  assert.equal(notified[0]!.cause, cause);
 });
 test("keeps comparable-only hydration failures fail-open", async () => {
   const cause = new Error("optional detail unavailable");
@@ -1065,7 +1065,7 @@ test("keeps comparable-only hydration failures fail-open", async () => {
 
   assert.equal(result.notified, 1);
   assert.equal(published.length, 1);
-  assert.equal(Object.hasOwn(published[0], "soldComparison"), false);
+  assert.equal(Object.hasOwn(published[0]!, "soldComparison"), false);
   assert.deepEqual(errors, []);
   assert.deepEqual(logs, [
     "Could not hydrate Daft listing 805: Could not fetch Daft listing https://www.daft.ie/new-home-for-sale/listing/805",
@@ -1186,9 +1186,9 @@ test("fetches paginated sold comparables and preserves their range", async () =>
     [null, "2"],
   );
   assert.equal(result.findings, 1);
-  assert.equal(published[0].soldComparison?.comparableCount, 2);
-  assert.equal(published[0].soldComparison?.minPriceEur, 400_000);
-  assert.equal(published[0].soldComparison?.maxPriceEur, 450_000);
+  assert.equal(published[0]!.soldComparison?.comparableCount, 2);
+  assert.equal(published[0]!.soldComparison?.minPriceEur, 400_000);
+  assert.equal(published[0]!.soldComparison?.maxPriceEur, 450_000);
 });
 
 test("caches sold lookup failures for duplicate comparable requests", async () => {
@@ -1247,9 +1247,9 @@ test("caches sold lookup failures for duplicate comparable requests", async () =
   assert.equal(result.findings, 3);
   assert.equal(result.notified, 3);
   assert.equal(soldRequests, 2);
-  assert.equal(Object.hasOwn(published[0], "soldComparison"), false);
-  assert.equal(Object.hasOwn(published[1], "soldComparison"), false);
-  assert.equal(Object.hasOwn(published[2], "soldComparison"), false);
+  assert.equal(Object.hasOwn(published[0]!, "soldComparison"), false);
+  assert.equal(Object.hasOwn(published[1]!, "soldComparison"), false);
+  assert.equal(Object.hasOwn(published[2]!, "soldComparison"), false);
   assert.deepEqual(logs, [
     "Could not load sold comparables for 731: Could not fetch sold comparables for Semi-D",
     "Could not load sold comparables for 733: Could not fetch sold comparables for Semi-D",
@@ -1317,7 +1317,7 @@ test("skips sold requests when hydrated finding lacks spatial evidence", async (
     requested.some((url) => url.includes("/sold-properties/")),
     false,
   );
-  assert.equal(Object.hasOwn(published[0], "soldComparison"), false);
+  assert.equal(Object.hasOwn(published[0]!, "soldComparison"), false);
 });
 
 
@@ -1400,8 +1400,8 @@ test("uses one address-based sold request without hydrating complete findings", 
     requested.filter((url) => url.includes("/sold-properties/")).length,
     2,
   );
-  assert.equal(published[0].soldComparison?.comparableCount, 1);
-  assert.equal(published[1].soldComparison?.comparableCount, 1);
+  assert.equal(published[0]!.soldComparison?.comparableCount, 1);
+  assert.equal(published[1]!.soldComparison?.comparableCount, 1);
 });
 
 test("hydrates all findings when one comparable needs detail data", async () => {

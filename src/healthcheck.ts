@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 
 const heartbeatFile = "/data/heartbeat";
-const configuredMaxAge = Number(process.env.HEALTHCHECK_MAX_AGE_SECONDS ?? "");
+const configuredMaxAge = Number(process.env["HEALTHCHECK_MAX_AGE_SECONDS"] ?? "");
 const maxAgeSeconds =
   Number.isFinite(configuredMaxAge) && configuredMaxAge > 0
     ? configuredMaxAge

@@ -5,5 +5,5 @@
     "rootDir": ".",
     "tsBuildInfoFile": ".cache/tsconfig.test.tsbuildinfo"
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "alchemy.run.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts"]
 }

@@ -39,6 +39,16 @@ const baseFilters: DaftFilters = {
   sort: "priceDesc",
   facilities: [],
 };
+const without = <T extends object, K extends keyof T>(
+  value: T,
+  ...keys: readonly K[]
+): Omit<T, K> => {
+  const copy = { ...value };
+  for (const key of keys) {
+    delete (copy as Partial<T>)[key];
+  }
+  return copy as Omit<T, K>;
+};
 
 const searchUrl = (
   filters: DaftFilters = baseFilters,
@@ -101,7 +111,7 @@ test("encodes sale and rental section-specific filters", () => {
       sectionPath: "property-for-sale",
       locations: ["dublin"],
       filters: {
-        ...baseFilters,
+        ...without(baseFilters, "openViewingsFrom"),
         propertyTypes: ["sites"],
         facilities: ["parking", "wired-for-cable-television"],
         floorSizeMinSqm: 100,
@@ -110,7 +120,6 @@ test("encodes sale and rental section-specific filters", () => {
         berMax: "A",
         saleType: "auction",
         onlineOffers: true,
-        openViewingsFrom: undefined,
       },
     }),
   );
@@ -137,7 +146,7 @@ test("encodes sale and rental section-specific filters", () => {
       sectionPath: "property-for-rent",
       locations: ["kildare"],
       filters: {
-        ...baseFilters,
+        ...without(baseFilters, "openViewingsFrom"),
         propertyTypes: ["houses", "apartments"],
         priceMinEur: 1_500,
         priceMaxEur: 2_500,
@@ -145,7 +154,6 @@ test("encodes sale and rental section-specific filters", () => {
         leaseLengthMinMonths: 6,
         leaseLengthMaxMonths: 12,
         furnishing: "furnished",
-        openViewingsFrom: undefined,
       },
     }),
   );
@@ -191,21 +199,9 @@ test("maps available Added In Last choices", () => {
 
 test("handles empty optional filters and rejects invalid page counts", () => {
   const filters: DaftFilters = {
-    ...baseFilters,
-    radiusKm: undefined,
-    priceMinEur: undefined,
-    priceMaxEur: undefined,
-    bedsMin: undefined,
-    bedsMax: undefined,
     propertyTypes: [],
-    bathsMin: undefined,
-    bathsMax: undefined,
     mediaTypes: [],
-    keyword: undefined,
     availability: "published",
-    addedInLastDays: undefined,
-    openViewingsFrom: undefined,
-    sort: undefined,
   };
   const request = {
     baseUrl: "https://www.daft.ie",
@@ -596,20 +592,10 @@ test("parses optional resource settings and rejects malformed environment values
       DAFT_MEDIA_TYPES: "any",
     }).daft.filters,
     {
-      radiusKm: undefined,
-      priceMinEur: undefined,
       priceMaxEur: 499_999,
-      bedsMin: undefined,
-      bedsMax: undefined,
       propertyTypes: [],
-      bathsMin: undefined,
-      bathsMax: undefined,
       mediaTypes: [],
-      keyword: undefined,
       availability: "published",
-      addedInLastDays: undefined,
-      openViewingsFrom: undefined,
-      sort: undefined,
     },
   );
   assert.throws(
@@ -684,20 +670,10 @@ test("covers trimming, defaults, and boundary validation", () => {
     filter: "off",
   });
   assert.deepEqual(defaults.daft.filters, {
-    radiusKm: undefined,
-    priceMinEur: undefined,
     priceMaxEur: 499_999,
-    bedsMin: undefined,
-    bedsMax: undefined,
     propertyTypes: [],
-    bathsMin: undefined,
-    bathsMax: undefined,
     mediaTypes: [],
-    keyword: undefined,
     availability: "published",
-    addedInLastDays: undefined,
-    openViewingsFrom: undefined,
-    sort: undefined,
   });
   assert.equal(defaults.daft.maxPages, undefined);
   assert.equal(defaults.daft.requestDelayMs, 1_000);
@@ -812,8 +788,7 @@ test("encodes multi-segment sections and omits empty optional values", () => {
       sectionPath: "property/to-rent",
       locations: [],
       filters: {
-        ...baseFilters,
-        radiusKm: undefined,
+        ...without(baseFilters, "radiusKm"),
         keyword: "",
       },
     }),
@@ -839,9 +814,8 @@ test("normalizes and encodes custom Daft base paths", () => {
       sectionPath: "/property to rent/",
       locations: ["dublin city"],
       filters: {
-        ...baseFilters,
+        ...without(baseFilters, "radiusKm"),
         propertyTypes: ["houses", "apartments"],
-        radiusKm: undefined,
       },
     }),
   );
@@ -1205,8 +1179,7 @@ test("covers remaining section encoders and configuration failure messages", () 
       sectionPath: "property-for-sale",
       locations: ["dublin"],
       filters: {
-        ...baseFilters,
-        facilities: undefined,
+        ...without(baseFilters, "facilities"),
         onlineOffers: false,
       },
     }),
@@ -1246,7 +1219,7 @@ test("covers remaining section encoders and configuration failure messages", () 
       baseUrl: "https://www.daft.ie",
       sectionPath: "property-for-rent",
       locations: ["dublin"],
-      filters: { ...baseFilters, facilities: undefined },
+      filters: without(baseFilters, "facilities"),
     }),
   );
   assert.deepEqual(rentWithoutFacilities.searchParams.getAll("facilities"), []);

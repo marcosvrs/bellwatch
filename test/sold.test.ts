@@ -20,6 +20,16 @@ const finding = {
   priceText: "€500,000",
   propertyType: "Semi-D",
 };
+const without = <T extends object, K extends keyof T>(
+  value: T,
+  ...keys: readonly K[]
+): Omit<T, K> => {
+  const copy = { ...value };
+  for (const key of keys) {
+    delete (copy as Partial<T>)[key];
+  }
+  return copy as Omit<T, K>;
+};
 
 test("builds sold comparable URLs with one location and setup filters", () => {
   const url = new URL(
@@ -72,7 +82,7 @@ test("builds sold comparable URLs with one location and setup filters", () => {
     buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: ["dublin"],
-      finding: { ...finding, berRating: undefined },
+      finding: without(finding, "berRating"),
       year: 2026,
     })!,
   );
@@ -106,7 +116,7 @@ test("falls back to exact-address geofiltering when no location is configured", 
     buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: [],
-      finding: { ...finding, eircode: undefined },
+        finding: without(finding, "eircode"),
       year: 2026,
     })!,
   );
@@ -133,7 +143,7 @@ test("skips sold lookup without a spatial constraint", () => {
     buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: [],
-      finding: { ...finding, eircode: undefined, address: undefined },
+      finding: without(finding, "eircode", "address"),
       year: 2026,
     }),
     undefined,
@@ -338,12 +348,14 @@ test("encodes sold URL fallbacks and optional filters", () => {
       baseUrl: "https://www.daft.ie/root///",
       locations: [],
       finding: {
-        ...finding,
-        eircode: undefined,
+        ...without(
+          finding,
+          "eircode",
+          "bedrooms",
+          "bathrooms",
+          "floorSizeSqm",
+        ),
         address: "1 Main Street, Dublin",
-        bedrooms: undefined,
-        bathrooms: undefined,
-        floorSizeSqm: undefined,
         berRating: "EXEMPT",
         propertyType: "A0",
       },
@@ -391,10 +403,7 @@ test("rejects malformed sold payload values and encodes every geofilter", () => 
     buildDaftSoldSearchUrl({
       baseUrl: "https://www.daft.ie",
       locations: [],
-      finding: {
-        ...finding,
-        address: undefined,
-      },
+        finding: without(finding, "address"),
       year: 2026,
     })!,
   );

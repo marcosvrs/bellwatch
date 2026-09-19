@@ -74,7 +74,7 @@ test("retries Hermes server failures with the same signed request", async () => 
   let calls = 0;
   const transport: HermesTransport = {
     request: async () => {
-      const status = statuses[calls];
+      const status = statuses[calls]!;
       calls += 1;
       return new Response(status === 503 ? "temporary failure" : null, {
         status,

@@ -50,28 +50,28 @@ export default Alchemy.Stack(
     state: Alchemy.localState(),
   },
   Effect.gen(function* () {
-    const remoteDockerHost = process.env.ALCHEMY_DOCKER_HOST?.trim();
+    const remoteDockerHost = process.env["ALCHEMY_DOCKER_HOST"]?.trim();
     const target = remoteDockerHost
       ? yield* Docker.Context("target-docker", {
           name:
-            process.env.ALCHEMY_DOCKER_CONTEXT_NAME ?? "bellwatch-target",
+            process.env["ALCHEMY_DOCKER_CONTEXT_NAME"] ?? "bellwatch-target",
           docker: remoteDockerHost.startsWith("host=")
             ? remoteDockerHost
             : `host=${remoteDockerHost}`,
         })
       : undefined;
     const image = yield* Docker.Image("monitor-image", {
-      name: process.env.MONITOR_IMAGE_NAME ?? "bellwatch",
-      tag: process.env.MONITOR_IMAGE_TAG ?? "latest",
-      context: target,
+      name: process.env["MONITOR_IMAGE_NAME"] ?? "bellwatch",
+      tag: process.env["MONITOR_IMAGE_TAG"] ?? "latest",
+      ...(target === undefined ? {} : { context: target }),
       build: {
         context: ".",
         dockerfile: "Dockerfile",
       },
     });
     const stateVolume = yield* Docker.Volume("state-volume", {
-      name: process.env.MONITOR_VOLUME_NAME ?? "bellwatch-data",
-      context: target,
+      name: process.env["MONITOR_VOLUME_NAME"] ?? "bellwatch-data",
+      ...(target === undefined ? {} : { context: target }),
     });
 
     const shoutrrrUrl = yield* Config.option(Config.redacted("SHOUTRRR_URL"));
@@ -87,29 +87,29 @@ export default Alchemy.Stack(
     const environment: Record<string, string | Redacted.Redacted<string>> = {
       ...plainRuntimeEnvironment(),
     };
-    if (Option.isSome(shoutrrrUrl)) environment.SHOUTRRR_URL = shoutrrrUrl.value;
+    if (Option.isSome(shoutrrrUrl)) environment["SHOUTRRR_URL"] = shoutrrrUrl.value;
     if (Option.isSome(hermesWebhookUrl)) {
-      environment.HERMES_WEBHOOK_URL = hermesWebhookUrl.value;
+      environment["HERMES_WEBHOOK_URL"] = hermesWebhookUrl.value;
     }
     if (Option.isSome(hermesWebhookSecret)) {
-      environment.HERMES_WEBHOOK_SECRET = hermesWebhookSecret.value;
+      environment["HERMES_WEBHOOK_SECRET"] = hermesWebhookSecret.value;
     }
     if (Option.isSome(hermesChatId)) {
-      environment.HERMES_CHAT_ID = hermesChatId.value;
+      environment["HERMES_CHAT_ID"] = hermesChatId.value;
     }
     const databaseUrl = yield* Config.option(Config.redacted("DATABASE_URL"));
     const browserEndpoint = yield* Config.option(
       Config.redacted("PLAYWRIGHT_WS_ENDPOINT"),
     );
-    if (Option.isSome(databaseUrl)) environment.DATABASE_URL = databaseUrl.value;
+    if (Option.isSome(databaseUrl)) environment["DATABASE_URL"] = databaseUrl.value;
     if (Option.isSome(browserEndpoint)) {
-      environment.PLAYWRIGHT_WS_ENDPOINT = browserEndpoint.value;
+      environment["PLAYWRIGHT_WS_ENDPOINT"] = browserEndpoint.value;
     }
-    const network = process.env.MONITOR_DOCKER_NETWORK?.trim();
+    const network = process.env["MONITOR_DOCKER_NETWORK"]?.trim();
     const container = yield* Docker.Container("monitor", {
-      name: process.env.MONITOR_CONTAINER_NAME ?? "bellwatch",
+      name: process.env["MONITOR_CONTAINER_NAME"] ?? "bellwatch",
       image,
-      context: target,
+      ...(target === undefined ? {} : { context: target }),
       environment,
       volumes: [
         {
@@ -117,9 +117,9 @@ export default Alchemy.Stack(
           containerPath: "/data",
         },
       ],
-      networks: network
-        ? [{ name: network, aliases: ["bellwatch"] }]
-        : undefined,
+      ...(network === undefined
+        ? {}
+        : { networks: [{ name: network, aliases: ["bellwatch"] }] }),
       restart: "unless-stopped",
       stopTimeout: "30 seconds",
       healthcheck: {

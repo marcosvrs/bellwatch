@@ -94,11 +94,11 @@ export const parseDaftListingDetails = (
   payload: unknown,
 ): DaftListingDetails => {
   const root = asRecord(payload);
-  const props = asRecord(root?.props);
-  const pageProps = asRecord(props?.pageProps) ?? root ?? {};
-  const listing = asRecord(pageProps.listing);
-  const newHome = asRecord(listing?.newHome);
-  const addressDetails = asRecord(listing?.addressDetails);
+  const props = asRecord(root?.["props"]);
+  const pageProps = asRecord(props?.["pageProps"]) ?? root ?? {};
+  const listing = asRecord(pageProps["listing"]);
+  const newHome = asRecord(listing?.["newHome"]);
+  const addressDetails = asRecord(listing?.["addressDetails"]);
   const description = stringValue(listing, "description");
   const schemeText =
     description === undefined
@@ -111,7 +111,7 @@ export const parseDaftListingDetails = (
           .filter((value): value is string => value !== undefined)
           .join("\n") || undefined;
   const floorSizeSqm = parseListingFloorSize(listing);
-  const berRating = stringValue(asRecord(listing?.ber), "rating");
+  const berRating = stringValue(asRecord(listing?.["ber"]), "rating");
   const address = stringValue(addressDetails, "streetAddress");
   const eircode = stringValue(addressDetails, "postalCode");
   const details: DaftListingDetails = {
@@ -121,9 +121,7 @@ export const parseDaftListingDetails = (
     ...(address === undefined ? {} : { address }),
     ...(eircode === undefined ? {} : { eircode }),
   };
-  return Object.keys(details).length === 0
-    ? { schemeText: undefined }
-    : details;
+  return Object.keys(details).length === 0 ? {} : details;
 };
 
 const unitTitle = (
@@ -165,8 +163,8 @@ const parseFinding = (
   const bathrooms = parseCount(stringValue(listing, "numBathrooms"));
   const propertyType = stringValue(listing, "propertyType");
   const floorSizeSqm = parseListingFloorSize(listing);
-  const berRating = stringValue(asRecord(listing!.ber), "rating");
-  const addressDetails = asRecord(listing!.addressDetails);
+  const berRating = stringValue(asRecord(listing?.["ber"]), "rating");
+  const addressDetails = asRecord(listing?.["addressDetails"]);
   const address = stringValue(addressDetails, "streetAddress");
   const eircode = stringValue(addressDetails, "postalCode");
   return {
@@ -191,19 +189,19 @@ const parseFinding = (
 };
 
 const listingRecord = (value: unknown): JsonRecord | undefined =>
-  asRecord(asRecord(value)?.listing);
+  asRecord(asRecord(value)?.["listing"]);
 
 const parseNewHomeListing: ListingParser = (value, baseUrl) => {
   const listing = listingRecord(value);
   const parentId = identifier(listing);
   if (parentId === undefined) return [];
   const record = listing ?? {};
-  const newHome = asRecord(record.newHome);
+  const newHome = asRecord(record["newHome"]);
   const developmentTitle =
     stringValue(newHome, "developmentName") ??
     stringValue(record, "title") ??
     `Daft development ${parentId}`;
-  const units = Array.isArray(newHome?.subUnits) ? newHome.subUnits : [];
+  const units = Array.isArray(newHome?.["subUnits"]) ? newHome["subUnits"] : [];
 
   if (units.length === 0) {
     return [
@@ -246,8 +244,8 @@ const parsePropertySaleListing: ListingParser = (value, baseUrl) =>
 
 const parsePropertyRentListing: ListingParser = (value, baseUrl) => {
   const listing = listingRecord(value);
-  const prs = asRecord(listing?.prs);
-  const units = Array.isArray(prs?.subUnits) ? prs.subUnits : [];
+  const prs = asRecord(listing?.["prs"]);
+  const units = Array.isArray(prs?.["subUnits"]) ? prs["subUnits"] : [];
   if (units.length === 0) {
     const finding = parseFinding(listing, baseUrl, "/for-rent");
     return finding ? [finding] : [];
@@ -284,14 +282,14 @@ export const parseDaftPage = (
   sectionPath: string = DEFAULT_DAFT_SECTION_PATH,
 ): DaftPageResult => {
   const root = asRecord(payload);
-  const props = asRecord(root?.props);
-  const pageProps = asRecord(props?.pageProps) ?? root ?? {};
+  const props = asRecord(root?.["props"]);
+  const pageProps = asRecord(props?.["pageProps"]) ?? root ?? {};
   const parser =
     listingParsers[daftSectionForPath(sectionPath)?.path ?? DEFAULT_DAFT_SECTION_PATH];
   const seen = new Set<string>();
   const findings: DaftFinding[] = [];
-  if (Array.isArray(pageProps.listings)) {
-    for (const listing of pageProps.listings) {
+  if (Array.isArray(pageProps["listings"])) {
+    for (const listing of pageProps["listings"]) {
       for (const finding of parser(listing, baseUrl)) {
         if (seen.has(finding.id)) continue;
         seen.add(finding.id);
@@ -300,7 +298,7 @@ export const parseDaftPage = (
     }
   }
 
-  const paging = asRecord(pageProps.paging);
+  const paging = asRecord(pageProps["paging"]);
   const currentPage = numberValue(paging, "currentPage") ?? 1;
   const totalPages = numberValue(paging, "totalPages") ?? currentPage;
   return {

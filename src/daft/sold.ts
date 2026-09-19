@@ -66,7 +66,7 @@ const numberValue = (
 const listingIdentifier = (record: JsonRecord): string | undefined => {
   const numeric = numberValue(record, "id");
   if (numeric !== undefined) return String(numeric);
-  const value = record.id;
+  const value = record["id"];
   return typeof value === "string" ? value.trim() || undefined : undefined;
 };
 
@@ -88,9 +88,9 @@ export const parseDaftMoney = (value: string | undefined): number | undefined =>
   const matches = value.match(/\d+(?:[\s,.]\d+)*(?:\s*[km])?/gi);
   if (matches?.length !== 1) return undefined;
   const token = matches[0].toLowerCase();
-  const multiplier = token.trim().endsWith("m")
+  const multiplier = token.endsWith("m")
     ? 1_000_000
-    : token.trim().endsWith("k")
+    : token.endsWith("k")
       ? 1_000
       : 1;
   const numeric = token
@@ -242,22 +242,23 @@ export const parseDaftSoldPage = (
   payload: unknown,
 ): DaftSoldPageResult => {
   const root = asRecord(payload);
-  const props = asRecord(root?.props);
-  const pageProps = asRecord(props?.pageProps) ?? root ?? {};
+  const props = asRecord(root?.["props"]);
+  const pageProps = asRecord(props?.["pageProps"]) ?? root ?? {};
   const comparables: DaftSoldComparable[] = [];
-  if (Array.isArray(pageProps.listings)) {
-    for (const value of pageProps.listings) {
-      const listing = asRecord(asRecord(value)?.listing);
+  if (Array.isArray(pageProps["listings"])) {
+    for (const value of pageProps["listings"]) {
+      const listing = asRecord(asRecord(value)?.["listing"]);
+      if (listing === undefined) continue;
       const price = parseMoneyValue(
-        listing?.soldPrice ?? listing?.price,
+        listing["soldPrice"] ?? listing["price"],
       );
       if (price !== undefined) {
-        const id = listingIdentifier(listing!);
+        const id = listingIdentifier(listing);
         comparables.push(id === undefined ? { price } : { id, price });
       }
     }
   }
-  const paging = asRecord(pageProps.paging);
+  const paging = asRecord(pageProps["paging"]);
   const currentPage = numberValue(paging, "currentPage") ?? 1;
   const totalPages = numberValue(paging, "totalPages") ?? currentPage;
   return { comparables, currentPage, totalPages };
@@ -298,15 +299,15 @@ export const summarizeDaftSoldPrices = (
 export const parseListingFloorSize = (
   listing: JsonRecord | undefined,
 ): number | undefined => {
-  const floorArea = asRecord(listing?.floorArea);
+  const floorArea = asRecord(listing?.["floorArea"]);
   const floorAreaValue = numberValue(floorArea, "value");
   const floorAreaUnit =
-    typeof floorArea?.unit === "string" ? floorArea.unit : undefined;
+    typeof floorArea?.["unit"] === "string" ? floorArea["unit"] : undefined;
   const floorSizeSqm =
     floorAreaValue === undefined
       ? undefined
       : areaInSquareMetres(floorAreaValue, floorAreaUnit);
-  const propertySize = listing?.propertySize;
+  const propertySize = listing?.["propertySize"];
   return (
     floorSizeSqm ??
     parsePropertySize(
