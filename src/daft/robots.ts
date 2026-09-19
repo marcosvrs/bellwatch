@@ -60,10 +60,12 @@ export const isRobotsAllowed = (
 ): boolean => {
   const target = new URL(targetUrl);
   const path = `${target.pathname}${target.search}`;
-  const token = userAgent.trim().toLowerCase().split(/[\s/]/).at(0) ?? "";
+  const token = userAgent.trim().toLowerCase().split(/[\s/]/).at(0);
   const parsedGroups = parseRobots(robotsText);
   const specificGroups = parsedGroups.filter((group) =>
-    group.agents.some((agent) => token.startsWith(agent)),
+    group.agents.some(
+      (agent) => token !== undefined && token.startsWith(agent),
+    ),
   );
   const groups =
     specificGroups.length > 0

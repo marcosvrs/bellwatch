@@ -45,7 +45,7 @@ const runShoutrrr: ShoutrrrRunner = async (
   }, timeoutMs);
 
   child.stderr.on("data", (chunk: string | Buffer) => {
-    const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    const text = chunk.toString();
     stderr = (stderr + text).slice(0, 500);
   });
 

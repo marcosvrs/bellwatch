@@ -221,17 +221,7 @@ const parseFacilities = (env: NodeJS.ProcessEnv): DaftFacility[] => {
     }
     return [];
   }
-  const invalid = values.filter(
-    (value) => !isMember(DAFT_FACILITIES, value),
-  );
-  if (invalid.length > 0) {
-    throw new ConfigurationError(
-      `DAFT_FACILITIES contains unsupported values: ${invalid.join(", ")}`,
-    );
-  }
-  return unique(values).filter(
-    (value): value is DaftFacility => isMember(DAFT_FACILITIES, value),
-  );
+  return parseAllowedList(values, DAFT_FACILITIES, "DAFT_FACILITIES");
 };
 
 const list = (env: NodeJS.ProcessEnv, name: string): string[] =>
@@ -243,6 +233,27 @@ const list = (env: NodeJS.ProcessEnv, name: string): string[] =>
 const unique = <T>(values: readonly T[]): T[] => [...new Set(values)];
 const isMember = <T>(values: readonly T[], value: unknown): value is T =>
   values.some((candidate) => candidate === value);
+const parseAllowedList = <T extends string>(
+  values: readonly string[],
+  allowed: readonly T[],
+  name: string,
+): T[] => {
+  const valid: T[] = [];
+  const invalid: string[] = [];
+  for (const value of values) {
+    if (isMember(allowed, value)) {
+      valid.push(value);
+    } else {
+      invalid.push(value);
+    }
+  }
+  if (invalid.length > 0) {
+    throw new ConfigurationError(
+      `${name} contains unsupported values: ${invalid.join(", ")}`,
+    );
+  }
+  return unique(valid);
+};
 
 const parsePropertyTypes = (env: NodeJS.ProcessEnv): DaftPropertyType[] => {
   const values = list(env, "DAFT_PROPERTY_TYPES");
@@ -254,18 +265,7 @@ const parsePropertyTypes = (env: NodeJS.ProcessEnv): DaftPropertyType[] => {
     }
     return [];
   }
-  const invalid = values.filter(
-    (value) => !isMember(DAFT_PROPERTY_TYPES, value),
-  );
-  if (invalid.length > 0) {
-    throw new ConfigurationError(
-      `DAFT_PROPERTY_TYPES contains unsupported values: ${invalid.join(", ")}`,
-    );
-  }
-  return unique(values).filter(
-    (value): value is DaftPropertyType =>
-      isMember(DAFT_PROPERTY_TYPES, value),
-  );
+  return parseAllowedList(values, DAFT_PROPERTY_TYPES, "DAFT_PROPERTY_TYPES");
 };
 
 const parseMediaTypes = (env: NodeJS.ProcessEnv): DaftMediaType[] => {
@@ -278,17 +278,7 @@ const parseMediaTypes = (env: NodeJS.ProcessEnv): DaftMediaType[] => {
     }
     return [];
   }
-  const invalid = values.filter(
-    (value) => !isMember(DAFT_MEDIA_TYPES, value),
-  );
-  if (invalid.length > 0) {
-    throw new ConfigurationError(
-      `DAFT_MEDIA_TYPES contains unsupported values: ${invalid.join(", ")}`,
-    );
-  }
-  return unique(values).filter(
-    (value): value is DaftMediaType => isMember(DAFT_MEDIA_TYPES, value),
-  );
+  return parseAllowedList(values, DAFT_MEDIA_TYPES, "DAFT_MEDIA_TYPES");
 };
 
 const httpUrl = (env: NodeJS.ProcessEnv, name: string): string => {

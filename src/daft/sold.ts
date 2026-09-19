@@ -88,7 +88,6 @@ export const parseDaftMoney = (value: string | undefined): number | undefined =>
   const numeric = token
     .replace(/[^0-9.,]/g, "")
     .replaceAll(",", "");
-  if (!numeric) {return undefined;}
   const amount = Number(numeric) * multiplier;
   return Number.isFinite(amount) ? amount : undefined;
 };
