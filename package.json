@@ -45,7 +45,7 @@
     "effect": "4.0.0-rc.112",
     "esbuild": "0.28.2",
     "redis": "^6.2.1",
-    "simple-git-hooks": "^2.11.1",
+    "simple-git-hooks": "^2.14.0",
     "typescript": "5.9.3",
     "vitest": "^4.1.11"
   },
