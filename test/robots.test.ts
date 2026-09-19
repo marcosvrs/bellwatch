@@ -191,6 +191,10 @@ test("defaults missing and empty user agents to the wildcard group", () => {
     isRobotsAllowed(rules, "https://www.daft.ie/blocked", ""),
     true,
   );
+  assert.equal(
+    isRobotsAllowed(rules, "https://www.daft.ie/blocked", "/Stryker"),
+    true,
+  );
 });
 
 test("starts a new robots group after rules and ignores malformed directives", () => {
