@@ -29,8 +29,13 @@ export interface DaftSoldSearchRequest {
   readonly year: number;
 }
 
+export interface DaftSoldComparable {
+  readonly id?: string;
+  readonly price: number;
+}
+
 export interface DaftSoldPageResult {
-  readonly prices: readonly number[];
+  readonly comparables: readonly DaftSoldComparable[];
   readonly currentPage: number;
   readonly totalPages: number;
 }
@@ -58,10 +63,55 @@ const numberValue = (
   }
   return undefined;
 };
+const stringValue = (
+  record: JsonRecord | undefined,
+  key: string,
+): string | undefined => {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+};
+
+const listingIdentifier = (record: JsonRecord | undefined): string | undefined => {
+  const numeric = numberValue(record, "id");
+  if (numeric !== undefined) return String(numeric);
+  return stringValue(record, "id");
+};
+
+const SQUARE_FEET_TO_SQUARE_METRES = 0.09290304;
+
+const areaInSquareMetres = (
+  value: number,
+  unit: string | undefined,
+): number | undefined => {
+  if (unit === undefined) return value;
+  const normalized = unit.toUpperCase().replaceAll(/[\s-]+/g, "_");
+  if (
+    normalized === "METRES_SQUARED" ||
+    normalized === "SQUARE_METRES" ||
+    normalized === "SQUARE_METERS" ||
+    normalized === "SQ_M" ||
+    normalized === "M2" ||
+    normalized === "M²"
+  ) {
+    return value;
+  }
+  if (
+    normalized === "FEET_SQUARED" ||
+    normalized === "SQUARE_FEET" ||
+    normalized === "SQ_FT" ||
+    normalized === "FT2" ||
+    normalized === "FT²"
+  ) {
+    return value * SQUARE_FEET_TO_SQUARE_METRES;
+  }
+  return undefined;
+};
 
 export const parseDaftMoney = (value: string | undefined): number | undefined => {
   if (!value) return undefined;
-  const normalized = value.toLowerCase().replaceAll(/\s/g, "");
+  const matches = value.match(/\d+(?:[\s,.]\d+)*(?:\s*[km])?/gi);
+  if (matches?.length !== 1) return undefined;
+  const normalized = matches[0].toLowerCase().replaceAll(/\s/g, "");
   const multiplier = normalized.endsWith("m")
     ? 1_000_000
     : normalized.endsWith("k")
@@ -82,8 +132,18 @@ const parseMoneyValue = (value: unknown): number | undefined =>
 
 const parsePropertySize = (value: string | undefined): number | undefined => {
   if (!value) return undefined;
+  const normalized = value.toLowerCase();
   const match = value.replaceAll(",", "").match(/\d+(?:\.\d+)?/);
-  return match ? Number(match[0]) : undefined;
+  if (!match) return undefined;
+  const numeric = Number(match[0]);
+  if (!Number.isFinite(numeric)) return undefined;
+  if (/\b(?:sq ?ft|square feet?|feet squared|ft2|ft²)\b/.test(normalized)) {
+    return areaInSquareMetres(numeric, "FEET_SQUARED");
+  }
+  if (/\b(?:sqm?|square metres?|metres squared|m2|m²)\b/.test(normalized)) {
+    return numeric;
+  }
+  return /[a-z]/i.test(value) ? undefined : numeric;
 };
 
 const berValue = (rating: string | undefined): number | undefined => {
@@ -122,6 +182,7 @@ export const soldPropertyTypePath = (
   if (type.includes("house")) return "houses";
   return undefined;
 };
+
 export const hasDaftSoldMatchFields = (
   finding: Pick<
     DaftFinding,
@@ -135,7 +196,7 @@ export const hasDaftSoldMatchFields = (
   finding.bedrooms !== undefined &&
   finding.bathrooms !== undefined &&
   finding.floorSizeSqm !== undefined &&
-  finding.berRating !== undefined &&
+  berValue(finding.berRating) !== undefined &&
   soldPropertyTypePath(finding.propertyType) !== undefined;
 
 const addOptional = (
@@ -213,20 +274,23 @@ export const parseDaftSoldPage = (
   const root = asRecord(payload);
   const props = asRecord(root?.props);
   const pageProps = asRecord(props?.pageProps) ?? root ?? {};
-  const prices: number[] = [];
+  const comparables: DaftSoldComparable[] = [];
   if (Array.isArray(pageProps.listings)) {
     for (const value of pageProps.listings) {
       const listing = asRecord(asRecord(value)?.listing);
       const price = parseMoneyValue(
         listing?.soldPrice ?? listing?.price,
       );
-      if (price !== undefined) prices.push(price);
+      if (price !== undefined) {
+        const id = listingIdentifier(listing);
+        comparables.push(id === undefined ? { price } : { id, price });
+      }
     }
   }
   const paging = asRecord(pageProps.paging);
   const currentPage = numberValue(paging, "currentPage") ?? 1;
   const totalPages = numberValue(paging, "totalPages") ?? currentPage;
-  return { prices, currentPage, totalPages };
+  return { comparables, currentPage, totalPages };
 };
 
 export const summarizeDaftSoldPrices = (
@@ -261,13 +325,18 @@ export const summarizeDaftSoldPrices = (
     verdict,
   };
 };
-
 export const parseListingFloorSize = (
   listing: JsonRecord | undefined,
 ): number | undefined => {
+  const floorArea = asRecord(listing?.floorArea);
+  const floorAreaValue = numberValue(floorArea, "value");
+  const floorSizeSqm =
+    floorAreaValue === undefined
+      ? undefined
+      : areaInSquareMetres(floorAreaValue, stringValue(floorArea, "unit"));
   const propertySize = listing?.propertySize;
   return (
-    numberValue(asRecord(listing?.floorArea), "value") ??
+    floorSizeSqm ??
     parsePropertySize(
       typeof propertySize === "string" ? propertySize : undefined,
     )

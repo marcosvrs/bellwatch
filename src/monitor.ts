@@ -14,6 +14,7 @@ import {
   hasDaftSoldMatchFields,
   parseDaftSoldPage,
   summarizeDaftSoldPrices,
+  type DaftSoldComparable,
   type DaftSoldComparison,
 } from "./daft/sold.js";
 import type { StateStore } from "./state.js";
@@ -45,38 +46,59 @@ interface MonitorStats {
 const hydrateListingFindings = (
   findings: readonly DaftFinding[],
   dependencies: MonitorDependencies,
+  bestEffort: boolean,
 ): Effect.Effect<readonly DaftFinding[], Error> =>
   Effect.gen(function* () {
     const hydrated: DaftFinding[] = [];
     for (const finding of findings) {
-      const payload = yield* Effect.mapError(
-        dependencies.fetchPage(finding.url),
-        (cause) =>
-          new MonitorError(`Could not fetch Daft listing ${finding.url}`, {
-            cause,
-          }),
+      const hydratedFinding = yield* Effect.catch(
+        Effect.gen(function* () {
+          const payload = yield* Effect.mapError(
+            dependencies.fetchPage(finding.url),
+            (cause) =>
+              new MonitorError(`Could not fetch Daft listing ${finding.url}`, {
+                cause,
+              }),
+          );
+          const details = yield* Effect.try({
+            try: () => parseDaftListingDetails(payload),
+            catch: (cause) =>
+              new MonitorError(`Could not parse Daft listing ${finding.url}`, {
+                cause,
+              }),
+          });
+          return {
+            ...finding,
+            ...(details.schemeText === undefined
+              ? {}
+              : { schemeText: details.schemeText }),
+            ...(details.floorSizeSqm === undefined
+              ? {}
+              : { floorSizeSqm: details.floorSizeSqm }),
+            ...(details.berRating === undefined
+              ? {}
+              : { berRating: details.berRating }),
+            ...(details.address === undefined
+              ? {}
+              : { address: details.address }),
+            ...(details.eircode === undefined
+              ? {}
+              : { eircode: details.eircode }),
+          };
+        }),
+        (error) =>
+          bestEffort
+            ? Effect.gen(function* () {
+                yield* Effect.logWarning(
+                  `Could not hydrate Daft listing ${finding.id}: ${
+                    error instanceof Error ? error.message : String(error)
+                  }`,
+                );
+                return finding;
+              })
+            : Effect.fail(error),
       );
-      const details = yield* Effect.try({
-        try: () => parseDaftListingDetails(payload),
-        catch: (cause) =>
-          new MonitorError(`Could not parse Daft listing ${finding.url}`, {
-            cause,
-          }),
-      });
-      hydrated.push({
-        ...finding,
-        ...(details.schemeText === undefined
-          ? {}
-          : { schemeText: details.schemeText }),
-        ...(details.floorSizeSqm === undefined
-          ? {}
-          : { floorSizeSqm: details.floorSizeSqm }),
-        ...(details.berRating === undefined
-          ? {}
-          : { berRating: details.berRating }),
-        ...(details.address === undefined ? {} : { address: details.address }),
-        ...(details.eircode === undefined ? {} : { eircode: details.eircode }),
-      });
+      hydrated.push(hydratedFinding);
     }
     return hydrated;
   });
@@ -106,12 +128,12 @@ const needsComparableDetails = (
 
 type DaftSoldSearchRequest = Parameters<typeof buildDaftSoldSearchUrl>[0];
 
-const fetchSoldPrices = (
+const fetchSoldComparables = (
   request: DaftSoldSearchRequest,
   dependencies: MonitorDependencies,
-): Effect.Effect<readonly number[], Error> =>
+): Effect.Effect<readonly DaftSoldComparable[], Error> =>
   Effect.gen(function* () {
-    const prices: number[] = [];
+    const comparables: DaftSoldComparable[] = [];
     for (let page = 1; ; page += 1) {
       const url = buildDaftSoldSearchUrl(request, page)!;
       const payload = yield* Effect.mapError(
@@ -129,10 +151,10 @@ const fetchSoldPrices = (
             cause,
           }),
       });
-      prices.push(...parsed.prices);
+      comparables.push(...parsed.comparables);
       if (parsed.currentPage >= parsed.totalPages) break;
     }
-    return prices;
+    return comparables;
   });
 
 const fetchSoldComparison = (
@@ -141,8 +163,23 @@ const fetchSoldComparison = (
 ): Effect.Effect<DaftSoldComparison, Error> =>
   Effect.gen(function* () {
     const prices: number[] = [];
+    const seenListingIds = new Set<string>();
     for (const request of requests) {
-      prices.push(...(yield* fetchSoldPrices(request, dependencies)));
+      for (const comparable of yield* fetchSoldComparables(
+        request,
+        dependencies,
+      )) {
+        if (
+          comparable.id !== undefined &&
+          seenListingIds.has(comparable.id)
+        ) {
+          continue;
+        }
+        if (comparable.id !== undefined) {
+          seenListingIds.add(comparable.id);
+        }
+        prices.push(comparable.price);
+      }
     }
     const request = requests[0]!;
     return summarizeDaftSoldPrices(
@@ -262,14 +299,13 @@ const collectFindings = (
       config.shps.filter !== "off" ||
       rawFindings.some((finding) => needsComparableDetails(config, finding));
     const candidates = shouldHydrate
-      ? yield* hydrateListingFindings(rawFindings, dependencies)
+      ? yield* hydrateListingFindings(
+          rawFindings,
+          dependencies,
+          config.shps.filter === "off",
+        )
       : rawFindings;
-    const filtered = filterShpsFindings(candidates, config.shps);
-    const findings =
-      config.daft.sectionPath === "property-for-sale" ||
-      config.daft.sectionPath === "new-homes-for-sale"
-        ? yield* enrichWithSoldComparables(filtered, config, dependencies)
-        : filtered;
+    const findings = filterShpsFindings(candidates, config.shps);
     return { findings, pages };
   });
 
@@ -280,10 +316,13 @@ const runPoll = (
   Effect.gen(function* () {
     const collected = yield* collectFindings(config, dependencies);
     const initialized = yield* dependencies.state.isInitialized();
+    const notifyExisting =
+      initialized || config.polling.notifyExistingOnFirstRun;
     let notified = 0;
     let seeded = 0;
+    const pending: DaftFinding[] = [];
 
-    if (!initialized && !config.polling.notifyExistingOnFirstRun) {
+    if (!notifyExisting) {
       for (const finding of collected.findings) {
         yield* dependencies.state.markSeen(finding);
         seeded += 1;
@@ -291,6 +330,14 @@ const runPoll = (
     } else {
       for (const finding of collected.findings) {
         if (yield* dependencies.state.isSeen(finding.id)) continue;
+        pending.push(finding);
+      }
+      const publishable =
+        config.daft.sectionPath === "property-for-sale" ||
+        config.daft.sectionPath === "new-homes-for-sale"
+          ? yield* enrichWithSoldComparables(pending, config, dependencies)
+          : pending;
+      for (const finding of publishable) {
         yield* dependencies.publish(finding);
         yield* dependencies.state.markSeen(finding);
         notified += 1;

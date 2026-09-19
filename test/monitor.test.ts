@@ -260,8 +260,8 @@ test("merges sold comparables across configured locations", async () => {
     props: {
       pageProps: {
         listings: [
-          { listing: { soldPrice: "€400,000" } },
-          { listing: { soldPrice: "€450,000" } },
+          { listing: { id: 1001, soldPrice: "€400,000" } },
+          { listing: { id: 1002, soldPrice: "€450,000" } },
         ],
         paging: { currentPage: 1, totalPages: 1 },
       },
@@ -270,7 +270,10 @@ test("merges sold comparables across configured locations", async () => {
   const soldKildarePayload = {
     props: {
       pageProps: {
-        listings: [{ listing: { soldPrice: "€550,000" } }],
+        listings: [
+          { listing: { id: 1002, soldPrice: "€450,000" } },
+          { listing: { id: 1003, soldPrice: "€550,000" } },
+        ],
         paging: { currentPage: 1, totalPages: 1 },
       },
     },
@@ -320,6 +323,73 @@ test("merges sold comparables across configured locations", async () => {
     verdict: "within",
   });
 });
+test("skips sold lookups for findings already seen", async () => {
+  const saleConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_LOCATION: "dublin",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const published: DaftFinding[] = [];
+  const state = makeState();
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 711,
+              title: "Seen Sale",
+              price: "€500,000",
+              numBedrooms: "3 Bed",
+              numBathrooms: "2 Bath",
+              propertyType: "Semi-D",
+              floorArea: { value: 105 },
+              ber: { rating: "B2" },
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const soldPayload = {
+    props: {
+      pageProps: {
+        listings: [{ listing: { id: 1101, soldPrice: "€450,000" } }],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const dependencies = {
+    fetchPage: (url: string) =>
+      Effect.sync(() => {
+        requested.push(url);
+        return url.includes("/sold-properties/") ? soldPayload : searchPayload;
+      }),
+    publish: (finding: DaftFinding) =>
+      Effect.sync(() => {
+        published.push(finding);
+      }),
+    publishError: () => Effect.void,
+    state,
+    heartbeat: () => Effect.void,
+  };
+
+  const first = await Effect.runPromise(runOnce(saleConfig, dependencies));
+  const second = await Effect.runPromise(runOnce(saleConfig, dependencies));
+
+  assert.equal(first.notified, 1);
+  assert.equal(second.notified, 0);
+  assert.equal(published.length, 1);
+  assert.equal(
+    requested.filter((url) => url.includes("/sold-properties/")).length,
+    1,
+  );
+});
+
 
 test("hydrates new-home matching fields before sold comparison", async () => {
   const newHomeConfig = parseEnvironment({
@@ -939,6 +1009,61 @@ test("notifies and preserves detail-fetch failures", async () => {
   assert.equal(notified.length, 1);
   assert.equal(notified[0].cause, cause);
 });
+test("keeps comparable-only hydration failures fail-open", async () => {
+  const cause = new Error("optional detail unavailable");
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_LOCATION: "dublin",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const published: DaftFinding[] = [];
+  const errors: Error[] = [];
+  const searchPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 805,
+              title: "Optional Detail",
+              price: "€400,000",
+              numBedrooms: "3 Bed",
+              numBathrooms: "2 Bath",
+              propertyType: "Semi-D",
+              newHome: { subUnits: [] },
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: (url) =>
+        url.includes("/new-home-for-sale/")
+          ? Effect.fail(cause)
+          : Effect.succeed(searchPayload),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: (error) =>
+        Effect.sync(() => {
+          errors.push(error);
+        }),
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(result.notified, 1);
+  assert.equal(published.length, 1);
+  assert.equal(Object.hasOwn(published[0], "soldComparison"), false);
+  assert.deepEqual(errors, []);
+});
+
 
 test("wraps detail parsing failures before notifying them", async () => {
   const cause = new Error("malformed detail");

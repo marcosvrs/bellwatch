@@ -104,7 +104,9 @@ export const daftBerRatingValue = (
   rating: DaftBerRating | undefined,
 ): number | undefined => {
   if (rating === undefined) return undefined;
-  return DAFT_BER_RATINGS.indexOf(rating);
+  const index = DAFT_BER_RATINGS.indexOf(rating);
+  if (index < 0) return undefined;
+  return rating === "exempt" ? 0 : index + 1;
 };
 
 export const DAFT_SALE_TYPES = ["auction"] as const;

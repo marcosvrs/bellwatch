@@ -120,8 +120,8 @@ test("encodes sale and rental section-specific filters", () => {
   assert.equal(sale.searchParams.get("rentalPrice_from"), null);
   assert.equal(sale.searchParams.get("floorSize_from"), "100");
   assert.equal(sale.searchParams.get("floorSize_to"), "250");
-  assert.equal(sale.searchParams.get("simplifiedBer_from"), "5");
-  assert.equal(sale.searchParams.get("simplifiedBer_to"), "7");
+  assert.equal(sale.searchParams.get("simplifiedBer_from"), "6");
+  assert.equal(sale.searchParams.get("simplifiedBer_to"), "8");
   assert.equal(sale.searchParams.get("saleType"), "auction");
   assert.equal(sale.searchParams.get("offersEnabledDisabled"), "true");
   assert.deepEqual(sale.searchParams.getAll("facilities"), [
