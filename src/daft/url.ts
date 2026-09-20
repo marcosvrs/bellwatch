@@ -1,5 +1,4 @@
-import type { DaftFilters } from "./filters.js";
-import { addedInLastDateValue } from "./filters.js";
+import { addedInLastDateValue, type DaftFilters } from "./filters.js";
 import {
   DEFAULT_DAFT_SECTION,
   daftSectionForPath,
@@ -19,8 +18,12 @@ const encodePath = (value: string): string =>
     .map((part) => encodeURIComponent(part))
     .join("/");
 
-const addOptional = (params: URLSearchParams, name: string, value: unknown) => {
-  if (value !== undefined && value !== "") params.append(name, String(value));
+const addOptional = (
+  params: URLSearchParams,
+  name: string,
+  value: string | number | undefined,
+): void => {
+  if (value !== undefined && value !== "") {params.append(name, String(value));}
 };
 
 export const buildDaftSearchUrl = (
@@ -45,9 +48,10 @@ export const buildDaftSearchUrl = (
   const singlePropertyType =
     propertyTypes.length === 1 ? propertyTypes[0] : undefined;
   const hasSingleLocation = request.locations.length === 1;
-  const locationPath = hasSingleLocation
-    ? encodeURIComponent(request.locations[0]!)
-    : "ireland";
+  const locationPath =
+    request.locations.length === 1
+      ? encodeURIComponent(String(request.locations[0]))
+      : "ireland";
   const pathParts = [
     basePath,
     sectionPath,
@@ -96,7 +100,7 @@ export const buildDaftSearchUrl = (
   );
   section.encodeFilters(params, request.filters);
   addOptional(params, "sort", request.filters.sort);
-  if (page > 1) params.append("page", String(page));
+  if (page > 1) {params.append("page", String(page));}
 
   base.search = params.toString();
   return base.toString();

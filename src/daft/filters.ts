@@ -103,7 +103,7 @@ export type DaftBerRating = (typeof DAFT_BER_RATINGS)[number];
 export const daftBerRatingValue = (
   rating: DaftBerRating | undefined,
 ): number | undefined => {
-  if (rating === undefined) return undefined;
+  if (rating === undefined) {return undefined;}
   return rating === "exempt"
     ? 0
     : DAFT_BER_RATINGS.indexOf(rating) + 1;

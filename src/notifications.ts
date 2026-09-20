@@ -15,7 +15,8 @@ export const publishToAll = (
       (publisher) => publisher(),
       { concurrency: 1 },
     );
-    if (failures.length > 0) {
-      yield* Effect.fail(failures[0]!);
+    const [firstFailure] = failures;
+    if (firstFailure !== undefined) {
+      yield* Effect.fail(firstFailure);
     }
   });

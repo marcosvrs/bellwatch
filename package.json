@@ -10,11 +10,12 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "lint": "eslint src test alchemy.run.ts --max-warnings=0",
     "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.alchemy.json",
     "test": "node scripts/test.mjs",
     "coverage": "c8 npm test",
     "mutation": "stryker run",
-    "check": "npm run typecheck && npm run build && npm run coverage",
+    "check": "npm run lint && npm run typecheck && npm run build && npm run coverage",
     "check:changed": "node scripts/changed-validation.mjs",
     "e2e": "node scripts/e2e.mjs",
     "scan:secrets": "gitleaks git . --config .gitleaks.toml --gitleaks-ignore-path .gitleaksignore --no-banner --redact --ignore-gitleaks-allow",
@@ -29,7 +30,7 @@
     "alchemy:destroy": "alchemy destroy"
   },
   "simple-git-hooks": {
-    "pre-commit": "git diff --cached --check && npm run scan:secrets:staged && npm run typecheck",
+    "pre-commit": "git diff --cached --check && npm run scan:secrets:staged && npm run lint && npm run typecheck",
     "pre-push": "npm run scan:secrets && npm run check:changed"
   },
   "dependencies": {
@@ -38,15 +39,18 @@
   },
   "devDependencies": {
     "@effect/platform-node": "4.0.0-rc.112",
+    "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
     "@types/node": "24.10.7",
     "alchemy": "2.0.0-beta.77",
     "c8": "^12.0.0",
     "effect": "4.0.0-rc.112",
     "esbuild": "0.28.2",
+    "eslint": "^10.11.0",
     "redis": "^6.2.1",
     "simple-git-hooks": "^2.11.1",
     "typescript": "5.9.3",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^4.1.11"
   },
   "overrides": {

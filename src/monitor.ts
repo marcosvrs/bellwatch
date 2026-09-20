@@ -127,15 +127,22 @@ const needsComparableDetails = (
 };
 
 type DaftSoldSearchRequest = Parameters<typeof buildDaftSoldSearchUrl>[0];
+type SoldSearchRequest = {
+  readonly request: DaftSoldSearchRequest;
+  readonly url: string;
+};
 
 const fetchSoldComparables = (
-  request: DaftSoldSearchRequest,
+  searchRequest: SoldSearchRequest,
   dependencies: MonitorDependencies,
 ): Effect.Effect<readonly DaftSoldComparable[], Error> =>
   Effect.gen(function* () {
     const comparables: DaftSoldComparable[] = [];
     for (let page = 1; ; page += 1) {
-      const url = buildDaftSoldSearchUrl(request, page)!;
+      const pageUrl = new URL(searchRequest.url);
+      if (page > 1) {pageUrl.searchParams.set("page", String(page));}
+      const url = pageUrl.toString();
+      const request = searchRequest.request;
       const payload = yield* Effect.mapError(
         dependencies.fetchPage(url),
         (cause) =>
@@ -152,45 +159,43 @@ const fetchSoldComparables = (
           }),
       });
       comparables.push(...parsed.comparables);
-      if (parsed.currentPage >= parsed.totalPages) break;
+      if (parsed.currentPage >= parsed.totalPages) {break;}
     }
     return comparables;
   });
 
 const fetchSoldComparison = (
-  requests: readonly DaftSoldSearchRequest[],
+  requests: readonly SoldSearchRequest[],
+  year: number,
+  priceText: string | undefined,
   dependencies: MonitorDependencies,
 ): Effect.Effect<DaftSoldComparison, Error> =>
   Effect.gen(function* () {
     const prices: number[] = [];
     const seenListingIds = new Set<string>();
-    for (const request of requests) {
+    for (const searchRequest of requests) {
       for (const comparable of yield* fetchSoldComparables(
-        request,
+        searchRequest,
         dependencies,
       )) {
         if (comparable.id === undefined) {
           prices.push(comparable.price);
           continue;
         }
-        if (seenListingIds.has(comparable.id)) continue;
+        if (seenListingIds.has(comparable.id)) {continue;}
         seenListingIds.add(comparable.id);
         prices.push(comparable.price);
       }
     }
-    const request = requests[0]!;
-    return summarizeDaftSoldPrices(
-      prices,
-      request.year,
-      request.finding.priceText,
-    );
+    return summarizeDaftSoldPrices(prices, year, priceText);
   });
+
 
 const enrichWithSoldComparables = (
   findings: readonly DaftFinding[],
   config: MonitorConfig,
   dependencies: MonitorDependencies,
-): Effect.Effect<readonly DaftFinding[], never> =>
+): Effect.Effect<readonly DaftFinding[]> =>
   Effect.gen(function* () {
     const year = new Date().getFullYear();
     const cached = new Map<string, DaftSoldComparison | undefined>();
@@ -213,18 +218,25 @@ const enrichWithSoldComparables = (
               ...request,
               locations: [location],
             }));
-      const comparableUrls = requests
-        .map((locationRequest) => buildDaftSoldSearchUrl(locationRequest))
-        .filter((url): url is string => url !== undefined);
-      if (comparableUrls.length === 0) {
+      const comparableRequests = requests.flatMap((locationRequest) => {
+        const url = buildDaftSoldSearchUrl(locationRequest);
+        return url === undefined ? [] : [{ request: locationRequest, url }];
+      });
+      if (comparableRequests.length === 0) {
         enriched.push(finding);
         continue;
       }
+      const comparableUrls = comparableRequests.map(({ url }) => url);
       const cacheKey = `${JSON.stringify(comparableUrls)}\u0000${finding.priceText}`;
       let comparison = cached.get(cacheKey);
       if (!cached.has(cacheKey)) {
         comparison = yield* Effect.catch(
-          fetchSoldComparison(requests, dependencies),
+          fetchSoldComparison(
+            comparableRequests,
+            year,
+            finding.priceText,
+            dependencies,
+          ),
           (error) =>
             Effect.gen(function* () {
               yield* Effect.logWarning(
@@ -287,8 +299,8 @@ const collectFindings = (
             ),
         });
         pages += 1;
-        for (const finding of parsed.findings) byId.set(finding.id, finding);
-        if (parsed.currentPage >= parsed.totalPages) break;
+        for (const finding of parsed.findings) {byId.set(finding.id, finding);}
+        if (parsed.currentPage >= parsed.totalPages) {break;}
       }
     }
     const rawFindings = [...byId.values()];
@@ -326,7 +338,7 @@ const runPoll = (
       }
     } else {
       for (const finding of collected.findings) {
-        if (yield* dependencies.state.isSeen(finding.id)) continue;
+        if (yield* dependencies.state.isSeen(finding.id)) {continue;}
         pending.push(finding);
       }
       const publishable =
@@ -353,7 +365,7 @@ const runPoll = (
 const notifyPollError = (
   dependencies: MonitorDependencies,
   error: Error,
-): Effect.Effect<void, never> =>
+): Effect.Effect<void> =>
   Effect.catch(
     dependencies.publishError(error),
     (notificationError) =>

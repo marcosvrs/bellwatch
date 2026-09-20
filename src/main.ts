@@ -63,7 +63,11 @@ const program = Effect.gen(function* () {
         publishers.push(() => publishFinding(config.shoutrrr, finding));
       }
       if (config.notificationBackends.includes("hermes")) {
-        publishers.push(() => publishHermesFinding(config.hermes!, finding));
+        const hermes = config.hermes;
+        if (hermes === undefined) {
+          throw new Error("Hermes backend configuration is missing");
+        }
+        publishers.push(() => publishHermesFinding(hermes, finding));
       }
       return publishToAll(publishers);
     },
@@ -76,7 +80,11 @@ const program = Effect.gen(function* () {
         );
       }
       if (config.notificationBackends.includes("hermes")) {
-        publishers.push(() => publishHermesMessage(config.hermes!, message));
+        const hermes = config.hermes;
+        if (hermes === undefined) {
+          throw new Error("Hermes backend configuration is missing");
+        }
+        publishers.push(() => publishHermesMessage(hermes, message));
       }
       return publishToAll(publishers);
     },
@@ -111,14 +119,14 @@ const program = Effect.gen(function* () {
       Schedule.cron(config.polling.cron, config.polling.timezone),
     ),
     Effect.all(
-      [state.close(), Effect.sync(() => metrics.close())],
+      [state.close(), Effect.sync(() => { metrics.close(); })],
       { discard: true },
     ),
   );
 });
 
 const waitForShutdownSignal = Effect.callback<void>((resume) => {
-  const onSignal = () => resume(Effect.void);
+  const onSignal = () => { resume(Effect.void); };
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
   return Effect.sync(() => {

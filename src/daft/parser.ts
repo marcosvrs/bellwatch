@@ -1,3 +1,4 @@
+import { asJsonRecord as asRecord, type JsonRecord } from "./json.js";
 import {
   DEFAULT_DAFT_SECTION_PATH,
   daftSectionForPath,
@@ -39,13 +40,8 @@ interface DaftPageResult {
   readonly totalPages: number;
 }
 
-type JsonRecord = Record<string, unknown>;
 type ListingParser = (value: unknown, baseUrl: string) => DaftFinding[];
 
-const asRecord = (value: unknown): JsonRecord | undefined =>
-  typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonRecord)
-    : undefined;
 
 const stringValue = (
   record: JsonRecord | undefined,
@@ -55,12 +51,14 @@ const stringValue = (
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 };
 
+const isFiniteNumber = (value: unknown): value is number =>
+  Number.isFinite(value);
 const numberValue = (
   record: JsonRecord | undefined,
   key: string,
 ): number | undefined => {
   const value = record?.[key];
-  if (Number.isFinite(value)) return value as number;
+  if (isFiniteNumber(value)) {return value;}
   if (
     typeof value === "string" &&
     value.trim() &&
@@ -73,12 +71,12 @@ const numberValue = (
 
 const identifier = (record: JsonRecord | undefined): string | undefined => {
   const numeric = numberValue(record, "id");
-  if (numeric !== undefined) return String(numeric);
+  if (numeric !== undefined) {return String(numeric);}
   return stringValue(record, "id");
 };
 
 const parseCount = (value: string | undefined): number | undefined => {
-  if (!value) return undefined;
+  if (!value) {return undefined;}
   const matches = value.match(/\d+/g);
   return matches?.length === 1 ? Number(matches[0]) : undefined;
 };
@@ -146,14 +144,28 @@ interface FindingOverrides {
   readonly developmentTitle?: string;
 }
 
-const parseFinding = (
+/* eslint-disable no-redeclare -- TypeScript overload signatures intentionally share one implementation name. */
+function parseFinding(
+  listing: JsonRecord | undefined,
+  baseUrl: string,
+  fallbackPath: string,
+  overrides: FindingOverrides & { readonly id: string },
+): DaftFinding;
+function parseFinding(
+  listing: JsonRecord | undefined,
+  baseUrl: string,
+  fallbackPath: string,
+  overrides?: FindingOverrides,
+): DaftFinding | undefined;
+function parseFinding(
   listing: JsonRecord | undefined,
   baseUrl: string,
   fallbackPath: string,
   overrides: FindingOverrides = {},
-): DaftFinding | undefined => {
+): DaftFinding | undefined {
+/* eslint-enable no-redeclare */
   const id = overrides.id ?? identifier(listing);
-  if (id === undefined) return undefined;
+  if (id === undefined) {return undefined;}
   const record = listing ?? {};
   const title =
     overrides.title ??
@@ -187,7 +199,7 @@ const parseFinding = (
       fallbackPath,
     ),
   };
-};
+}
 
 const listingRecord = (value: unknown): JsonRecord | undefined =>
   asRecord(asRecord(value)?.["listing"]);
@@ -195,7 +207,7 @@ const listingRecord = (value: unknown): JsonRecord | undefined =>
 const parseNewHomeListing: ListingParser = (value, baseUrl) => {
   const listing = listingRecord(value);
   const parentId = identifier(listing);
-  if (parentId === undefined) return [];
+  if (parentId === undefined) {return [];}
   const record = listing ?? {};
   const newHome = asRecord(record["newHome"]);
   const developmentTitle =
@@ -211,7 +223,7 @@ const parseNewHomeListing: ListingParser = (value, baseUrl) => {
         baseUrl,
         "/new-home-for-sale",
         { id: parentId, title: developmentTitle, developmentTitle },
-      )!,
+      ),
     ];
   }
 
@@ -292,7 +304,7 @@ export const parseDaftPage = (
   if (Array.isArray(pageProps["listings"])) {
     for (const listing of pageProps["listings"]) {
       for (const finding of parser(listing, baseUrl)) {
-        if (seen.has(finding.id)) continue;
+        if (seen.has(finding.id)) {continue;}
         seen.add(finding.id);
         findings.push(finding);
       }

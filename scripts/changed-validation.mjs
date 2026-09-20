@@ -13,6 +13,7 @@ const coverageConfig = JSON.parse(
 const coverageExcluded = new Set(coverageConfig.exclude ?? []);
 const mutationPatterns = strykerConfig.mutate ?? [];
 const validationConfigFiles = new Set([
+  "eslint.config.mjs",
   ".c8rc.json",
   "alchemy.run.ts",
   "package-lock.json",
@@ -226,6 +227,7 @@ const main = async () => {
     console.log("No changed mutation lines; skipping mutation testing.");
   }
 
+  run("npm", ["run", "lint"]);
   run("npm", ["run", "typecheck"]);
   run("npm", ["run", "build"]);
 

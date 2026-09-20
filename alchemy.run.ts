@@ -37,7 +37,7 @@ const plainRuntimeEnvironment = (): Record<string, string> => {
   const environment: Record<string, string> = {};
   for (const key of RUNTIME_ENVIRONMENT_KEYS) {
     const value = process.env[key];
-    if (value !== undefined) environment[key] = value;
+    if (value !== undefined) {environment[key] = value;}
   }
   return environment;
 };
@@ -46,6 +46,7 @@ const plainRuntimeEnvironment = (): Record<string, string> => {
 export default Alchemy.Stack(
   "Bellwatch",
   {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Alchemy beta.77 exposes an any-typed Docker provider layer.
     providers: Layer.merge(Docker.providers(), Alchemy.RandomProvider()),
     state: Alchemy.localState(),
   },
@@ -84,10 +85,10 @@ export default Alchemy.Stack(
     const hermesChatId = yield* Config.option(
       Config.redacted("HERMES_CHAT_ID"),
     );
-    const environment: Record<string, string | Redacted.Redacted<string>> = {
+    const environment: Record<string, string | Redacted.Redacted> = {
       ...plainRuntimeEnvironment(),
     };
-    if (Option.isSome(shoutrrrUrl)) environment["SHOUTRRR_URL"] = shoutrrrUrl.value;
+    if (Option.isSome(shoutrrrUrl)) {environment["SHOUTRRR_URL"] = shoutrrrUrl.value;}
     if (Option.isSome(hermesWebhookUrl)) {
       environment["HERMES_WEBHOOK_URL"] = hermesWebhookUrl.value;
     }
@@ -101,11 +102,12 @@ export default Alchemy.Stack(
     const browserEndpoint = yield* Config.option(
       Config.redacted("PLAYWRIGHT_WS_ENDPOINT"),
     );
-    if (Option.isSome(databaseUrl)) environment["DATABASE_URL"] = databaseUrl.value;
+    if (Option.isSome(databaseUrl)) {environment["DATABASE_URL"] = databaseUrl.value;}
     if (Option.isSome(browserEndpoint)) {
       environment["PLAYWRIGHT_WS_ENDPOINT"] = browserEndpoint.value;
     }
-    const network = process.env["MONITOR_DOCKER_NETWORK"]?.trim() || undefined;
+    const rawNetwork = process.env["MONITOR_DOCKER_NETWORK"]?.trim();
+    const network = rawNetwork === "" ? undefined : rawNetwork;
     const container = yield* Docker.Container("monitor", {
       name: process.env["MONITOR_CONTAINER_NAME"] ?? "bellwatch",
       image,

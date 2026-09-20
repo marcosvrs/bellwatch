@@ -19,7 +19,7 @@ export type ShoutrrrRunner = (
   timeoutMs: number,
 ) => Promise<void>;
 
-const runShoutrrr: ShoutrrrRunner = (
+const runShoutrrr: ShoutrrrRunner = async (
   binary,
   args,
   message,
@@ -31,28 +31,27 @@ const runShoutrrr: ShoutrrrRunner = (
   });
 
   let stderr = "";
-  let timer: NodeJS.Timeout;
   const finish = (error?: ShoutrrrError) => {
     clearTimeout(timer);
-    if (error) reject(error);
-    else resolve();
+    if (error) {reject(error);}
+    else {resolve();}
   };
 
-  timer = setTimeout(() => {
+  const timer = setTimeout(() => {
     child.kill("SIGTERM");
     finish(
       new ShoutrrrError(`Shoutrrr timed out after ${timeoutMs} milliseconds`),
     );
   }, timeoutMs);
 
-  child.stderr!.on("data", (chunk: string | Buffer) => {
-    stderr = (stderr + chunk).slice(0, 500);
+  child.stderr.on("data", (chunk: string | Buffer) => {
+    const text = chunk.toString();
+    stderr = (stderr + text).slice(0, 500);
   });
 
-  child.on("error", (cause) =>
-    finish(
+  child.on("error", (cause) => { finish(
       new ShoutrrrError("Could not start Shoutrrr notification", { cause }),
-    ),
+    ); },
   );
   child.on("close", (code, signal) => {
     if (code === 0) {
@@ -68,7 +67,7 @@ const runShoutrrr: ShoutrrrRunner = (
       ),
     );
   });
-  child.stdin!.end(message);
+  child.stdin.end(message);
   return promise;
 };
 
@@ -79,7 +78,7 @@ const soldComparisonLines = (
   finding: DaftFinding,
 ): readonly string[] => {
   const comparison = finding.soldComparison;
-  if (comparison === undefined) return [];
+  if (comparison === undefined) {return [];}
   const range =
     comparison.minPriceEur === undefined ||
     comparison.maxPriceEur === undefined
@@ -100,7 +99,7 @@ const soldComparisonLines = (
             ? "Market check: asking price unavailable for comparison"
             : undefined;
   const lines = [range];
-  if (verdict !== undefined) lines.push(verdict);
+  if (verdict !== undefined) {lines.push(verdict);}
   return lines;
 };
 
@@ -128,7 +127,7 @@ export const publishMessage = (
   run: ShoutrrrRunner = runShoutrrr,
 ): Effect.Effect<void, ShoutrrrError> =>
   Effect.tryPromise({
-    try: () =>
+    try: async () =>
       run(
         config.binary,
         [
