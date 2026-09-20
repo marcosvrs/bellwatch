@@ -38,26 +38,27 @@
     "postgres": "3.4.9"
   },
   "devDependencies": {
-    "@effect/platform-node": "4.0.0-rc.112",
+    "@effect/platform-node": "4.0.0-rc.116",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
-    "@types/node": "24.10.7",
-    "alchemy": "2.0.0-beta.77",
+    "@types/node": "26.6.2",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "alchemy": "2.0.0-beta.79",
     "c8": "^12.0.0",
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.116",
     "esbuild": "0.28.2",
     "eslint": "^10.11.0",
     "redis": "^6.2.1",
-    "simple-git-hooks": "^2.11.1",
-    "typescript": "5.9.3",
+    "simple-git-hooks": "^2.14.0",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "^8.70.0",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.1"
   },
   "overrides": {
-    "@effect/platform-node-shared": "4.0.0-rc.112",
-    "@effect/sql-d1": "4.0.0-rc.112",
-    "@effect/sql-sqlite-do": "4.0.0-rc.112",
-    "@effect/vitest": "4.0.0-rc.112",
+    "@effect/platform-node-shared": "4.0.0-rc.116",
+    "@effect/sql-d1": "4.0.0-rc.116",
+    "@effect/sql-sqlite-do": "4.0.0-rc.116",
+    "@effect/vitest": "4.0.0-rc.116",
     "alchemy": {
       "@prisma/dev": "0.25.2"
     },

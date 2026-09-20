@@ -46,7 +46,7 @@ const plainRuntimeEnvironment = (): Record<string, string> => {
 export default Alchemy.Stack(
   "Bellwatch",
   {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Alchemy beta.77 exposes an any-typed Docker provider layer.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- Alchemy beta.79 exposes an any-typed Docker provider layer.
     providers: Layer.merge(Docker.providers(), Alchemy.RandomProvider()),
     state: Alchemy.localState(),
   },
@@ -75,15 +75,15 @@ export default Alchemy.Stack(
       ...(target === undefined ? {} : { context: target }),
     });
 
-    const shoutrrrUrl = yield* Config.option(Config.redacted("SHOUTRRR_URL"));
+    const shoutrrrUrl = yield* Config.option(Config.Redacted("SHOUTRRR_URL"));
     const hermesWebhookUrl = yield* Config.option(
-      Config.redacted("HERMES_WEBHOOK_URL"),
+      Config.Redacted("HERMES_WEBHOOK_URL"),
     );
     const hermesWebhookSecret = yield* Config.option(
-      Config.redacted("HERMES_WEBHOOK_SECRET"),
+      Config.Redacted("HERMES_WEBHOOK_SECRET"),
     );
     const hermesChatId = yield* Config.option(
-      Config.redacted("HERMES_CHAT_ID"),
+      Config.Redacted("HERMES_CHAT_ID"),
     );
     const environment: Record<string, string | Redacted.Redacted> = {
       ...plainRuntimeEnvironment(),
@@ -98,9 +98,9 @@ export default Alchemy.Stack(
     if (Option.isSome(hermesChatId)) {
       environment["HERMES_CHAT_ID"] = hermesChatId.value;
     }
-    const databaseUrl = yield* Config.option(Config.redacted("DATABASE_URL"));
+    const databaseUrl = yield* Config.option(Config.Redacted("DATABASE_URL"));
     const browserEndpoint = yield* Config.option(
-      Config.redacted("PLAYWRIGHT_WS_ENDPOINT"),
+      Config.Redacted("PLAYWRIGHT_WS_ENDPOINT"),
     );
     if (Option.isSome(databaseUrl)) {environment["DATABASE_URL"] = databaseUrl.value;}
     if (Option.isSome(browserEndpoint)) {
