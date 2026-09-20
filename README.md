@@ -110,9 +110,11 @@ first run unless `NOTIFY_EXISTING_ON_FIRST_RUN=true`.
 
 ```bash
 docker ps --filter name=bellwatch
-docker logs --follow bellwatch
+docker logs --tail=100 bellwatch
 docker exec bellwatch node dist/healthcheck.js
 ```
+
+Use `docker logs --follow bellwatch` separately when you want to stream logs.
 
 The image health check reads `/data/heartbeat`. Keep `/data` writable and
 persistent in SQLite mode. Pin a verified image digest for production rather
