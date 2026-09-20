@@ -63,3 +63,5 @@ jobs:
 
       - name: Run changed-file validation
         run: npm run check:changed -- "${{ github.event.before }}" "${{ github.sha }}"
+      - name: Run global coverage thresholds
+        run: npm run coverage
