@@ -38,7 +38,7 @@
     "postgres": "3.4.9"
   },
   "devDependencies": {
-    "@effect/platform-node": "4.0.0-rc.112",
+    "@effect/platform-node": "4.0.0-rc.115",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
     "@types/node": "24.10.7",
