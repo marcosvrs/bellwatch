@@ -104,8 +104,9 @@ On Linux with Docker, set `CONTAINER_CLI=docker` instead. The image publication
 workflow runs the fixture E2E and live Daft E2E against a loaded `linux/amd64`
 image before it publishes the multi-architecture tags. CI reuses npm downloads,
 TypeScript incremental state, and BuildKit layers through GitHub Actions caches;
-the pull-request Docker cache is scoped per PR, while the publish cache is shared
-between its E2E and multi-architecture build jobs.
+the TypeScript cache is revision-keyed with a stable fallback, the pull-request
+Docker cache is scoped per PR, and publish uses separate E2E and multi-platform
+scopes so the amd64 test build cannot replace the arm64 cache.
 
 ## Alchemy deployment
 
