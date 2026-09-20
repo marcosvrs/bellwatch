@@ -39,6 +39,8 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22.23.2
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install Socket Firewall
         uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
@@ -51,9 +53,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .cache
-          key: validation-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          key: typescript-${{ runner.os }}-${{ hashFiles('package-lock.json', 'tsconfig*.json') }}
           restore-keys: |
-            validation-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+            typescript-${{ runner.os }}-
       - name: Install dependencies
         run: sfw npm ci --ignore-scripts --no-audit --no-fund
       - name: Use npm bulk audit endpoint
@@ -74,6 +76,8 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          cache-from: type=gha,scope=bellwatch-pr-${{ github.event.pull_request.number }}
+          cache-to: type=gha,mode=max,scope=bellwatch-pr-${{ github.event.pull_request.number }}
           load: true
           tags: bellwatch:live-e2e-${{ github.run_id }}
           provenance: false
