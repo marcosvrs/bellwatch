@@ -51,12 +51,14 @@ const stringValue = (
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 };
 
+const isFiniteNumber = (value: unknown): value is number =>
+  Number.isFinite(value);
 const numberValue = (
   record: JsonRecord | undefined,
   key: string,
 ): number | undefined => {
   const value = record?.[key];
-  if (typeof value === "number" && Number.isFinite(value)) {return value;}
+  if (isFiniteNumber(value)) {return value;}
   if (
     typeof value === "string" &&
     value.trim() &&
@@ -142,12 +144,26 @@ interface FindingOverrides {
   readonly developmentTitle?: string;
 }
 
-const parseFinding = (
+/* eslint-disable no-redeclare -- TypeScript overload signatures intentionally share one implementation name. */
+function parseFinding(
+  listing: JsonRecord | undefined,
+  baseUrl: string,
+  fallbackPath: string,
+  overrides: FindingOverrides & { readonly id: string },
+): DaftFinding;
+function parseFinding(
+  listing: JsonRecord | undefined,
+  baseUrl: string,
+  fallbackPath: string,
+  overrides?: FindingOverrides,
+): DaftFinding | undefined;
+function parseFinding(
   listing: JsonRecord | undefined,
   baseUrl: string,
   fallbackPath: string,
   overrides: FindingOverrides = {},
-): DaftFinding | undefined => {
+): DaftFinding | undefined {
+/* eslint-enable no-redeclare */
   const id = overrides.id ?? identifier(listing);
   if (id === undefined) {return undefined;}
   const record = listing ?? {};
@@ -183,7 +199,7 @@ const parseFinding = (
       fallbackPath,
     ),
   };
-};
+}
 
 const listingRecord = (value: unknown): JsonRecord | undefined =>
   asRecord(asRecord(value)?.["listing"]);
@@ -201,13 +217,14 @@ const parseNewHomeListing: ListingParser = (value, baseUrl) => {
   const units = Array.isArray(newHome?.["subUnits"]) ? newHome["subUnits"] : [];
 
   if (units.length === 0) {
-    const finding = parseFinding(
-      record,
-      baseUrl,
-      "/new-home-for-sale",
-      { id: parentId, title: developmentTitle, developmentTitle },
-    );
-    return finding === undefined ? [] : [finding];
+    return [
+      parseFinding(
+        record,
+        baseUrl,
+        "/new-home-for-sale",
+        { id: parentId, title: developmentTitle, developmentTitle },
+      ),
+    ];
   }
 
   return units.flatMap((value) => {

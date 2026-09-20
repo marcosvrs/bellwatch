@@ -92,10 +92,12 @@ export const parseDaftMoney = (value: string | undefined): number | undefined =>
   return Number.isFinite(amount) ? amount : undefined;
 };
 
-const parseMoneyValue = (value: unknown): number | undefined =>
-  typeof value === "number" && Number.isFinite(value)
-    ? value
-    : parseDaftMoney(typeof value === "string" ? value : undefined);
+const parseMoneyValue = (value: unknown): number | undefined => {
+  if (typeof value !== "number") {
+    return parseDaftMoney(typeof value === "string" ? value : undefined);
+  }
+  return Number.isFinite(value) ? value : undefined;
+};
 
 const parsePropertySize = (value: string | undefined): number | undefined => {
   if (!value) {return undefined;}
@@ -115,15 +117,9 @@ const berValue = (rating: string | undefined): number | undefined => {
       ? "exempt"
       : normalized === "A0"
         ? "A0"
-        : DAFT_BER_RATINGS.find(
-            (value) =>
-              value !== "exempt" &&
-              value !== "A0" &&
-              value === normalized[0],
-          );
+        : DAFT_BER_RATINGS.find((value) => value === normalized[0]);
   if (candidate === undefined) {return undefined;}
   const index = DAFT_BER_RATINGS.indexOf(candidate);
-  if (index < 0) {return undefined;}
   // Sold-search simplifiedBer values are one-based for graded BERs.
   return candidate === "exempt" ? 0 : index + 1;
 };
@@ -214,16 +210,12 @@ export const buildDaftSoldSearchUrl = (
     params.append("geoSearchType", "POINT_AND_EIRCODE");
     params.append("eircode", request.finding.eircode);
     params.append("rad", "1000");
-  } else {
-    const address = request.finding.address;
-    if (address === undefined) {
-      throw new Error("Sold search requires an address or Eircode");
-    }
+  } else if (request.finding.address !== undefined) {
     params.append("name", "eircode");
     params.append("filterType", "Eircode");
     params.append("searchQueryGroup", "geoFilter");
     params.append("geoSearchType", "POINT_AND_EIRCODE");
-    params.append("address", address);
+    params.append("address", request.finding.address);
     params.append("rad", "1000");
   }
 

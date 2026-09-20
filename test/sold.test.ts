@@ -213,6 +213,15 @@ test("covers sold parsing, property types, and comparison boundaries", () => {
     "end-of-terrace-houses",
   );
   assert.equal(parseDaftMoney("Not disclosed"), undefined);
+  const unknownBerUrl = new URL(
+    defined(buildDaftSoldSearchUrl({
+      baseUrl: "https://www.daft.ie",
+      locations: ["dublin"],
+      finding: { ...finding, berRating: "N/A" },
+      year: 2026,
+    })),
+  );
+  assert.equal(unknownBerUrl.searchParams.get("simplifiedBer_from"), null);
 
   const propertyTypes = new Map([
     ["Studio apartment", "studio-apartments"],

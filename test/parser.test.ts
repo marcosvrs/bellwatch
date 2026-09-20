@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { asJsonRecord } from "../src/daft/json.js";
 import { parseDaftListingDetails, parseDaftPage } from "../src/daft/parser.js";
 import { defined } from "./helpers.js";
 
@@ -68,6 +69,7 @@ test("parses detail-page scheme evidence", () => {
     {},
   );
   assert.deepEqual(parseDaftListingDetails(null), {});
+  assert.equal(asJsonRecord(null), undefined);
 });
 
 test("parses matching fields from detail pages", () => {

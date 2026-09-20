@@ -127,22 +127,22 @@ const needsComparableDetails = (
 };
 
 type DaftSoldSearchRequest = Parameters<typeof buildDaftSoldSearchUrl>[0];
+type SoldSearchRequest = {
+  readonly request: DaftSoldSearchRequest;
+  readonly url: string;
+};
 
 const fetchSoldComparables = (
-  request: DaftSoldSearchRequest,
+  searchRequest: SoldSearchRequest,
   dependencies: MonitorDependencies,
 ): Effect.Effect<readonly DaftSoldComparable[], Error> =>
   Effect.gen(function* () {
     const comparables: DaftSoldComparable[] = [];
     for (let page = 1; ; page += 1) {
-      const url = buildDaftSoldSearchUrl(request, page);
-      if (url === undefined) {
-        return yield* Effect.fail(
-          new MonitorError(
-            `Could not build sold comparables URL for ${request.finding.propertyType}`,
-          ),
-        );
-      }
+      const pageUrl = new URL(searchRequest.url);
+      if (page > 1) {pageUrl.searchParams.set("page", String(page));}
+      const url = pageUrl.toString();
+      const request = searchRequest.request;
       const payload = yield* Effect.mapError(
         dependencies.fetchPage(url),
         (cause) =>
@@ -165,15 +165,17 @@ const fetchSoldComparables = (
   });
 
 const fetchSoldComparison = (
-  requests: readonly DaftSoldSearchRequest[],
+  requests: readonly SoldSearchRequest[],
+  year: number,
+  priceText: string | undefined,
   dependencies: MonitorDependencies,
 ): Effect.Effect<DaftSoldComparison, Error> =>
   Effect.gen(function* () {
     const prices: number[] = [];
     const seenListingIds = new Set<string>();
-    for (const request of requests) {
+    for (const searchRequest of requests) {
       for (const comparable of yield* fetchSoldComparables(
-        request,
+        searchRequest,
         dependencies,
       )) {
         if (comparable.id === undefined) {
@@ -185,18 +187,9 @@ const fetchSoldComparison = (
         prices.push(comparable.price);
       }
     }
-    const request = requests.at(0);
-    if (request === undefined) {
-      return yield* Effect.fail(
-        new MonitorError("Sold comparison requires at least one request"),
-      );
-    }
-    return summarizeDaftSoldPrices(
-      prices,
-      request.year,
-      request.finding.priceText,
-    );
+    return summarizeDaftSoldPrices(prices, year, priceText);
   });
+
 
 const enrichWithSoldComparables = (
   findings: readonly DaftFinding[],
@@ -225,18 +218,25 @@ const enrichWithSoldComparables = (
               ...request,
               locations: [location],
             }));
-      const comparableUrls = requests
-        .map((locationRequest) => buildDaftSoldSearchUrl(locationRequest))
-        .filter((url): url is string => url !== undefined);
-      if (comparableUrls.length === 0) {
+      const comparableRequests = requests.flatMap((locationRequest) => {
+        const url = buildDaftSoldSearchUrl(locationRequest);
+        return url === undefined ? [] : [{ request: locationRequest, url }];
+      });
+      if (comparableRequests.length === 0) {
         enriched.push(finding);
         continue;
       }
+      const comparableUrls = comparableRequests.map(({ url }) => url);
       const cacheKey = `${JSON.stringify(comparableUrls)}\u0000${finding.priceText}`;
       let comparison = cached.get(cacheKey);
       if (!cached.has(cacheKey)) {
         comparison = yield* Effect.catch(
-          fetchSoldComparison(requests, dependencies),
+          fetchSoldComparison(
+            comparableRequests,
+            year,
+            finding.priceText,
+            dependencies,
+          ),
           (error) =>
             Effect.gen(function* () {
               yield* Effect.logWarning(

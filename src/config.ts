@@ -376,7 +376,10 @@ const validateRange = (
   min: number | undefined,
   max: number | undefined,
 ): void => {
-  if (min !== undefined && max !== undefined && min > max) {
+  if (
+    (min ?? Number.NEGATIVE_INFINITY) >
+    (max ?? Number.POSITIVE_INFINITY)
+  ) {
     throw new ConfigurationError(`${name} minimum cannot exceed maximum`);
   }
 };
@@ -458,21 +461,23 @@ export const parseEnvironment = (
     hermesWebhookUrl,
     hermesWebhookSecret,
     hermesChatId,
-  ];
+  ] as const;
   const hermesConfigured = hermesValues.some(
     (value) => value !== undefined,
   );
-  if (
-    hermesConfigured &&
-    hermesValues.some((value) => value === undefined)
-  ) {
+  const hermesComplete = (
+    values: typeof hermesValues,
+  ): values is readonly [string, string, string] =>
+    values.every((value) => value !== undefined);
+  const hasHermesCredentials = hermesComplete(hermesValues);
+  if (hermesConfigured && !hasHermesCredentials) {
     throw new ConfigurationError(
       "HERMES_WEBHOOK_URL, HERMES_WEBHOOK_SECRET, and HERMES_CHAT_ID must be set together",
     );
   }
   const notificationBackends: NotificationBackend[] = [];
   if (shoutrrrUrl !== undefined) {notificationBackends.push("shoutrrr");}
-  if (hermesConfigured) {notificationBackends.push("hermes");}
+  if (hasHermesCredentials) {notificationBackends.push("hermes");}
   if (notificationBackends.length === 0) {
     throw new ConfigurationError(
       "At least one notification backend must be configured: SHOUTRRR_URL or all Hermes variables",
@@ -659,17 +664,14 @@ export const parseEnvironment = (
   const maxPages = optionalInteger(env, "DAFT_MAX_PAGES", 1, 20);
   const userAgent = trimmed(env, "BROWSER_USER_AGENT");
   const stateDatabaseUrl = databaseUrl(env);
-  const hermes =
-    hermesWebhookUrl !== undefined &&
-    hermesWebhookSecret !== undefined &&
-    hermesChatId !== undefined
-      ? {
-          url: httpUrl(env, "HERMES_WEBHOOK_URL"),
-          secret: hermesWebhookSecret,
-          chatId: hermesChatId,
-          timeoutMs: HERMES_TIMEOUT_DEFAULT_MS,
-        }
-      : undefined;
+  const hermes = hasHermesCredentials
+    ? {
+        url: httpUrl(env, "HERMES_WEBHOOK_URL"),
+        secret: hermesValues[1],
+        chatId: hermesValues[2],
+        timeoutMs: HERMES_TIMEOUT_DEFAULT_MS,
+      }
+    : undefined;
   return {
     notificationBackends,
     daft: {
