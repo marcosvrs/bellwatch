@@ -641,7 +641,12 @@ test("parses optional resource settings and rejects malformed environment values
         HERMES_WEBHOOK_SECRET: "test-secret",
         HERMES_CHAT_ID: "test-chat",
       }),
-    /HERMES_WEBHOOK_URL must be a valid URL/,
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.ok(error.cause instanceof Error);
+      assert.match(error.message, /HERMES_WEBHOOK_URL must be a valid URL/);
+      return true;
+    },
   );
   assert.throws(
     () =>
@@ -666,6 +671,7 @@ test("covers trimming, defaults, and boundary validation", () => {
   const defaults = parseEnvironment({
     SHOUTRRR_URL: "  ntfy://ntfy.sh/daft/  ",
   });
+  assert.equal(Object.hasOwn(defaults, "hermes"), false);
   assert.equal(defaults.shoutrrr.titlePrefix, "Bellwatch new home");
   assert.equal(defaults.shoutrrr.binary, "shoutrrr");
   assert.equal(defaults.state.file, "/data/state.sqlite");

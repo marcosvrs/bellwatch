@@ -45,7 +45,7 @@ const numberValue = (
   key: string,
 ): number | undefined => {
   const value = record?.[key];
-  if (typeof value === "number" && Number.isFinite(value)) {return value;}
+  if (Number.isFinite(value)) {return Number(value);}
   if (
     typeof value === "string" &&
     value.trim() &&
@@ -210,12 +210,13 @@ export const buildDaftSoldSearchUrl = (
     params.append("geoSearchType", "POINT_AND_EIRCODE");
     params.append("eircode", request.finding.eircode);
     params.append("rad", "1000");
-  } else if (request.finding.address !== undefined) {
+  } else {
+    const address = String(request.finding.address);
     params.append("name", "eircode");
     params.append("filterType", "Eircode");
     params.append("searchQueryGroup", "geoFilter");
     params.append("geoSearchType", "POINT_AND_EIRCODE");
-    params.append("address", request.finding.address);
+    params.append("address", address);
     params.append("rad", "1000");
   }
 

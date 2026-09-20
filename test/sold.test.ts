@@ -271,6 +271,7 @@ test("covers sold parsing, property types, and comparison boundaries", () => {
     parseDaftSoldPage({
       listings: [
         { listing: { soldPrice: 123_000 } },
+        { listing: { soldPrice: true } },
         { listing: { price: "€1k" } },
         { listing: { soldPrice: " " } },
         null,

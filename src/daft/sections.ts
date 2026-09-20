@@ -118,6 +118,8 @@ export const DEFAULT_DAFT_SECTION = definitions[DEFAULT_DAFT_SECTION_PATH];
 export const daftSectionForPath = (
   path: string,
 ): DaftSectionDefinition | undefined => {
-  const sectionPath = DAFT_SECTION_PATHS.find((candidate) => candidate === path);
-  return sectionPath === undefined ? undefined : definitions[sectionPath];
+  for (const sectionPath of DAFT_SECTION_PATHS) {
+    if (sectionPath === path) {return definitions[sectionPath];}
+  }
+  return undefined;
 };

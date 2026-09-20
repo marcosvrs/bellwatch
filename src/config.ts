@@ -281,11 +281,7 @@ const parseMediaTypes = (env: NodeJS.ProcessEnv): DaftMediaType[] => {
   return parseAllowedList(values, DAFT_MEDIA_TYPES, "DAFT_MEDIA_TYPES");
 };
 
-const httpUrl = (env: NodeJS.ProcessEnv, name: string): string => {
-  const value = trimmed(env, name);
-  if (value === undefined) {
-    throw new ConfigurationError(`${name} must be set`);
-  }
+const httpUrl = (value: string, name: string): string => {
   let url: URL;
   try {
     url = new URL(value);
@@ -666,7 +662,7 @@ export const parseEnvironment = (
   const stateDatabaseUrl = databaseUrl(env);
   const hermes = hasHermesCredentials
     ? {
-        url: httpUrl(env, "HERMES_WEBHOOK_URL"),
+        url: httpUrl(hermesValues[0], "HERMES_WEBHOOK_URL"),
         secret: hermesValues[1],
         chatId: hermesValues[2],
         timeoutMs: HERMES_TIMEOUT_DEFAULT_MS,
