@@ -17,7 +17,7 @@ Install dependencies and run the full project check:
 
 ```bash
 npm cache verify
-npm ci --legacy-peer-deps --ignore-scripts
+npm ci --ignore-scripts
 npm run prepare
 npm run security:local
 npm run check
@@ -26,6 +26,9 @@ npm run check
 The check runs TypeScript typechecking, the production build, and the test
 coverage suite. Tests are bundled with the already-used esbuild package and
 executed by Node's native test runner; no TypeScript runtime loader is needed.
+TypeScript 7 is the active compiler (`npm exec -- tsc`). The `typescript`
+dependency is the TypeScript 6 API compatibility alias required by
+`typescript-eslint`; `@typescript/native` supplies the TypeScript 7 compiler.
 The mutation check enforces a 99% score across the configured source files.
 The local hooks also run staged Gitleaks scanning before commits and
 full-history Gitleaks scanning before pushes.
