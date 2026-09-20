@@ -41,13 +41,6 @@ jobs:
             echo "eligible=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Approve eligible Dependabot update
-        if: steps.policy.outputs.eligible == 'true'
-        run: >-
-          gh pr review "$PR_NUMBER"
-          --repo "$REPOSITORY"
-          --approve
-          --body "Automated approval: required validation includes full coverage thresholds and live Daft E2E."
 
       - name: Enable squash auto-merge
         if: steps.policy.outputs.eligible == 'true'

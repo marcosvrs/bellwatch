@@ -168,8 +168,9 @@ credentials before `docker pull` or Alchemy deployment.
 - `push.yml` runs Gitleaks and changed-file validation for `master` pushes.
 - `publish.yml` builds and publishes the multi-architecture Docker image after
   a successful `master` push workflow trigger.
-- `dependabot-auto-merge.yml` approves and enables squash auto-merge after the
-  required validation succeeds. Node base-image updates remain manual.
+- `dependabot-auto-merge.yml` enables squash auto-merge after the required
+  validation succeeds. Node base-image updates remain manual; master no longer
+  requires a separate pull-request approval.
 
 Keep runtime secrets in GitHub Actions secrets or the deployment environment,
 not in the repository, Dockerfile, image labels, or README examples.
