@@ -23,7 +23,7 @@ const parseRobots = (robotsText: string): RobotsGroup[] => {
   let current: RobotsGroup | undefined;
   let sawRule: boolean | undefined;
   for (const rawLine of robotsText.split(/\r?\n/)) {
-    const line = rawLine.split("#", 1).join("").trim();
+    const line = rawLine.split("#", 1).join().trim();
     if (!line) {
       current = undefined;
       continue;
