@@ -24,12 +24,14 @@ npm run check
 ```
 
 The check runs TypeScript typechecking, the production build, and the test
-coverage suite. Tests are bundled with the already-used esbuild package and
-executed by Node's native test runner; no TypeScript runtime loader is needed.
+coverage suite. Coverage fails below 100% statements or 100% functions.
+Tests are bundled with the already-used esbuild package and executed by Node's
+native test runner; no TypeScript runtime loader is needed.
 TypeScript 7 is the active compiler (`npm exec -- tsc`). The `typescript`
 dependency is the TypeScript 6 API compatibility alias required by
 `typescript-eslint`; `@typescript/native` supplies the TypeScript 7 compiler.
-The mutation check enforces a 99% score across the configured source files.
+Changed-file validation enforces the configured 99% mutation threshold for
+changed mutation ranges.
 The local hooks also run staged Gitleaks scanning before commits and
 full-history Gitleaks scanning before pushes.
 The checked-in `.npmrc` pins npm to `registry.npmjs.org` and disables
@@ -75,14 +77,12 @@ Run the resulting image with a private env file and a persistent `/data` volume.
 The image installs the pinned Shoutrrr CLI used for notification delivery. Do
 not commit the env file. The image's healthcheck is defined in `Dockerfile`.
 
-## Production image e2e test
+## Production image e2e tests
 
-This test runs the production image, uses its bundled Chromium, performs the
-same first Daft poll as the deployed monitor, and fails on a poll error or
-timeout. It requires outbound access to `www.daft.ie`; it does not send
-notifications or reuse persistent state.
-
-Run it after building an image:
+The fixture E2E test runs the production image, uses its bundled Chromium,
+performs the same first poll as the deployed monitor, validates the local
+notification sink, and fails on a poll error or timeout. It does not contact
+Daft or send external notifications.
 
 ```bash
 container system start
@@ -90,8 +90,18 @@ container build -t bellwatch:e2e .
 CONTAINER_CLI=container E2E_IMAGE=bellwatch:e2e npm run e2e
 ```
 
+The live Daft E2E uses the same production image against
+`https://www.daft.ie`, validates the real `__NEXT_DATA__` listing shape,
+verifies the signed Hermes webhook payload, and runs the production
+healthcheck. It requires outbound access to Daft and is intentionally run
+for Dependabot pull requests in GitHub Actions.
+
+```bash
+CONTAINER_CLI=container E2E_IMAGE=bellwatch:e2e npm run e2e:live
+```
+
 On Linux with Docker, set `CONTAINER_CLI=docker` instead. The image publication
-workflow runs this e2e check against a loaded `linux/amd64` image before it
+workflow runs the fixture E2E against a loaded `linux/amd64` image before it
 publishes the multi-architecture tags.
 
 ## Alchemy deployment
@@ -154,10 +164,13 @@ credentials before `docker pull` or Alchemy deployment.
 
 ## GitHub Actions overview
 
-- `pull-request.yml` runs Gitleaks and changed-file validation for pull requests.
+- `pull-request.yml` runs Gitleaks, changed-file validation, and the full
+  coverage gate plus live Daft E2E for Dependabot pull requests.
 - `push.yml` runs Gitleaks and changed-file validation for `master` pushes.
 - `publish.yml` builds and publishes the multi-architecture Docker image after
   a successful `master` push workflow trigger.
+- `dependabot-auto-merge.yml` approves and enables squash auto-merge after the
+  required validation succeeds. Node base-image updates remain manual.
 
 Keep runtime secrets in GitHub Actions secrets or the deployment environment,
 not in the repository, Dockerfile, image labels, or README examples.

@@ -56,11 +56,17 @@ jobs:
           tags: ${{ env.E2E_IMAGE }}
           provenance: false
 
-      - name: Run production image e2e
+      - name: Run production image fixture e2e
         run: node scripts/e2e.mjs
         env:
           CONTAINER_CLI: docker
           E2E_IMAGE: ${{ env.E2E_IMAGE }}
+      - name: Run production image live Daft e2e
+        run: node scripts/e2e-live.mjs
+        env:
+          CONTAINER_CLI: docker
+          E2E_IMAGE: ${{ env.E2E_IMAGE }}
+          E2E_TIMEOUT_MS: "240000"
 
   publish:
     needs: e2e
