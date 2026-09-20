@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import type * as Redacted from "effect/Redacted";
 
 const RUNTIME_ENVIRONMENT_KEYS = [
+  "DAFT_BASE_URL",
   "DAFT_LOCATION",
   "DAFT_SECTION_PATH",
   "DAFT_RADIUS_KM",
