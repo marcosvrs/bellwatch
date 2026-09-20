@@ -8,7 +8,7 @@ Container Registry and does not require a repository checkout.
 
 Requirements:
 
-- Node.js 22.23.2; use the checked-in `.node-version` with a version manager;
+- Node.js 24.21.0; use the checked-in `.node-version` with a version manager;
 - npm bundled with that Node.js release;
 - Gitleaks (`brew install gitleaks` on macOS);
 - an internet connection for dependency installation and browser/image pulls.
