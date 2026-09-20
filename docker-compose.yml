@@ -30,6 +30,7 @@ services:
       BROWSER_USER_AGENT: "${BROWSER_USER_AGENT:-}"
 
       # Optional search overrides. Empty values keep the search unconstrained.
+      DAFT_BASE_URL: "${DAFT_BASE_URL:-}"
       DAFT_LOCATION: "${DAFT_LOCATION:-}"
       DAFT_SECTION_PATH: "${DAFT_SECTION_PATH:-}"
       DAFT_RADIUS_KM: "${DAFT_RADIUS_KM:-}"
