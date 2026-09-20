@@ -79,23 +79,26 @@ WORKDIR /app
 LABEL org.opencontainers.image.title="Bellwatch" \
       org.opencontainers.image.licenses="MIT-0" \
       org.opencontainers.image.source="https://github.com/marcosvrs/bellwatch"
-COPY --chown=node:node LICENSE ./LICENSE
-COPY --chown=node:node THIRD_PARTY_NOTICES ./THIRD_PARTY_NOTICES
-COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/dist/main.js ./dist/main.js
-COPY --from=build --chown=node:node /app/dist/healthcheck.js ./dist/healthcheck.js
-COPY --from=build /usr/local/bin/shoutrrr /usr/local/bin/shoutrrr
 
 ENV NODE_ENV=production \
     NODE_OPTIONS=--max-old-space-size=256 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
+# Keep the browser layer ahead of source-dependent copies so source changes do
+# not reinstall Chromium and its Debian dependencies.
+COPY --from=production-dependencies --chown=node:node /app/node_modules ./node_modules
 RUN mkdir -p /ms-playwright \
   && node_modules/.bin/playwright-core install --with-deps chromium \
   && chown -R node:node /ms-playwright \
   && mkdir -p /data \
   && chown node:node /data \
   && rm -rf /root/.cache /var/lib/apt/lists/*
+
+COPY --chown=node:node LICENSE ./LICENSE
+COPY --chown=node:node THIRD_PARTY_NOTICES ./THIRD_PARTY_NOTICES
+COPY --from=build --chown=node:node /app/dist/main.js ./dist/main.js
+COPY --from=build --chown=node:node /app/dist/healthcheck.js ./dist/healthcheck.js
+COPY --from=build /usr/local/bin/shoutrrr /usr/local/bin/shoutrrr
 
 USER node
 VOLUME ["/data"]
