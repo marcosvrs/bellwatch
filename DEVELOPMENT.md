@@ -93,16 +93,20 @@ CONTAINER_CLI=container E2E_IMAGE=bellwatch:e2e npm run e2e
 The live Daft E2E uses the same production image against
 `https://www.daft.ie`, validates the real `__NEXT_DATA__` listing shape,
 verifies the signed Hermes webhook payload, and runs the production
-healthcheck. It requires outbound access to Daft and is intentionally run
-for Dependabot pull requests in GitHub Actions.
+healthcheck. It requires outbound access to Daft and runs for every pull
+request and successful production publish.
 
 ```bash
 CONTAINER_CLI=container E2E_IMAGE=bellwatch:e2e npm run e2e:live
 ```
 
 On Linux with Docker, set `CONTAINER_CLI=docker` instead. The image publication
-workflow runs the fixture E2E against a loaded `linux/amd64` image before it
-publishes the multi-architecture tags.
+workflow runs the fixture E2E and live Daft E2E against a loaded `linux/amd64`
+image before it publishes the multi-architecture tags. CI reuses npm downloads,
+TypeScript incremental state, and BuildKit layers through GitHub Actions caches;
+the TypeScript cache is revision-keyed with a stable fallback, the pull-request
+Docker cache is scoped per PR, and publish uses separate E2E and multi-platform
+scopes so the amd64 test build cannot replace the arm64 cache.
 
 ## Alchemy deployment
 

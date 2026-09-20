@@ -42,7 +42,6 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22.23.2
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
@@ -51,6 +50,10 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          cache-from: |
+            type=gha,scope=bellwatch-publish
+            type=gha,scope=bellwatch-publish-e2e
+          cache-to: type=gha,mode=max,scope=bellwatch-publish-e2e
           platforms: linux/amd64
           load: true
           tags: ${{ env.E2E_IMAGE }}
@@ -117,6 +120,10 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          cache-from: |
+            type=gha,scope=bellwatch-publish
+            type=gha,scope=bellwatch-publish-e2e
+          cache-to: type=gha,mode=max,scope=bellwatch-publish
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
