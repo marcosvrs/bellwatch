@@ -163,9 +163,8 @@ private, users and deployment engines need GitHub Container Registry read
 credentials before `docker pull` or Alchemy deployment.
 
 ## GitHub Actions overview
-
-- `pull-request.yml` runs Gitleaks, changed-file validation, and the full
-  coverage gate plus live Daft E2E for Dependabot pull requests.
+- `pull-request.yml` runs Gitleaks, full coverage validation, changed-file
+  mutation testing, and live Daft E2E for every pull request.
 - `push.yml` runs Gitleaks and changed-file validation for `master` pushes.
 - `publish.yml` builds and publishes the multi-architecture Docker image after
   a successful `master` push workflow trigger.
