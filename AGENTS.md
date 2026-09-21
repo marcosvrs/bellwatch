@@ -104,11 +104,11 @@ npm exec --offline -- alchemy deploy
 
 ## Runtime/Tooling Preferences
 
-- Use Node.js **22.23.2** (`.node-version`) with npm and the committed `package-lock.json`. `package.json` requires Node `>=22`.
+- Use Node.js **24.21.0** (`.node-version`) with npm and the committed `package-lock.json`. `package.json` requires Node `>=24`.
 - TypeScript 7 is supplied by `@typescript/native`; the `typescript` dependency is a TypeScript 6 compatibility alias for tooling. Do not casually replace either alias.
 - `.npmrc` pins the npm registry, disables funding prompts, audits dependencies, and ignores lifecycle scripts. Use `npm ci --ignore-scripts`; use `npm exec --offline -- ...` instead of `npx`.
 - On macOS use Apple’s native `container` CLI. Linux CI and Jarvis use Docker. Override E2E selection with `CONTAINER_CLI` when necessary.
-- The production image uses a pinned Node 22 Bookworm Slim digest, verified Shoutrrr binaries, Chromium, a non-root `node` user, `/data` persistence, and a heartbeat healthcheck. Do not remove these hardening/runtime properties.
+- The production image uses a pinned Node 24 Bookworm Slim digest, verified Shoutrrr binaries, Chromium, a non-root `node` user, `/data` persistence, and a heartbeat healthcheck. Do not remove these hardening/runtime properties.
 - Keep secrets in environment files or deployment secret stores. Never commit credentials, webhook secrets, tokens, or generated runtime state.
 - GitHub Actions are pinned to immutable commit SHAs. PR validation runs dependency review, Gitleaks, Socket Firewall, npm audits/signature checks, changed-file validation, the full quality gate, and live Daft E2E. Push validation repeats security/changed checks and global coverage; publish runs fixture/live E2E before multi-arch GHCR publication, provenance attestation, and Cosign signing.
 

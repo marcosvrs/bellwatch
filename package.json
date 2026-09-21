@@ -6,7 +6,7 @@
   "description": "Bellwatch Daft.ie monitor with Shoutrrr notifications",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
