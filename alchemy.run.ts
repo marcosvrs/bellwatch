@@ -37,6 +37,12 @@ const RUNTIME_ENVIRONMENT_KEYS = [
   "DAFT_MAX_PAGES",
   "DAFT_REQUEST_DELAY_MS",
   "SHPS_FILTER",
+  "MYHOME_ENABLED",
+  "MYHOME_BASE_URL",
+  "SEARXNG_BASE_URL",
+  "BASEROW_BASE_URL",
+  "BASEROW_TABLE_ID",
+  "BASEROW_CANDIDATE_TABLE_ID",
   "BROWSER_USER_AGENT",
   "HEALTHCHECK_MAX_AGE_SECONDS",
   "POLL_CRON",
@@ -96,6 +102,9 @@ export default Alchemy.Stack(
     const hermesChatId = yield* Config.option(
       Config.Redacted("HERMES_CHAT_ID"),
     );
+    const baserowToken = yield* Config.option(
+      Config.Redacted("BASEROW_TOKEN"),
+    );
     const environment: Record<string, string | Redacted.Redacted> = {
       ...plainRuntimeEnvironment(),
     };
@@ -108,6 +117,9 @@ export default Alchemy.Stack(
     }
     if (Option.isSome(hermesChatId)) {
       environment["HERMES_CHAT_ID"] = hermesChatId.value;
+    }
+    if (Option.isSome(baserowToken)) {
+      environment["BASEROW_TOKEN"] = baserowToken.value;
     }
     const databaseUrl = yield* Config.option(Config.Redacted("DATABASE_URL"));
     const browserEndpoint = yield* Config.option(

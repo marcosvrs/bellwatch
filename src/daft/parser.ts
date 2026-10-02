@@ -24,6 +24,7 @@ export interface DaftFinding {
   readonly soldComparison?: DaftSoldComparison;
   readonly url: string;
   readonly schemeText?: string;
+  readonly individualUnit?: boolean;
 }
 
 export interface DaftListingDetails {
@@ -142,6 +143,7 @@ interface FindingOverrides {
   readonly id?: string;
   readonly title?: string;
   readonly developmentTitle?: string;
+  readonly individualUnit?: boolean;
 }
 
 /* eslint-disable no-redeclare -- TypeScript overload signatures intentionally share one implementation name. */
@@ -192,6 +194,9 @@ function parseFinding(
     ...(berRating === undefined ? {} : { berRating }),
     ...(address === undefined ? {} : { address }),
     ...(eircode === undefined ? {} : { eircode }),
+    ...(overrides.individualUnit === undefined
+      ? {}
+      : { individualUnit: overrides.individualUnit }),
     url: absoluteUrl(
       baseUrl,
       stringValue(record, "seoFriendlyPath"),
@@ -222,7 +227,12 @@ const parseNewHomeListing: ListingParser = (value, baseUrl) => {
         record,
         baseUrl,
         "/new-home-for-sale",
-        { id: parentId, title: developmentTitle, developmentTitle },
+        {
+          id: parentId,
+          title: developmentTitle,
+          developmentTitle,
+          individualUnit: false,
+        },
       ),
     ];
   }
@@ -236,6 +246,7 @@ const parseNewHomeListing: ListingParser = (value, baseUrl) => {
       {
         title: unitTitle(developmentTitle, unit),
         developmentTitle,
+        individualUnit: true,
       },
     );
     return finding ? [finding] : [];

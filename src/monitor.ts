@@ -8,6 +8,28 @@ import {
   parseDaftPage,
   type DaftFinding,
 } from "./daft/parser.js";
+import {
+  isQualifyingHouse,
+  sourcedFindingKey,
+  type ListingSource,
+  type SourcedFinding,
+} from "./listings.js";
+import {
+  applyMyHomeFilters,
+  buildMyHomeUrl,
+  enrichMyHomeFinding,
+  parseMyHomeDetailPage,
+  parseMyHomeListPage,
+  parseMyHomeRegionRoutes,
+  resolveMyHomeSearchPath,
+  validateMyHomeFilterSupport,
+  type MyHomeFinding,
+} from "./myhome.js";
+import {
+  classifyDublinBoundary,
+  type DublinBoundaryGeometry,
+} from "./dublin-boundary.js";
+import type { SearxngSearchResult } from "./searxng.js";
 import { filterShpsFindings } from "./daft/shps.js";
 import {
   buildDaftSoldSearchUrl,
@@ -30,7 +52,16 @@ export class MonitorError extends Error {
 
 interface MonitorDependencies {
   readonly fetchPage: (url: string) => Effect.Effect<unknown, Error>;
-  readonly publish: (finding: DaftFinding) => Effect.Effect<void, Error>;
+  readonly fetchMyHomePage?: (url: string) => Effect.Effect<string, Error>;
+  readonly loadDublinBoundary?: () => Effect.Effect<DublinBoundaryGeometry, Error>;
+  readonly searchSearxng?: (baseUrl: string) => Effect.Effect<
+    SearxngSearchResult,
+    Error
+  >;
+  readonly publish: (
+    finding: DaftFinding,
+    source: ListingSource,
+  ) => Effect.Effect<void, Error>;
   readonly publishError: (error: Error) => Effect.Effect<void, Error>;
   readonly state: StateStore;
   readonly heartbeat: () => Effect.Effect<void, Error>;
@@ -258,10 +289,10 @@ const enrichWithSoldComparables = (
     return enriched;
   });
 
-const collectFindings = (
+const collectDaftFindings = (
   config: MonitorConfig,
   dependencies: MonitorDependencies,
-): Effect.Effect<{ findings: readonly DaftFinding[]; pages: number }, Error> =>
+): Effect.Effect<{ findings: readonly SourcedFinding[]; pages: number }, Error> =>
   Effect.gen(function* () {
     const byId = new Map<string, DaftFinding>();
     let pages = 0;
@@ -299,8 +330,8 @@ const collectFindings = (
             ),
         });
         pages += 1;
-        for (const finding of parsed.findings) {byId.set(finding.id, finding);}
-        if (parsed.currentPage >= parsed.totalPages) {break;}
+        for (const finding of parsed.findings) { byId.set(finding.id, finding); }
+        if (parsed.currentPage >= parsed.totalPages) { break; }
       }
     }
     const rawFindings = [...byId.values()];
@@ -314,8 +345,254 @@ const collectFindings = (
           config.shps.filter === "off",
         )
       : rawFindings;
-    const findings = filterShpsFindings(candidates, config.shps);
+    const findings = filterShpsFindings(candidates, config.shps)
+      .filter(isQualifyingHouse)
+      .map((finding): SourcedFinding => ({
+        source: "daft",
+        sourceId: finding.id,
+        finding,
+      }));
     return { findings, pages };
+  });
+
+const collectMyHomeFindings = (
+  config: MonitorConfig,
+  dependencies: MonitorDependencies,
+): Effect.Effect<{ findings: readonly SourcedFinding[]; pages: number }, Error> =>
+  Effect.gen(function* () {
+    if (!config.myhome.enabled || dependencies.fetchMyHomePage === undefined) {
+      return { findings: [], pages: 0 };
+    }
+    const support = validateMyHomeFilterSupport(
+      config.daft.sectionPath,
+      config.daft.filters,
+    );
+    if (support.unsupportedFilters.length > 0) {
+      yield* Effect.logWarning(
+        `MyHome skipped; unsupported active Daft filters: ${support.unsupportedFilters.join(", ")}`,
+      );
+      return { findings: [], pages: 0 };
+    }
+
+    let searchPath: string | undefined;
+    if (config.daft.locations.length === 0) {
+      searchPath = resolveMyHomeSearchPath(
+        config.daft.sectionPath,
+        [],
+        config.daft.filters,
+        [],
+      ).searchPath;
+    } else {
+      const nationwide = resolveMyHomeSearchPath(
+        config.daft.sectionPath,
+        [],
+        config.daft.filters,
+        [],
+      );
+      if (nationwide.searchPath === undefined) {
+        yield* Effect.logWarning(
+          "MyHome skipped; no verified nationwide route for location discovery",
+        );
+        return { findings: [], pages: 0 };
+      }
+      const regionHtml = yield* dependencies.fetchMyHomePage(
+        buildMyHomeUrl(config.myhome.baseUrl, nationwide.searchPath),
+      );
+      const regionRoutes = parseMyHomeRegionRoutes(regionHtml);
+      const locationSupport = resolveMyHomeSearchPath(
+        config.daft.sectionPath,
+        config.daft.locations,
+        config.daft.filters,
+        regionRoutes,
+      );
+      if (
+        locationSupport.searchPath === undefined ||
+        locationSupport.unsupportedLocationFilters.length > 0
+      ) {
+        yield* Effect.logWarning(
+          `MyHome skipped; unsupported active Daft location filters: ${
+            locationSupport.unsupportedLocationFilters.join(", ") || "unverified route"
+          }`,
+        );
+        return { findings: [], pages: 0 };
+      }
+      searchPath = locationSupport.searchPath;
+    }
+    if (searchPath === undefined) {
+      yield* Effect.logWarning("MyHome skipped; no verified search route");
+      return { findings: [], pages: 0 };
+    }
+
+    const byId = new Map<string, MyHomeFinding>();
+    let pages = 0;
+    for (
+      let page = 1;
+      config.daft.maxPages === undefined || page <= config.daft.maxPages;
+      page += 1
+    ) {
+      const url = buildMyHomeUrl(config.myhome.baseUrl, searchPath, page);
+      const html = yield* dependencies.fetchMyHomePage(url);
+      const parsed = yield* Effect.try({
+        try: () => parseMyHomeListPage(html, url),
+        catch: (cause) =>
+          new MonitorError(`Could not parse MyHome page ${page}`, { cause }),
+      });
+      pages += 1;
+      for (const finding of parsed.findings) { byId.set(finding.sourceId, finding); }
+      if (parsed.currentPage >= parsed.totalPages) { break; }
+    }
+
+    const enriched: MyHomeFinding[] = [];
+    for (const finding of byId.values()) {
+      const html = yield* dependencies.fetchMyHomePage(finding.finding.url);
+      const detail = yield* Effect.try({
+        try: () => parseMyHomeDetailPage(html, finding.finding.url),
+        catch: (cause) =>
+          new MonitorError(`Could not parse MyHome detail ${finding.finding.url}`, {
+            cause,
+          }),
+      });
+      enriched.push(enrichMyHomeFinding(finding, detail));
+    }
+    const filtered = applyMyHomeFilters(
+      enriched,
+      config.daft.sectionPath,
+      config.daft.filters,
+    );
+    if (filtered.unsupportedFilters.length > 0) {
+      yield* Effect.logWarning(
+        `MyHome skipped; filter evidence unsupported: ${filtered.unsupportedFilters.join(", ")}`,
+      );
+      return { findings: [], pages };
+    }
+    if (filtered.unverifiedSourceIds.length > 0) {
+      yield* Effect.logWarning(
+        `MyHome excluded ${filtered.unverifiedSourceIds.length} listing(s) with unverified active-filter evidence`,
+      );
+    }
+    const shpsIds = new Set(
+      filterShpsFindings(
+        filtered.findings.map((finding) => finding.finding),
+        config.shps,
+      ).map((finding) => finding.id),
+    );
+    const findings = filtered.findings
+      .filter((finding) => shpsIds.has(finding.finding.id))
+      .filter((finding) => isQualifyingHouse(finding.finding));
+    return { findings, pages };
+  });
+
+const withDublinClassification = (
+  listing: SourcedFinding,
+  geometry: DublinBoundaryGeometry | undefined,
+): SourcedFinding => {
+  const { latitude, longitude } = listing;
+  if (latitude === undefined || longitude === undefined) {
+    return {
+      ...listing,
+      dublinBoundary: { status: "unclassified", reason: "missing-coordinates" },
+    };
+  }
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return {
+      ...listing,
+      dublinBoundary: { status: "unclassified", reason: "invalid-coordinates" },
+    };
+  }
+  if (geometry === undefined) {
+    return {
+      ...listing,
+      dublinBoundary: { status: "unclassified", reason: "boundary-unavailable" },
+    };
+  }
+  return {
+    ...listing,
+    dublinBoundary: {
+      status: "classified",
+      ...classifyDublinBoundary({ latitude, longitude }, geometry),
+    },
+  };
+};
+
+const collectFindings = (
+  config: MonitorConfig,
+  dependencies: MonitorDependencies,
+): Effect.Effect<{ findings: readonly SourcedFinding[]; pages: number }, Error> =>
+  Effect.gen(function* () {
+    const daft = yield* collectDaftFindings(config, dependencies);
+    const myhome = yield* Effect.catch(
+      collectMyHomeFindings(config, dependencies),
+      (error) =>
+        Effect.gen(function* () {
+          yield* Effect.logWarning(
+            `MyHome source failed without affecting Daft results: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+          return { findings: [], pages: 0 };
+        }),
+    );
+    let findings = [...daft.findings, ...myhome.findings];
+    if (config.searxng !== undefined && dependencies.searchSearxng !== undefined) {
+      const result = yield* Effect.catch(
+        dependencies.searchSearxng(config.searxng.baseUrl),
+        (error) =>
+          Effect.gen(function* () {
+            yield* Effect.logWarning(
+              `SearXNG search failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+            return undefined;
+          }),
+      );
+      if (result !== undefined && !result.ok) {
+        yield* Effect.logWarning(
+          `SearXNG search ${result.error.code}: ${result.error.message}`,
+        );
+      }
+      if (result?.ok) {
+        for (const candidate of result.candidates) {
+          yield* dependencies.state.recordCandidate(candidate);
+        }
+      }
+    }
+
+    const hasValidCoordinates = findings.some(
+      ({ latitude, longitude }) =>
+        latitude !== undefined &&
+        longitude !== undefined &&
+        Number.isFinite(latitude) &&
+        Number.isFinite(longitude) &&
+        latitude >= -90 &&
+        latitude <= 90 &&
+        longitude >= -180 &&
+        longitude <= 180,
+    );
+    let geometry: DublinBoundaryGeometry | undefined;
+    if (hasValidCoordinates && dependencies.loadDublinBoundary !== undefined) {
+      geometry = yield* Effect.catch(
+        dependencies.loadDublinBoundary(),
+        (error) =>
+          Effect.gen(function* () {
+            yield* Effect.logWarning(
+              `Dublin boundary unavailable; coordinates remain unclassified: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+            return undefined;
+          }),
+      );
+    }
+    findings = findings.map((listing) => withDublinClassification(listing, geometry));
+    return { findings, pages: daft.pages + myhome.pages };
   });
 
 const runPoll = (
@@ -324,31 +601,70 @@ const runPoll = (
 ): Effect.Effect<MonitorStats, Error> =>
   Effect.gen(function* () {
     const collected = yield* collectFindings(config, dependencies);
+    for (const listing of collected.findings) {
+      yield* dependencies.state.observeFinding(listing);
+    }
     const initialized = yield* dependencies.state.isInitialized();
     const notifyExisting =
       initialized || config.polling.notifyExistingOnFirstRun;
     let notified = 0;
     let seeded = 0;
-    const pending: DaftFinding[] = [];
+    const pending: SourcedFinding[] = [];
 
     if (!notifyExisting) {
-      for (const finding of collected.findings) {
-        yield* dependencies.state.markSeen(finding);
+      for (const listing of collected.findings) {
+        const key = sourcedFindingKey(listing);
+        const current = yield* dependencies.state.getCurrentListing(key);
+        yield* dependencies.state.markSeen(
+          { ...listing.finding, id: key },
+          current?.canonicalGroupKey,
+        );
         seeded += 1;
       }
     } else {
-      for (const finding of collected.findings) {
-        if (yield* dependencies.state.isSeen(finding.id)) {continue;}
-        pending.push(finding);
+      const pendingGroups = new Set<string>();
+      for (const listing of collected.findings) {
+        const key = sourcedFindingKey(listing);
+        const current = yield* dependencies.state.getCurrentListing(key);
+        const groupKey = current?.canonicalGroupKey;
+        const alreadySeen = yield* dependencies.state.isSeen(key, groupKey);
+        if (alreadySeen) {
+          yield* dependencies.state.markSeen(
+            { ...listing.finding, id: key },
+            groupKey,
+          );
+          continue;
+        }
+        if (groupKey !== undefined && pendingGroups.has(groupKey)) {
+          continue;
+        }
+        pending.push(listing);
+        if (groupKey !== undefined) { pendingGroups.add(groupKey); }
       }
-      const publishable =
+
+      const daftFindings = pending
+        .filter((listing) => listing.source === "daft")
+        .map((listing) => listing.finding);
+      const enrichedDaft =
         config.daft.sectionPath === "property-for-sale" ||
         config.daft.sectionPath === "new-homes-for-sale"
-          ? yield* enrichWithSoldComparables(pending, config, dependencies)
-          : pending;
-      for (const finding of publishable) {
-        yield* dependencies.publish(finding);
-        yield* dependencies.state.markSeen(finding);
+          ? yield* enrichWithSoldComparables(daftFindings, config, dependencies)
+          : daftFindings;
+      const enrichedById = new Map(
+        enrichedDaft.map((finding) => [finding.id, finding]),
+      );
+      for (const listing of pending) {
+        const key = sourcedFindingKey(listing);
+        const finding =
+          listing.source === "daft"
+            ? enrichedById.get(listing.finding.id) ?? listing.finding
+            : listing.finding;
+        yield* dependencies.publish(finding, listing.source);
+        const current = yield* dependencies.state.getCurrentListing(key);
+        yield* dependencies.state.markSeen(
+          { ...finding, id: key },
+          current?.canonicalGroupKey,
+        );
         notified += 1;
       }
     }

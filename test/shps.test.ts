@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   classifyShpsAvailability,
+  classifyHelpToBuyEvidence,
   filterShpsFindings,
   isShpsOnlyFinding,
   type ShpsConfig,
@@ -275,4 +276,15 @@ test("distinguishes recognized aliases from concatenated scheme prose", () => {
     ),
     "shps-and-other",
   );
+});
+test("classifies source mentions of Help to Buy without making eligibility claims", () => {
+  assert.equal(
+    classifyHelpToBuyEvidence(makeFinding("htb", { schemeText: "HTB subject to eligibility." })),
+    "mentioned",
+  );
+  assert.equal(
+    classifyHelpToBuyEvidence(makeFinding("other", { schemeText: "Local authority purchase." })),
+    "not-mentioned",
+  );
+  assert.equal(classifyHelpToBuyEvidence(makeFinding("unknown")), "unknown");
 });

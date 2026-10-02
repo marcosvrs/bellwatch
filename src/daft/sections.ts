@@ -74,7 +74,6 @@ export interface DaftSectionDefinition {
   readonly id: DaftSectionId;
   readonly path: DaftSectionPath;
   readonly priceParameter: DaftPriceParameter;
-  readonly defaultPriceMaxEur?: number;
   readonly supportsShps: boolean;
   readonly notificationTitlePrefix: string;
   readonly allowedFacilities: readonly DaftFacility[];
@@ -86,7 +85,6 @@ const definitions: Record<DaftSectionPath, DaftSectionDefinition> = {
     id: "new-homes",
     path: "new-homes-for-sale",
     priceParameter: "salePrice",
-    defaultPriceMaxEur: 499_999,
     supportsShps: true,
     notificationTitlePrefix: "Bellwatch new home",
     allowedFacilities: [],

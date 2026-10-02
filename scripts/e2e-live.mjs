@@ -35,8 +35,11 @@ const environment = [
   ["DAFT_BASE_URL", "https://www.daft.ie"],
   ["DAFT_SECTION_PATH", "property-for-rent"],
   ["DAFT_LOCATION", "dublin-city"],
+  ["DAFT_PROPERTY_TYPES", "houses"],
+  ["DAFT_BEDS_MIN", "3"],
   ["DAFT_MAX_PAGES", "1"],
   ["DAFT_REQUEST_DELAY_MS", "1000"],
+  ["MYHOME_ENABLED", "false"],
   ["NOTIFY_EXISTING_ON_FIRST_RUN", "true"],
   ["POLL_CRON", "0 0 1 1 *"],
   ["TZ", "UTC"],
@@ -125,7 +128,7 @@ const waitForLog = async (name, marker) => {
 
     for (const line of newLogs.split(/\r?\n/).filter(Boolean)) {
       console.log(`[live-e2e] ${line}`);
-      if (line.includes("Daft poll failed:")) throw new Error(line);
+      if (line.includes("Property poll failed:")) throw new Error(line);
       if (line.includes(marker)) return line;
     }
 
@@ -136,11 +139,11 @@ const waitForLog = async (name, marker) => {
 };
 
 const waitForLivePoll = async () => {
-  const line = await waitForLog(containerName, "Daft poll complete:");
+  const line = await waitForLog(containerName, "Property poll complete:");
   const findings = Number(line.match(/findings=(\d+)/)?.[1] ?? "NaN");
   const notified = Number(line.match(/notified=(\d+)/)?.[1] ?? "NaN");
   if (!Number.isInteger(findings) || findings < 1) {
-    throw new Error(`Live Daft poll returned no findings: ${line}`);
+    throw new Error(`Live property poll returned no eligible house findings: ${line}`);
   }
   if (!Number.isInteger(notified) || notified < 1) {
     throw new Error(`Live Daft poll emitted no notification: ${line}`);

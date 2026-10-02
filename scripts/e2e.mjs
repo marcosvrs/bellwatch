@@ -30,11 +30,10 @@ const environment = [
   ["HERMES_WEBHOOK_SECRET", "e2e"],
   ["HERMES_CHAT_ID", "e2e-test-chat"],
   ["DAFT_BASE_URL", `http://${fixtureContainerName}:8080`],
-  ["DAFT_PRICE_MAX_EUR", "499999"],
-  ["DAFT_ADDED_IN_LAST_DAYS", "1"],
   ["DAFT_SORT", "publishDateDesc"],
   ["DAFT_MAX_PAGES", "1"],
   ["DAFT_REQUEST_DELAY_MS", "1000"],
+  ["MYHOME_ENABLED", "false"],
   ["NOTIFY_EXISTING_ON_FIRST_RUN", "true"],
   ["POLL_CRON", "0 0 1 1 *"],
   ["TZ", "UTC"],
@@ -52,7 +51,18 @@ const payload = ${JSON.stringify({
             title: "Bellwatch e2e fixture",
             price: 315000,
             seoFriendlyPath: "/new-home-for-sale/e2e/900001",
-            newHome: { subUnits: [] },
+            newHome: {
+              developmentName: "Bellwatch e2e development",
+              subUnits: [
+                {
+                  id: 900001,
+                  price: 315000,
+                  numBedrooms: "3 Bed",
+                  propertyType: "House",
+                  seoFriendlyPath: "/new-home-for-sale/e2e/900001",
+                },
+              ],
+            },
           },
         },
       ],
@@ -105,7 +115,7 @@ const waitForLog = async (name, marker) => {
 
     for (const line of newLogs.split(/\r?\n/).filter(Boolean)) {
       console.log(`[e2e] ${line}`);
-      if (line.includes("Daft poll failed:")) throw new Error(line);
+      if (line.includes("Property poll failed:")) throw new Error(line);
       if (line.includes(marker)) return;
     }
 
@@ -115,7 +125,8 @@ const waitForLog = async (name, marker) => {
   throw new Error(`Timed out waiting for ${marker} after ${timeoutMs}ms`);
 };
 
-const waitForFirstPoll = () => waitForLog(containerName, "Daft poll complete:");
+const waitForFirstPoll = () =>
+  waitForLog(containerName, "Property poll complete:");
 
 let failure;
 try {

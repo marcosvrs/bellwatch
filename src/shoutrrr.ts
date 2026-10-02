@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import * as Effect from "effect/Effect";
 import type { ShoutrrrConfig } from "./config.js";
 import type { DaftFinding } from "./daft/parser.js";
+import type { ListingSource } from "./listings.js";
 
 export class ShoutrrrError extends Error {
   readonly _tag = "ShoutrrrError";
@@ -103,7 +104,11 @@ const soldComparisonLines = (
   return lines;
 };
 
-export const formatFindingMessage = (finding: DaftFinding): string => {
+export const formatFindingMessage = (
+  finding: DaftFinding,
+  source: ListingSource = "daft",
+): string => {
+  const sourceName = source === "daft" ? "Daft" : "MyHome";
   const details = [
     `Price: ${finding.priceText}`,
     ...(finding.bedrooms === undefined
@@ -115,7 +120,7 @@ export const formatFindingMessage = (finding: DaftFinding): string => {
     ...(finding.propertyType ? [`Type: ${finding.propertyType}`] : []),
     `Development: ${finding.developmentTitle}`,
     ...soldComparisonLines(finding),
-    `Daft: ${finding.url}`,
+    `${sourceName}: ${finding.url}`,
   ];
   return [finding.title, ...details].join("\n");
 };
@@ -153,11 +158,14 @@ export const publishMessage = (
 export const publishFinding = (
   config: ShoutrrrConfig,
   finding: DaftFinding,
+  source: ListingSource = "daft",
   run: ShoutrrrRunner = runShoutrrr,
 ): Effect.Effect<void, ShoutrrrError> =>
   publishMessage(
     config,
-    `${config.titlePrefix}: ${finding.title}`,
-    formatFindingMessage(finding),
+    source === "daft"
+      ? `${config.titlePrefix}: ${finding.title}`
+      : `${config.titlePrefix} (MyHome): ${finding.title}`,
+    formatFindingMessage(finding, source),
     run,
   );

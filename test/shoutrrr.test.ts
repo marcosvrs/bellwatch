@@ -62,7 +62,7 @@ test("publishes a Shoutrrr message with its title and URL", async () => {
     invocation = { binary, args, message, timeoutMs };
   };
 
-  await Effect.runPromise(publishFinding(config, finding, run));
+  await Effect.runPromise(publishFinding(config, finding, "daft", run));
 
   assert.deepEqual(invocation, {
     binary: "shoutrrr",
@@ -100,6 +100,28 @@ test("formats notifications without optional unit fields", () => {
       "Development: Example Development",
       `Daft: ${finding.url}`,
     ].join("\n"),
+  );
+});
+test("labels MyHome findings with their source in title and message", async () => {
+  let title = "";
+  let message = "";
+  const run: ShoutrrrRunner = async (_binary, args, body) => {
+    title = args.at(-1) ?? "";
+    message = body;
+  };
+  const myHomeFinding = {
+    ...finding,
+    url: "https://www.myhome.ie/residential/example/101",
+  };
+
+  await Effect.runPromise(
+    publishFinding(config, myHomeFinding, "myhome", run),
+  );
+
+  assert.equal(title, `${config.titlePrefix} (MyHome): ${finding.title}`);
+  assert.equal(
+    message.split("\n").at(-1),
+    `MyHome: ${myHomeFinding.url}`,
   );
 });
 
@@ -268,7 +290,7 @@ process.stdout.write("x".repeat(1024 * 1024), () => process.exit(0));
 test("wraps a notification runner failure as a Shoutrrr error", async () => {
   await assert.rejects(
     Effect.runPromise(
-      publishFinding(config, finding, async () => {
+      publishFinding(config, finding, "daft", async () => {
         throw new Error("network down");
       }),
     ),

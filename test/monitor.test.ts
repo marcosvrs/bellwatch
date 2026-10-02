@@ -7,9 +7,16 @@ import * as Effect from "effect/Effect";
 import * as Logger from "effect/Logger";
 import { parseEnvironment } from "../src/config.js";
 import { MonitorError, runOnce, writeHeartbeat } from "../src/monitor.js";
+import { sourcedFindingKey, type DiscoveryCandidate } from "../src/listings.js";
 import type { DaftFinding } from "../src/daft/parser.js";
-import type { StateStore } from "../src/state.js";
-import { defined } from "./helpers.js";
+import type { CurrentListingRecord, StateStore } from "../src/state.js";
+
+const defined = <T>(value: T | undefined): T => {
+  if (value === undefined) {
+    throw new Error("Expected value to be defined");
+  }
+  return value;
+};
 
 const makeFinding = (
   id: string,
@@ -19,12 +26,16 @@ const makeFinding = (
   title: `Development ${id}`,
   developmentTitle: `Development ${id}`,
   priceText: "€315,000",
+  bedrooms: 3,
+  propertyType: "House",
   url: `https://www.daft.ie/new-home-for-sale/example/${id}`,
   ...overrides,
 });
 
-const makeState = (): StateStore => {
-  const seen = new Set<string>();
+const makeState = (previouslySeen: readonly string[] = []): StateStore => {
+  const seen = new Set(previouslySeen);
+  const seenGroups = new Set<string>();
+  const listings = new Map<string, CurrentListingRecord>();
   let initialized = false;
   return {
     isInitialized: () => Effect.succeed(initialized),
@@ -32,11 +43,51 @@ const makeState = (): StateStore => {
       Effect.sync(() => {
         initialized = true;
       }),
-    isSeen: (id) => Effect.succeed(seen.has(id)),
-    markSeen: (finding) =>
+    isSeen: (id, groupKey) =>
+      Effect.succeed(seen.has(id) || (groupKey !== undefined && seenGroups.has(groupKey))),
+    markSeen: (finding, groupKey) =>
       Effect.sync(() => {
         seen.add(finding.id);
+        if (groupKey !== undefined) { seenGroups.add(groupKey); }
       }),
+    observeFinding: (listing) =>
+      Effect.sync(() => {
+        const key = sourcedFindingKey(listing);
+        const existing = listings.get(key);
+        const now = new Date().toISOString();
+        const eircode = listing.finding.eircode
+          ?.trim()
+          .replace(/\s+/g, "")
+          .toUpperCase();
+        const propertyType =
+          listing.finding.propertyType?.trim().toLowerCase().replace(/[\s,._-]+/g, " ");
+        const { bedrooms } = listing.finding;
+        const canonicalGroupKey =
+          eircode !== undefined &&
+          propertyType !== undefined &&
+          bedrooms !== undefined
+            ? JSON.stringify([`eircode:${eircode}`, propertyType, bedrooms])
+            : undefined;
+        listings.set(key, {
+          ...listing,
+          bellwatchKey: key,
+          firstSeenAt: existing?.firstSeenAt ?? now,
+          lastSeenAt: now,
+          ...(canonicalGroupKey === undefined ? {} : { canonicalGroupKey }),
+        });
+      }),
+    getCurrentListing: (key) => Effect.succeed(listings.get(key)),
+    listCurrentListings: () => Effect.succeed([...listings.values()]),
+    listListingObservations: () => Effect.succeed([]),
+    listPendingBaserowListings: () => Effect.succeed([]),
+    markBaserowListingSynced: () => Effect.void,
+    recordCandidate: () => Effect.void,
+    listCurrentCandidates: () => Effect.succeed([]),
+    listCandidateObservations: () => Effect.succeed([]),
+    listPendingBaserowCandidates: () => Effect.succeed([]),
+    markBaserowCandidateSynced: () => Effect.void,
+    recordRegistrationEvent: () => Effect.void,
+    listRegistrationEvents: () => Effect.succeed([]),
     close: () => Effect.void,
   };
 };
@@ -51,7 +102,40 @@ const payload = (findings: readonly DaftFinding[]) => ({
           title: finding.title,
           price: finding.priceText,
           seoFriendlyPath: `/new-home-for-sale/example/${finding.id}`,
-          newHome: { subUnits: [] },
+          newHome: {
+            subUnits: [
+              {
+                id: finding.id,
+                price: finding.priceText,
+                numBedrooms: `${finding.bedrooms ?? 3} Bed`,
+                ...(finding.bathrooms === undefined
+                  ? {}
+                  : { numBathrooms: `${finding.bathrooms} Bath` }),
+                propertyType: finding.propertyType ?? "House",
+                seoFriendlyPath: `/new-home-for-sale/example/${finding.id}`,
+                ...(finding.floorSizeSqm === undefined
+                  ? {}
+                  : {
+                      floorArea: {
+                        value: finding.floorSizeSqm,
+                        unit: "METRES_SQUARED",
+                      },
+                    }),
+                ...(finding.address === undefined && finding.eircode === undefined
+                  ? {}
+                  : {
+                      addressDetails: {
+                        ...(finding.address === undefined
+                          ? {}
+                          : { streetAddress: finding.address }),
+                        ...(finding.eircode === undefined
+                          ? {}
+                          : { postalCode: finding.eircode }),
+                      },
+                    }),
+              },
+            ],
+          },
         },
       })),
       paging: { currentPage: 1, totalPages: 1 },
@@ -107,12 +191,9 @@ test("uses the configured rental section URL and parser", async () => {
                   {
                     id: 701,
                     price: "€2,300 per month",
-                    numBedrooms: "1 Bed",
-                    numBathrooms: "1 Bath",
-                    propertyType: "Apartment",
-                    floorArea: { value: 70 },
-                    ber: { rating: "B2" },
-                    seoFriendlyPath: "/for-rent/riverside-apartments/701",
+                    numBedrooms: "3 Bed",
+                    numBathrooms: "2 Bath",
+                    propertyType: "Semi-Detached House",
                   },
                 ],
               },
@@ -1038,7 +1119,18 @@ test("keeps comparable-only hydration failures fail-open", async () => {
               numBedrooms: "3 Bed",
               numBathrooms: "2 Bath",
               propertyType: "Semi-D",
-              newHome: { subUnits: [] },
+              newHome: {
+                subUnits: [
+                  {
+                    id: 805,
+                    price: "€400,000",
+                    numBedrooms: "3 Bed",
+                    numBathrooms: "2 Bath",
+                    propertyType: "Semi-Detached House",
+                    seoFriendlyPath: "/new-home-for-sale/listing/805",
+                  },
+                ],
+              },
             },
           },
         ],
@@ -1554,8 +1646,8 @@ test("does not hydrate sale findings missing one bedroom field", async () => {
     }),
   );
 
-  assert.equal(result.findings, 2);
-  assert.equal(published.length, 2);
+  assert.equal(result.findings, 1);
+  assert.equal(published.length, 1);
   assert.equal(requested.length, 1);
 });
 test("hydrates spatially incomplete property-sale findings", async () => {
@@ -1674,5 +1766,161 @@ test("does not hydrate complete new-home findings when a location supplies spati
   assert.equal(
     requested.some((url) => url.includes("/new-home-for-sale/")),
     false,
+  );
+});
+test("keeps both provider records and notifies one cross-provider duplicate", async () => {
+  const state = makeState();
+  await Effect.runPromise(state.markInitialized());
+  const daftFinding = makeFinding("901", {
+    title: "Example Grove three-bedroom house",
+    developmentTitle: "Example Grove",
+    propertyType: "Semi-detached house",
+    floorSizeSqm: 120,
+    address: "1 Example Grove",
+    eircode: "D01 AB12",
+  });
+  const listHtml =
+    `<main><article><a href="/residential/example-grove/901">Example Grove</a></article></main>`;
+  const detailHtml =
+    `<main><h1>Example Grove three-bedroom house</h1><dl>` +
+    `<dt>Property Type</dt><dd>Semi-detached house</dd>` +
+    `<dt>Price</dt><dd>€340,000</dd>` +
+    `<dt>Bedrooms</dt><dd>3</dd>` +
+    `<dt>Availability</dt><dd>For Sale</dd>` +
+    `<dt>Address</dt><dd>1 Example Grove</dd>` +
+    `<dt>Eircode</dt><dd>D01 AB12</dd></dl></main>`;
+  const published: DaftFinding[] = [];
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([daftFinding])),
+      fetchMyHomePage: (url) =>
+        Effect.succeed(
+          new URL(url).pathname ===
+            "/residential/ireland/new-homes/property-for-sale"
+            ? listHtml
+            : detailHtml,
+        ),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  const records = await Effect.runPromise(state.listCurrentListings());
+  assert.equal(result.findings, 2);
+  assert.equal(result.notified, 1);
+  assert.equal(published.length, 1);
+  assert.deepEqual(
+    records.map((record) => record.bellwatchKey).sort(),
+    ["daft:901", "myhome:901"],
+  );
+  assert.equal(records.find((record) => record.source === "daft")?.finding.url, daftFinding.url);
+  assert.equal(
+    records.find((record) => record.source === "myhome")?.finding.url,
+    "https://www.myhome.ie/residential/example-grove/901",
+  );
+  assert.equal(
+    records.every(
+      (record) =>
+        record.dublinBoundary?.status === "unclassified" &&
+        record.dublinBoundary.reason === "missing-coordinates",
+    ),
+    true,
+  );
+});
+test("searches SearXNG only when configured and stores candidates as unverified", async () => {
+  const candidate: DiscoveryCandidate = {
+    source: "searxng",
+    verified: false,
+    url: "https://example.test/new-homes/possible",
+    title: "Possible house listing",
+    snippet: "Search-only candidate; not verified.",
+    discoveredAt: "2026-10-01T12:00:00.000Z",
+  };
+  const state = makeState();
+  const stored: DiscoveryCandidate[] = [];
+  const stateWithCandidates: StateStore = {
+    ...state,
+    recordCandidate: (finding) =>
+      Effect.sync(() => {
+        stored.push(finding);
+      }),
+  };
+  const baseConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+  });
+  let searches = 0;
+  const dependencies = {
+    fetchPage: () => Effect.succeed(payload([])),
+    searchSearxng: (baseUrl: string) => {
+      searches += 1;
+      assert.equal(baseUrl, "http://searxng.test");
+      return Effect.succeed({ ok: true as const, candidates: [candidate] });
+    },
+    publish: () => Effect.void,
+    publishError: () => Effect.void,
+    state: stateWithCandidates,
+    heartbeat: () => Effect.void,
+  };
+  await Effect.runPromise(runOnce(baseConfig, dependencies));
+  assert.equal(searches, 0);
+  assert.equal(stored.length, 0);
+
+  const configured = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    SEARXNG_BASE_URL: "http://searxng.test",
+  });
+  await Effect.runPromise(runOnce(configured, dependencies));
+  assert.equal(searches, 1);
+  assert.equal(stored[0]?.verified, false);
+  assert.deepEqual(stored, [candidate]);
+});
+test("backfills cross-provider identity from an existing namespaced seen ID", async () => {
+  const state = makeState(["daft:999"]);
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const published: DaftFinding[] = [];
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () =>
+        Effect.succeed(
+          payload([
+            makeFinding("999", {
+              propertyType: "Semi-detached house",
+              address: "2 Example Road",
+              eircode: "D02 XY34",
+            }),
+          ]),
+        ),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  const current = await Effect.runPromise(state.getCurrentListing("daft:999"));
+  const canonicalGroupKey = current?.canonicalGroupKey;
+  assert.equal(result.notified, 0);
+  assert.deepEqual(published, []);
+  assert.ok(canonicalGroupKey);
+  assert.equal(
+    await Effect.runPromise(state.isSeen("myhome:999", canonicalGroupKey)),
+    true,
   );
 });

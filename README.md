@@ -1,8 +1,9 @@
 # Bellwatch
 
-Bellwatch is a scheduled Daft.ie monitor for Irish property listings. It builds
-Daft search URLs, reads listing pages with a headless browser, applies filters,
-and sends alerts through Shoutrrr, Hermes, or both.
+Bellwatch is a scheduled Irish property monitor for Daft.ie and MyHome. It reads
+Daft listing payloads and MyHome server-rendered HTML, applies supported
+filters, stores dated listing changes, and sends alerts through Shoutrrr,
+Hermes, or both.
 
 It is a background container, not a website. Bellwatch exposes no application
 HTTP port and does not provide a web UI. It needs outbound access to Daft.ie,
@@ -11,46 +12,56 @@ service.
 
 ## What it does
 
-- Monitors new homes, direct property sales, or property rentals.
-- Searches all Ireland or one independent search per configured location, then
-  merges and de-duplicates the results.
-- Supports price, bedroom, bathroom, radius, property type, media, keyword,
-  availability, age, sorting, and profile-specific filters.
-- Classifies Starter Home Purchase Scheme (SHPS) evidence for new-home
-  listings, with `only` and `exclude` modes.
+- Monitors new homes, direct property sales, or property rentals nationwide or
+  within configured Daft search locations.
+- Retains only individual houses with at least three bedrooms; apartments,
+  duplexes, and development-only parent records are excluded. Individual houses
+  within mixed developments remain eligible.
+- Uses MyHome when enabled and when every active filter can be applied safely.
+  Unsupported source-wide filters skip MyHome; listings missing an active
+  filter fact are excluded and counted in a warning.
+- Optionally records SearXNG results as unverified discovery candidates; they
+  never enter the listing or notification catalog.
+- Keeps provider-specific IDs, URLs, current facts, and dated change history in
+  SQLite or PostgreSQL, with an optional Baserow dashboard mirror.
+- Classifies Help to Buy text as mentioned, not mentioned, or unknown. This is
+  evidence only, not an eligibility decision or a search filter.
+- Classifies valid coordinates against Tailte Éireann's 2026 County Dublin
+  boundary and identifies the county-plus-20-km area without narrowing
+  nationwide collection.
+- Records manual registration status, consent status, and user-provided
+  evidence; it never automates application forms or consent.
 - Adds current-calendar-year sold-property comparisons to sale notifications
   when the listing has the required matching fields.
-- Suppresses duplicate alerts using SQLite or PostgreSQL state.
+- Suppresses cross-provider duplicate alerts when exact location, property
+  type, and bedroom facts match, while retaining both source records.
 - Sends each alert to every configured notification backend before recording it
   as seen.
 - Writes a heartbeat for container health checks and logs poll/runtime metrics.
-- Checks the target origin's `robots.txt`, paces browser navigations, and
-  retries Daft HTTP 429 responses with bounded backoff.
+- Checks each target origin's `robots.txt`, paces requests, and does not retry
+  blocked or rate-limited listing requests.
 
 > **Legal notice**
 >
 > Bellwatch is an independent, unofficial project. It is not affiliated with,
-> endorsed by, sponsored by, or authorized by Daft.ie, Daft Media Limited, or
-> their affiliates.
+> endorsed by, sponsored by, or authorized by Daft.ie, MyHome.ie, or their
+> operators or affiliates.
 >
 > Bellwatch is provided “as is”. To the fullest extent permitted by law, the
 > owner and contributors accept no responsibility or liability for how it is
 > used, for automated access to third-party services, for notification accuracy
 > or delivery, or for decisions made from its output. Users are solely
 > responsible for lawful use, permissions, third-party terms, credentials, rate
-> limits, privacy, and data protection. Review [Daft.ie’s current
-> terms](https://www.daft.ie/legal/) before running the application.
+> limits, privacy, and data protection. Review the current terms for Daft.ie
+> and MyHome.ie before running the application.
 
 ## Deployment choices
 
 | Deployment | Listing state | Browser | Best for |
 | --- | --- | --- | --- |
 | Standalone container | SQLite in `/data` | Chromium bundled in the image | The smallest setup |
-| Docker Compose | PostgreSQL | Browserless Chromium | A separate database and browser service |
+| Docker Compose | SQLite by default; optional PostgreSQL profile | Browserless Chromium | A separate browser service and optional legacy database |
 | Alchemy | Managed Docker volume | Bundled or external CDP browser | Local or remote Docker Engine deployment |
-
-All deployment modes use the same image and environment contract. The image is
-published to `ghcr.io/marcosvrs/bellwatch` for `linux/amd64` and `linux/arm64`.
 
 ## Quick start: standalone container
 
@@ -120,53 +131,61 @@ The image health check reads `/data/heartbeat`. Keep `/data` writable and
 persistent in SQLite mode. Pin a verified image digest for production rather
 than deploying the mutable `latest` tag; see [Supply-chain verification](#supply-chain-verification).
 
-## Docker Compose
-
-[`docker-compose.yml`](docker-compose.yml) starts three services:
-
-- Bellwatch;
-- PostgreSQL 17 for persistent listing state; and
-- Browserless Chromium for the monitor's Playwright/CDP connection.
+[`docker-compose.yml`](docker-compose.yml) starts Bellwatch and Browserless.
+SQLite in the persistent `bellwatch-data` volume is the default. PostgreSQL is
+an opt-in compatibility profile for deployments that still use its existing
+state; the `postgres-data` volume is retained.
 
 Create the environment file from [`.env.example`](.env.example), then set the
 required values:
 
 ```bash
 cp .env.example .env
-# Edit .env: set POSTGRES_PASSWORD, BROWSERLESS_TOKEN, and
-# SHOUTRRR_URL and/or all three HERMES_* variables.
+# Set BROWSERLESS_TOKEN and SHOUTRRR_URL and/or all three HERMES_* variables.
 docker compose pull
 docker compose up --detach
 docker compose logs --follow bellwatch
 ```
 
-Compose sets `DATABASE_URL` to PostgreSQL and
-`PLAYWRIGHT_WS_ENDPOINT` to the internal Browserless service. The monitor's
-`/data` volume stores the heartbeat; `postgres-data` stores listing history.
-`docker compose down` keeps both volumes. Do not use `docker compose down
---volumes` unless deleting state is intentional.
+To continue using existing PostgreSQL state, set `DATABASE_URL` and
+`POSTGRES_PASSWORD` in `.env`, then run `docker compose --profile postgres up
+--detach`. PostgreSQL state is not copied automatically into SQLite; retain the
+original database volume and explicitly select its URL before starting if that
+history is required. Do not use `docker compose down --volumes` unless deleting
+state is intentional.
 
 The Browserless debugging port is bound to `127.0.0.1:3000`; the monitor uses
 the internal service name and does not need that host port. Compose forwards
-search, SHPS, polling, browser user-agent, and healthcheck overrides from
+search, provider, Baserow, scheduling, browser, and healthcheck overrides from
 `.env` to Bellwatch.
 
 ## How a poll works
 
-1. Bellwatch validates the environment, opens the configured state backend, and
-   starts the first poll immediately. Later polls follow `POLL_CRON` in `TZ`.
-2. Each configured location is searched independently. Without locations, the
-   search scope is `/ireland` and radius filtering is omitted.
-3. The browser checks `robots.txt`, waits for the configured request interval,
-   loads the page, and parses the page's Next.js `#__NEXT_DATA__` payload.
-4. Bellwatch hydrates listing detail pages only when SHPS classification or
-   sold-comparable data needs them, then applies the configured filters.
-5. New, eligible sale findings are enriched with current-year sold comparisons
-   when matching bedrooms, bathrooms, property type, BER, and floor-size data
-   are available. Rental findings do not use sold comparisons.
-6. Existing IDs are removed from the notification set. Every configured
-   backend is attempted; a finding is marked seen only after delivery succeeds.
-7. The monitor records the initialized state and writes `/data/heartbeat`.
+1. Bellwatch validates the environment, opens SQLite (or an explicitly
+   configured PostgreSQL database), and starts a poll immediately. Later polls
+   follow `POLL_CRON` in `TZ`; the default interval is eight hours.
+2. Daft searches all Ireland unless locations are configured. MyHome searches
+   nationwide or uses only regional routes evidenced by its server-rendered
+   links. An active filter that MyHome cannot apply causes that source to be
+   skipped, not broadened.
+3. Each source's `robots.txt` is checked. Daft and MyHome listing requests are
+   separated by at least `DAFT_REQUEST_DELAY_MS` (default 1,000 ms). Blocked
+   and rate-limited requests fail without retries.
+4. Daft listing payloads and MyHome SSR HTML are parsed; MyHome details are
+   fetched as HTML only. Active filters require verifiable facts. Listings
+   missing any fact needed for an active filter are excluded, not assumed to
+   match.
+5. Only individual houses with at least three bedrooms enter the catalog.
+   Apartment, duplex, and parent-only development results are excluded, while
+   qualifying houses from mixed developments remain.
+6. Every qualifying source record is stored separately with its source ID,
+   source URL, current facts, and dated changes. Matching records across
+   providers suppress duplicate alerts, not source history.
+7. Optional SearXNG searches run only when configured. Their results are stored
+   as unverified candidates and are never promoted to listings or alerts.
+8. Notifications are sent to every configured backend; a listing is marked
+   seen only after delivery succeeds. Optional Baserow synchronization writes
+   the current listing/candidate views, and the monitor updates the heartbeat.
 
 A successful search with no results is not an error. Poll, browser, parser,
 state, and notification-cycle failures are logged and sent through the
@@ -200,18 +219,18 @@ configured, every finding and poll-error notification is sent to both.
 | `DAFT_SECTION_PATH` | `new-homes-for-sale` | `new-homes-for-sale`, `property-for-sale`, or `property-for-rent`. |
 | `DAFT_LOCATION` | unset | Comma-separated Daft location slugs. Each location is searched separately and results are de-duplicated. Unset searches all Ireland. |
 | `DAFT_PRICE_MIN_EUR` | unset | Non-negative euro amount; uses the sale or rental price parameter for the selected profile. |
-| `DAFT_PRICE_MAX_EUR` | `499999` for new homes; unset otherwise | Non-negative euro amount. |
+| `DAFT_PRICE_MAX_EUR` | unset | Non-negative euro amount; applies only when explicitly configured. The €500,000 HTB valuation limit is not a purchase-price search cap. |
 | `DAFT_BEDS_MIN`, `DAFT_BEDS_MAX` | unset | Integer from `0` to `15`. |
 | `DAFT_BATHS_MIN`, `DAFT_BATHS_MAX` | unset | Integer from `1` to `5`. |
-| `DAFT_RADIUS_KM` | unset | `0`, `1`, `3`, `5`, `10`, or `20`; applied around each configured location. |
+| `DAFT_RADIUS_KM` | unset | `0`, `1`, `3`, `5`, `10`, or `20`; `0` omits the radius constraint. |
 | `DAFT_PROPERTY_TYPES` | unset | Comma-separated values: `houses`, `detached-houses`, `semi-detached-houses`, `terraced-houses`, `end-of-terrace-houses`, `townhouses`, `apartments`, `studio-apartments`, `duplexes`, `bungalows`, or `sites`. Use `any` alone for all types. |
 | `DAFT_MEDIA_TYPES` | unset | `video`, `virtual-tour`, or `any`. `any` must be used alone. |
 | `DAFT_KEYWORD` | unset | Keyword or address, maximum 50 characters. |
 | `DAFT_AVAILABILITY` | `published` | `published` or `sale-agreed`. |
-| `DAFT_ADDED_IN_LAST_DAYS` | unset | `0`, `1`, `3`, `7`, `14`, or `30`; unset means any age. |
+| `DAFT_ADDED_IN_LAST_DAYS` | unset | `0`, `1`, `3`, `7`, `14`, or `30`; `0` or unset means any age. |
 | `DAFT_SORT` | Daft default | `bestMatch`, `publishDateDesc`, `priceAsc`, or `priceDesc`. |
 | `DAFT_MAX_PAGES` | unset | Integer from `1` to `20` per location. Unset reads all result pages. |
-| `DAFT_REQUEST_DELAY_MS` | `1000` | Minimum milliseconds between browser navigations; accepted range `1000`–`60000`. |
+| `DAFT_REQUEST_DELAY_MS` | `1000` | Minimum milliseconds between Daft browser navigations and MyHome HTTP requests; accepted range `1000`–`60000`. |
 
 With one configured location, the location is represented in the Daft path;
 radius and the other filters are encoded in the query. With multiple locations,
@@ -231,7 +250,7 @@ This results in separate searches for `dublin-city` and
 
 | Section | Additional filters | Other behavior |
 | --- | --- | --- |
-| `new-homes-for-sale` | `DAFT_OPEN_VIEWINGS_FROM` (`YYYY-MM-DD`) | Supports SHPS filtering and has the default €499,999 maximum price. |
+| `new-homes-for-sale` | `DAFT_OPEN_VIEWINGS_FROM` (`YYYY-MM-DD`) | Supports SHPS filtering. |
 | `property-for-sale` | `DAFT_FLOOR_SIZE_MIN_SQM`, `DAFT_FLOOR_SIZE_MAX_SQM`, `DAFT_BER_MIN`, `DAFT_BER_MAX`, `DAFT_SALE_TYPE`=`auction`, `DAFT_ONLINE_OFFERS` | Supports sale facilities and sold comparisons. |
 | `property-for-rent` | `DAFT_LEASE_LENGTH_MIN_MONTHS`, `DAFT_LEASE_LENGTH_MAX_MONTHS`, `DAFT_FURNISHING` | Supports rental facilities; no sold comparisons. |
 
@@ -281,19 +300,111 @@ relevant scheme and local authority.
 | `PLAYWRIGHT_WS_ENDPOINT` | unset | `ws://` or `wss://` Playwright/CDP endpoint. When unset, the image launches bundled headless Chromium. |
 | `BROWSER_USER_AGENT` | Built-in Chrome user agent | Optional browser user-agent override. |
 
+
+### MyHome, SearXNG, and Baserow
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MYHOME_ENABLED` | `true` | Set `false` to disable MyHome. |
+| `MYHOME_BASE_URL` | `https://www.myhome.ie` | MyHome origin; public server-rendered HTML only. No private or undocumented API is used. |
+| `SEARXNG_BASE_URL` | unset | Optional HTTP(S) SearXNG base URL. When set, search results are saved only as unverified candidates. |
+| `BASEROW_BASE_URL` | unset | HTTP(S) URL of a Baserow instance. |
+| `BASEROW_TOKEN` | unset | Baserow database token. |
+| `BASEROW_TABLE_ID` | unset | Listing table ID; required with the other Baserow values. |
+| `BASEROW_CANDIDATE_TABLE_ID` | unset | Separate candidate table ID; required when both Baserow and SearXNG are enabled. |
+
+MyHome is fail-closed: an active filter the source cannot safely apply skips
+MyHome for that poll. If an individual record lacks a fact required by an
+active filter, it is excluded and the warning reports the number of affected
+records; other verifiable records remain eligible. Regional MyHome paths are
+used only when their route is evidenced by the nationwide page's rendered links.
+
+SearXNG is never queried unless `SEARXNG_BASE_URL` is set. Search results do not
+become listings, do not generate listing alerts, and are kept in a separate
+candidate table when Baserow mirroring is enabled.
+
+### Help to Buy evidence
+
+Help to Buy evidence is recorded as `mentioned`, `not-mentioned`, or `unknown`
+from listing text. Use this field to prioritize manual review; it does not
+filter listings, rank notifications, or decide eligibility. The €500,000
+scheme valuation ceiling is not a purchase-price cap and is never applied as a
+default search filter. `SHPS_FILTER` is a separate scheme-specific option.
+
+### County Dublin geography
+
+Every listing with valid coordinates is classified against Tailte Éireann's
+2026 County Dublin statutory boundary. The source returns multiple Dublin
+polygon features; Bellwatch validates and combines the complete FeatureCollection.
+`withinDublin20Km` includes County Dublin and points up to 20 km from its boundary
+by straight-line WGS84 distance. This is a dashboard view, not a collection
+filter; nationwide records remain stored. Missing/invalid coordinates and
+boundary-fetch failures are retained as `unclassified` with a reason.
+Boundary attribution:
+County boundary data © Tailte Éireann, licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+### Manual registration history
+
+Record a manual outcome for an existing source listing after the user has
+personally reviewed the relevant process:
+
+```bash
+npm run registration -- \
+  --listing=daft:12345 \
+  --status=confirmed \
+  --consent=consented \
+  --evidence="User confirmed the registration outcome."
+```
+
+`--listing` must use a stored `daft:<id>` or `myhome:<id>` key.
+`--status` accepts `confirmed`, `unconfirmed`, `failed`, or `skipped`.
+`--consent` accepts `unknown`, `consented`, `declined`, or `not-applicable`.
+Evidence is a required user-entered note. Each command appends a dated event
+to local state; the latest status and complete history are mirrored to Baserow
+on the next monitor sync. Bellwatch never submits forms, clicks consent,
+handles CAPTCHA, or infers consent.
+
+### Baserow table fields
+
+Create the listing table with these field names (use text/long-text, number,
+boolean, date-time, and URL fields as indicated by the data):
+
+`bellwatch_key`, `source`, `source_id`, `title`, `development_title`,
+`price_text`, `bedrooms`, `bathrooms`, `property_type`, `floor_size_sqm`,
+`ber_rating`, `help_to_buy_evidence_status`, `registration_status`,
+`registration_consent_status`, `registration_evidence`,
+`registration_updated_at`, `registration_history_json`, `address`, `eircode`,
+`latitude`, `longitude`, `dublin_status`, `dublin_in_county`,
+`dublin_boundary_distance_km`, `dublin_within_20km`,
+`dublin_unclassified_reason`, `source_url`, `first_seen_at`, and
+`last_seen_at`.
+
+Create a separate candidate table when configured with SearXNG:
+`candidate_key`, `source`, `verified`, `title`, `url`, `snippet`, `engine`,
+`discovered_at`, `first_seen_at`, and `last_seen_at`. `price_text` preserves
+values such as `POA`; unavailable numeric facts remain empty. Baserow sync
+upserts current rows from a persistent local outbox. Failed sync entries remain
+pending for a later monitor cycle without losing local listing history.
+
 ### State and health
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `DATABASE_URL` | unset | `postgres://` or `postgresql://` URL. When set, listing state uses PostgreSQL instead of SQLite. Compose sets this automatically. |
+| `DATABASE_URL` | unset | `postgres://` or `postgresql://` URL. When set, state uses PostgreSQL; otherwise it uses SQLite. Compose defaults to SQLite. |
 | `HEALTHCHECK_MAX_AGE_SECONDS` | `86400` | Maximum allowed heartbeat age. Increase it for schedules longer than one day. |
 
-Without `DATABASE_URL`, state is stored at `/data/state.sqlite`; persist
-`/data` across restarts. With `DATABASE_URL`, listing history is stored in
-PostgreSQL, but `/data` must still be writable for `/data/heartbeat`. Bellwatch
-stores listing IDs, first/last-seen timestamps, and the initialized marker; it
-does not persist listing descriptions, images, advertiser details, or page
-content.
+Without `DATABASE_URL`, listing state is stored at `/data/state.sqlite`; persist
+`/data` across restarts. PostgreSQL mode still needs `/data` writable for
+`/data/heartbeat`. The catalog stores the current structured facts per
+provider-specific listing key and dated observations when facts change,
+including source IDs, source URLs, floor area, and POA text. It also stores
+unverified candidates and manual registration history. It does not store
+listing images or advertiser account details.
+
+On an existing state database, startup keeps legacy seen rows and adds
+namespaced `daft:` copies so those listings are not treated as new after
+upgrade. PostgreSQL data is never copied into SQLite automatically.
 
 ## Sold-property comparisons
 
@@ -379,6 +490,11 @@ npm exec --offline -- alchemy plan
 npm exec --offline -- alchemy deploy
 ```
 
+Supply `MYHOME_ENABLED`, `MYHOME_BASE_URL`, `SEARXNG_BASE_URL`, and the
+Baserow base/table settings as environment variables when needed. Alchemy
+forwards `BASEROW_TOKEN` as a redacted secret; `DATABASE_URL` explicitly keeps
+PostgreSQL state instead of the default SQLite volume.
+
 Set `ALCHEMY_DOCKER_HOST=host=ssh://user@remote-host` for a remote target. Use
 `MONITOR_DOCKER_NETWORK` when the monitor must join an existing browser
 network, and pass `PLAYWRIGHT_WS_ENDPOINT` when using an external browser.
@@ -450,18 +566,19 @@ before publishing `latest` and a commit-specific SHA tag.
 
 ## Responsible use and privacy
 
-Bellwatch reads public Daft.ie pages and sends listing details and URLs to your
-selected notification backend. Treat credentials, webhook secrets, service
-URLs, notification content, and listing history as private.
+Bellwatch reads public Daft.ie and MyHome.ie listing pages and sends listing
+details and URLs to your selected notification backend. Optional SearXNG
+results remain unverified candidates. Treat credentials, webhook secrets,
+service URLs, notification content, and listing history as private.
 
-Bellwatch does not log in to Daft.ie, bypass access controls, solve CAPTCHAs, or
-use a proxy to evade blocking. It checks and obeys the target origin's
-`robots.txt`; a disallowed URL fails, retrieval errors fail closed, and a
-missing `robots.txt` returns no rules. Browser navigations are paced by at
-least one second by default, and Daft 429 responses are retried only within the
-bounded client policy. Compliance with robots rules and request pacing does not
-itself grant permission to automate access; review current third-party terms
-before running the service.
+Bellwatch does not log in to listing sites, use private or undocumented APIs,
+bypass access controls, solve CAPTCHAs, submit application forms, or automate
+consent. It checks and obeys each target origin's `robots.txt`; a disallowed URL
+fails, retrieval errors fail closed, and a missing `robots.txt` returns no
+rules. Daft and MyHome listing requests are paced by at least one second by
+default. Blocked and rate-limited source requests are not retried. Compliance
+with robots rules and request pacing does not itself grant permission to
+automate access; review current third-party terms before running the service.
 
 ## Troubleshooting
 
@@ -477,8 +594,9 @@ before running the service.
   monitor container.
 - **Startup configuration error:** check accepted values, profile-specific
   filters, min/max ordering, and complete notification backend credentials.
-- **Robots or rate-limit failure:** do not bypass the policy. Inspect logs,
-  keep the configured delay at or above the enforced minimum, and retry later.
+- **Robots or rate-limit failure:** do not bypass the policy. Inspect logs and
+  keep the configured delay at or above the enforced minimum; wait for the next
+  scheduled poll rather than retrying the request.
 - **No sold comparison:** the finding may lack one of the required matching
   fields, have no spatial scope, be a rental, or have no comparable sales.
 
