@@ -287,4 +287,8 @@ test("classifies source mentions of Help to Buy without making eligibility claim
     "not-mentioned",
   );
   assert.equal(classifyHelpToBuyEvidence(makeFinding("unknown")), "unknown");
+  assert.equal(
+    classifyHelpToBuyEvidence(makeFinding("blank", { schemeText: "   " })),
+    "unknown",
+  );
 });

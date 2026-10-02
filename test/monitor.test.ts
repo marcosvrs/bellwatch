@@ -10,6 +10,7 @@ import { MonitorError, runOnce, writeHeartbeat } from "../src/monitor.js";
 import { sourcedFindingKey, type DiscoveryCandidate } from "../src/listings.js";
 import type { DaftFinding } from "../src/daft/parser.js";
 import type { CurrentListingRecord, StateStore } from "../src/state.js";
+import type { DublinBoundaryGeometry } from "../src/dublin-boundary.js";
 
 const defined = <T>(value: T | undefined): T => {
   if (value === undefined) {
@@ -1923,4 +1924,154 @@ test("backfills cross-provider identity from an existing namespaced seen ID", as
     await Effect.runPromise(state.isSeen("myhome:999", canonicalGroupKey)),
     true,
   );
+});
+test("does not fetch MyHome when an active Daft filter is unsupported", async () => {
+  const unsupportedConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_LOCATION: "dublin",
+    DAFT_MEDIA_TYPES: "video",
+    DAFT_MAX_PAGES: "1",
+  });
+  let myHomeRequests = 0;
+  const result = await Effect.runPromise(
+    runOnce(unsupportedConfig, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: () => {
+        myHomeRequests += 1;
+        return Effect.succeed("");
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(myHomeRequests, 0);
+  assert.equal(result.pages, 1);
+  assert.equal(result.findings, 0);
+});
+
+test("classifies valid MyHome coordinates using the loaded county boundary", async () => {
+  const configWithLocation = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_LOCATION: "dublin",
+    DAFT_PROPERTY_TYPES: "houses",
+    DAFT_MAX_PAGES: "3",
+  });
+  const geometry: DublinBoundaryGeometry = {
+    type: "Polygon",
+    coordinates: [[
+      [-6.3, 53.2],
+      [-6.1, 53.2],
+      [-6.1, 53.4],
+      [-6.3, 53.4],
+      [-6.3, 53.2],
+    ]],
+  };
+  const requestedPaths: string[] = [];
+  const regionHtml =
+    `<script id="ng-state" type="application/json">` +
+    `{"bootstrap":[{"RegionUrls":{"1":"/residential/dublin/new-homes/house-for-sale"}}]}` +
+    `</script>`;
+  const firstListPage =
+    `<head><link rel="next" href="?page=2"></head>` +
+    `<main><article><a href="/residential/example-grove/901">Example Grove</a></article></main>`;
+  const secondListPage =
+    `<main><article><a href="/residential/example-road/902">Example Road</a></article></main>`;
+  const detailHtml = (title: string, latitude: number, longitude: number) =>
+    `<main><h1>${title}</h1><dl>` +
+    `<dt>Property Type</dt><dd>Semi-detached house</dd>` +
+    `<dt>Price</dt><dd>€340,000</dd>` +
+    `<dt>Bedrooms</dt><dd>3</dd>` +
+    `<dt>Availability</dt><dd>For Sale</dd></dl>` +
+    `<div data-latitude="${latitude}" data-longitude="${longitude}"></div></main>`;
+  const state = makeState();
+  const result = await Effect.runPromise(
+    runOnce(configWithLocation, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) => {
+        const requestUrl = new URL(url);
+        const path = requestUrl.pathname;
+        requestedPaths.push(`${path}${requestUrl.search}`);
+        if (path === "/residential/ireland/new-homes/property-for-sale") {
+          return Effect.succeed(regionHtml);
+        }
+        if (path === "/residential/dublin/new-homes/house-for-sale") {
+          return Effect.succeed(
+            requestUrl.search === "?page=2" ? secondListPage : firstListPage,
+          );
+        }
+        if (path === "/residential/example-grove/901") {
+          return Effect.succeed(detailHtml("Example Grove", 53.3, -6.2));
+        }
+        if (path === "/residential/example-road/902") {
+          return Effect.succeed(detailHtml("Example Road", 53.8, -6.2));
+        }
+        return Effect.fail(new Error(`Unexpected MyHome path ${path}`));
+      },
+      loadDublinBoundary: () => Effect.succeed(geometry),
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(result.pages, 3);
+  assert.equal(result.findings, 2);
+  assert.deepEqual(requestedPaths, [
+    "/residential/ireland/new-homes/property-for-sale",
+    "/residential/dublin/new-homes/house-for-sale",
+    "/residential/dublin/new-homes/house-for-sale?page=2",
+    "/residential/example-grove/901",
+    "/residential/example-road/902",
+  ]);
+  const myHomeRecords = (await Effect.runPromise(state.listCurrentListings()))
+    .filter((record) => record.source === "myhome");
+  assert.equal(myHomeRecords.length, 2);
+  const inside = myHomeRecords.find((record) => record.sourceId === "901");
+  const outside = myHomeRecords.find((record) => record.sourceId === "902");
+  assert.ok(inside?.dublinBoundary?.status === "classified");
+  assert.equal(inside.dublinBoundary.insideCounty, true);
+  assert.ok(outside?.dublinBoundary?.status === "classified");
+  assert.equal(outside.dublinBoundary.insideCounty, false);
+});
+test("keeps Daft results when MyHome source requests fail", async () => {
+  const state = makeState();
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([makeFinding("951")])),
+      fetchMyHomePage: () =>
+        Effect.fail(new Error("MyHome temporarily unavailable")),
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(result.findings, 1);
+  const records = await Effect.runPromise(state.listCurrentListings());
+  assert.deepEqual(records.map((record) => record.bellwatchKey), ["daft:951"]);
+});
+
+test("keeps listing collection successful when SearXNG fails", async () => {
+  const searchConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    MYHOME_ENABLED: "false",
+    SEARXNG_BASE_URL: "http://searxng.test",
+  });
+  const state = makeState();
+  const result = await Effect.runPromise(
+    runOnce(searchConfig, {
+      fetchPage: () => Effect.succeed(payload([makeFinding("952")])),
+      searchSearxng: () => Effect.fail(new Error("SearXNG unavailable")),
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(result.findings, 1);
+  const records = await Effect.runPromise(state.listCurrentListings());
+  assert.deepEqual(records.map((record) => record.bellwatchKey), ["daft:952"]);
 });

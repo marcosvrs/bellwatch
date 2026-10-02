@@ -236,6 +236,17 @@ test("omits incomplete sold ranges and missing verdict lines", () => {
   );
 });
 
+test("defaults notifications to the Daft source", async () => {
+  let title = "";
+  let message = "";
+  const run: ShoutrrrRunner = async (_binary, args, body) => {
+    title = args.at(-1) ?? "";
+    message = body;
+  };
+  await Effect.runPromise(publishFinding(config, finding, undefined, run));
+  assert.equal(title, `${config.titlePrefix}: ${finding.title}`);
+  assert.equal(message.split("\n").at(-1), `Daft: ${finding.url}`);
+});
 test("streams the message to the Shoutrrr CLI", async () => {
   const executable = await createExecutable(`
 const chunks = [];
