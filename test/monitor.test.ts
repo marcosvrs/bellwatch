@@ -2626,6 +2626,67 @@ test("honors the configured MyHome page cap when more pages are available", asyn
   );
 });
 
+test("skips MyHome when a page cap would truncate the requested sort order", async () => {
+  for (const sort of ["priceAsc", "priceDesc", "publishDateDesc"] as const) {
+    const requestedMyHomePages: string[] = [];
+    const warnings: string[] = [];
+    const logger = Logger.make(({ message }) => {
+      warnings.push(String(message));
+    });
+    const state = makeState();
+    const config = parseEnvironment({
+      SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+      DAFT_MAX_PAGES: "1",
+      DAFT_SORT: sort,
+    });
+    const result = await Effect.runPromise(
+      runOnce(config, {
+        fetchPage: () => Effect.succeed(payload([])),
+        fetchMyHomePage: (url) => {
+          requestedMyHomePages.push(new URL(url).pathname);
+          return Effect.succeed("<main></main>");
+        },
+        publish: () => Effect.void,
+        publishError: () => Effect.void,
+        state,
+        heartbeat: () => Effect.void,
+      }).pipe(Effect.provide(Logger.layer([logger]))),
+    );
+    assert.equal(result.pages, 1);
+    assert.equal(result.findings, 0);
+    assert.deepEqual(requestedMyHomePages, []);
+    assert.deepEqual(warnings, [
+      "MyHome skipped; DAFT_MAX_PAGES cannot preserve the requested sort order",
+    ]);
+  }
+});
+
+test("collects MyHome for a supported sort when no page cap truncates results", async () => {
+  const requestedMyHomePages: string[] = [];
+  const state = makeState();
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SORT: "priceAsc",
+  });
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) => {
+        requestedMyHomePages.push(new URL(url).pathname);
+        return Effect.succeed("<main></main>");
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(result.pages, 2);
+  assert.deepEqual(requestedMyHomePages, [
+    "/residential/ireland/new-homes/property-for-sale",
+  ]);
+});
+
 test("reports unverified active-filter evidence and excludes the listing", async () => {
   const state = makeState();
   const warnings: string[] = [];

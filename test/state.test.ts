@@ -114,10 +114,15 @@ test("stores source-keyed current listings and only meaningful dated changes", a
       }),
     );
     await Effect.runPromise(first.recordCandidate(candidate));
-    await Effect.runPromise(first.recordCandidate(candidate));
-    await Effect.runPromise(
-      first.recordCandidate({ ...candidate, snippet: "Updated possible home" }),
-    );
+    await Effect.runPromise(first.recordCandidate({
+      ...candidate,
+      discoveredAt: "2026-10-02T09:00:00.000Z",
+    }));
+    await Effect.runPromise(first.recordCandidate({
+      ...candidate,
+      snippet: "Updated possible home",
+      discoveredAt: "2026-10-03T09:00:00.000Z",
+    }));
     await Effect.runPromise(
       first.recordRegistrationEvent("daft:101", {
         status: "confirmed",
@@ -191,11 +196,16 @@ test("stores source-keyed current listings and only meaningful dated changes", a
     const currentCandidate = currentCandidates.at(0);
     assert.ok(currentCandidate);
     assert.equal(currentCandidate.candidateKey, "searxng:https://example.test/new-home");
-    assert.equal(
-      (await Effect.runPromise(
-        first.listCandidateObservations(currentCandidate.candidateKey),
-      )).length,
-      2,
+    assert.equal(currentCandidate.candidate.discoveredAt, candidate.discoveredAt);
+    const candidateObservations = await Effect.runPromise(
+      first.listCandidateObservations(currentCandidate.candidateKey),
+    );
+    assert.equal(candidateObservations.length, 2);
+    assert.ok(
+      candidateObservations.every(
+        (observation) =>
+          observation.candidate.discoveredAt === candidate.discoveredAt,
+      ),
     );
     const registrations = await Effect.runPromise(
       first.listRegistrationEvents(daftKey),

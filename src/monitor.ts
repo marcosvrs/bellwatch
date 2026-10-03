@@ -376,6 +376,15 @@ const collectMyHomeFindings = (
       );
       return { findings: [], pages: 0 };
     }
+    if (
+      config.daft.maxPages !== undefined &&
+      config.daft.filters.sort !== undefined
+    ) {
+      yield* Effect.logWarning(
+        "MyHome skipped; DAFT_MAX_PAGES cannot preserve the requested sort order",
+      );
+      return { findings: [], pages: 0 };
+    }
 
     let searchPath: string;
     if (config.daft.locations.length === 0) {

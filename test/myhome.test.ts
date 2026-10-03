@@ -813,6 +813,32 @@ test("applies new-home viewing and property-sale/rental detail predicates within
   assert.deepEqual(apply([candidate], { leaseLengthMinMonths: 24 }, "property-for-sale").findings, [candidate]);
 });
 
+test("normalizes granular MyHome BER grades for broad-band filters", () => {
+  for (const [id, grade, band] of [
+    ["33001", "A2", "A"],
+    ["33002", "B2", "B"],
+    ["33003", "B3", "B"],
+  ] as const) {
+    const candidate = findingFrom({ id, ber: grade });
+    assert.equal(candidate.finding.berRating, band);
+    assert.deepEqual(
+      apply([candidate], { berMin: band }, "property-for-sale").findings,
+      [candidate],
+    );
+    assert.deepEqual(
+      apply([candidate], { berMax: band }, "property-for-sale").findings,
+      [candidate],
+    );
+  }
+
+  const invalidGrade = findingFrom({ id: "33004", ber: "B4" });
+  const result = apply([invalidGrade], { berMin: "C" }, "property-for-sale");
+  assert.equal(invalidGrade.finding.berRating, undefined);
+  assert.deepEqual(result.findings, []);
+  assert.deepEqual(result.unverifiedSourceIds, [invalidGrade.sourceId]);
+});
+
+
 test("maps filter support by section and fails closed for unsupported features or missing facts", () => {
   const common = validateMyHomeFilterSupport("new-homes-for-sale", {
     ...EMPTY_FILTERS,

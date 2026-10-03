@@ -796,7 +796,11 @@ const parseFloorArea = (value: string | undefined): number | undefined => {
 
 const parseBer = (value: string | undefined): DaftBerRating | undefined => {
   if (value === undefined) { return undefined; }
-  const rating = value.trim().replace(/^ber\s*:?\s*/i, "").toUpperCase();
+  const normalized = value.trim().replace(/^ber\s*:?\s*/i, "").toUpperCase();
+  const rating =
+    /^(?:A[1-3]|B[1-3]|C[1-3]|D[1-2]|E[1-2])$/.test(normalized)
+      ? normalized.slice(0, 1)
+      : normalized;
   return BER_RATINGS.find((candidate) => candidate.toUpperCase() === rating);
 };
 

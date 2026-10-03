@@ -612,6 +612,19 @@ const candidateObservationFromRow = (
   candidate: parseStoredJson<DiscoveryCandidate>(row.candidate_json),
 });
 
+const candidateWithInitialDiscoveryTime = (
+  candidate: DiscoveryCandidate,
+  existingCandidateJson: string | undefined,
+): DiscoveryCandidate =>
+  existingCandidateJson === undefined
+    ? candidate
+    : {
+        ...candidate,
+        discoveredAt: parseStoredJson<DiscoveryCandidate>(
+          existingCandidateJson,
+        ).discoveredAt,
+      };
+
 const registrationFromRow = (row: RegistrationDbRow): RegistrationEvent => ({
   eventId: row.event_id,
   bellwatchKey: row.bellwatch_key,
@@ -776,7 +789,6 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
   const recordCandidate = (candidate: DiscoveryCandidate): void => {
     const key = candidateKeyFor(candidate);
     const now = new Date().toISOString();
-    const candidateJson = canonicalJson(candidate);
     const existingValue = database
       .prepare(
         "SELECT candidate_json FROM discovery_candidates WHERE candidate_key = ?",
@@ -785,6 +797,11 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
     const existing = existingValue === undefined
       ? undefined
       : queryRow<{ candidate_json: string }>(existingValue);
+    const persistedCandidate = candidateWithInitialDiscoveryTime(
+      candidate,
+      existing?.candidate_json,
+    );
+    const candidateJson = canonicalJson(persistedCandidate);
     const changed =
       existing === undefined || existing.candidate_json !== candidateJson;
 
@@ -1196,7 +1213,6 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
   ): Promise<void> => {
     const key = candidateKeyFor(candidate);
     const now = new Date().toISOString();
-    const candidateJson = canonicalJson(candidate);
     await sql.begin(async (transaction) => {
       const rows = await transaction`
         SELECT candidate_json FROM discovery_candidates WHERE candidate_key = ${key}
@@ -1205,6 +1221,11 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
       const existing = existingRow === undefined
         ? undefined
         : queryRow<{ candidate_json: string }>(existingRow);
+      const persistedCandidate = candidateWithInitialDiscoveryTime(
+        candidate,
+        existing?.candidate_json,
+      );
+      const candidateJson = canonicalJson(persistedCandidate);
       const changed =
         existing === undefined || existing.candidate_json !== candidateJson;
       await transaction`

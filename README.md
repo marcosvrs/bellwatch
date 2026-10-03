@@ -318,10 +318,16 @@ MyHome for that poll. If an individual record lacks a fact required by an
 active filter, it is excluded and the warning reports the number of affected
 records; other verifiable records remain eligible. Regional MyHome paths are
 used only when their route is evidenced by the nationwide page's rendered links.
+When `DAFT_MAX_PAGES` and `DAFT_SORT` are both set, MyHome is skipped for
+that poll because sorting a page-limited subset cannot guarantee the requested
+order.
 
 SearXNG is never queried unless `SEARXNG_BASE_URL` is set. Search results do not
 become listings, do not generate listing alerts, and are kept in a separate
 candidate table when Baserow mirroring is enabled.
+
+Repeated SearXNG sightings retain their initial discovery timestamp; only
+changes to the candidate details create a new candidate observation.
 
 ### Help to Buy evidence
 
