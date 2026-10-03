@@ -59,6 +59,44 @@ test("checks robots.txt, paces page requests, and caches robots policy", async (
   assert.deepEqual(delays, [1_000, 1_000]);
 });
 
+test("rejects redirects without following same-origin or off-origin destinations", async () => {
+  for (const location of [
+    "https://homes.example/residential/redirected",
+    "https://other.example/private",
+  ]) {
+    const requested: string[] = [];
+    const pageRedirectModes: Array<RequestInit["redirect"]> = [];
+    const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = requestUrl(input);
+      requested.push(url);
+      if (url.endsWith("/robots.txt")) {
+        return htmlResponse("User-agent: *\nAllow: /residential/");
+      }
+
+      pageRedirectModes.push(init?.redirect);
+      if (init?.redirect !== "manual") {
+        requested.push(location);
+        return htmlResponse("redirected content");
+      }
+      return new Response(null, { status: 302, headers: { location } });
+    };
+    const fetchPage = createMyHomePageFetcher(options(fetch, {
+      sleep: async () => undefined,
+    }));
+
+    await assert.rejects(
+      fetchPage("https://homes.example/residential/property-for-sale"),
+      (error: unknown) =>
+        error instanceof MyHomeFetchError && error.status === 302,
+    );
+    assert.deepEqual(pageRedirectModes, ["manual"]);
+    assert.deepEqual(requested, [
+      "https://homes.example/robots.txt",
+      "https://homes.example/residential/property-for-sale",
+    ]);
+  }
+});
+
 test("refuses robots-disallowed and off-origin pages without requesting them", async () => {
   const requested: string[] = [];
   const fetchPage = createMyHomePageFetcher(options(async (input) => {

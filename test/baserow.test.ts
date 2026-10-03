@@ -100,8 +100,14 @@ test("Baserow retries after a lost create response and updates its stable row", 
 
     if (method === "GET") {
       const key = url.searchParams.get("filter__bellwatch_key__equal");
-      const results =
-        remoteRow?.["bellwatch_key"] === key && key !== null ? [remoteRow] : [];
+      if (key === null) {
+        const id = url.pathname.split("/").at(-2);
+        if (id === undefined || remoteRow?.["id"] !== Number(id)) {
+          return new Response(null, { status: 404 });
+        }
+        return new Response(JSON.stringify(remoteRow), { status: 200 });
+      }
+      const results = remoteRow?.["bellwatch_key"] === key ? [remoteRow] : [];
       return new Response(JSON.stringify({ count: results.length, results }), {
         status: 200,
       });
@@ -172,15 +178,17 @@ test("Baserow retries after a lost create response and updates its stable row", 
       }),
     );
     await Effect.runPromise(syncBaserow(options));
-    assert.equal(callAt(calls, 4).method, "PATCH");
-    assert.equal(bodyAt(calls, 4)["registration_status"], "confirmed");
-    assert.equal(bodyAt(calls, 4)["registration_consent_status"], "unknown");
+    assert.equal(callAt(calls, 4).method, "GET");
+    assert.equal(callAt(calls, 4).url.pathname, "/api/database/rows/table/listings-table/72/");
+    assert.equal(callAt(calls, 5).method, "PATCH");
+    assert.equal(bodyAt(calls, 5)["registration_status"], "confirmed");
+    assert.equal(bodyAt(calls, 5)["registration_consent_status"], "unknown");
     assert.equal(
-      bodyAt(calls, 4)["registration_evidence"],
+      bodyAt(calls, 5)["registration_evidence"],
       "Provider confirmed receipt.",
     );
     assert.match(
-      String(bodyAt(calls, 4)["registration_history_json"]),
+      String(bodyAt(calls, 5)["registration_history_json"]),
       /"status":"confirmed"/,
     );
     await Effect.runPromise(state.close());
@@ -193,10 +201,161 @@ test("Baserow retries after a lost create response and updates its stable row", 
       }),
     );
     await Effect.runPromise(syncBaserow({ ...options, state }));
-    assert.equal(callAt(calls, 5).method, "PATCH");
-    assert.equal(callAt(calls, 5).url.pathname, "/api/database/rows/table/listings-table/72/");
-    assert.equal(bodyAt(calls, 5)["price_text"], "€355,000");
+    assert.equal(callAt(calls, 6).method, "GET");
+    assert.equal(callAt(calls, 7).method, "PATCH");
+    assert.equal(callAt(calls, 7).url.pathname, "/api/database/rows/table/listings-table/72/");
+    assert.equal(bodyAt(calls, 7)["price_text"], "€355,000");
     assert.equal(remoteRow?.["price_text"], "€355,000");
+    assert.equal(
+      (await Effect.runPromise(state.listPendingBaserowListings())).length,
+      0,
+    );
+  } finally {
+    await Effect.runPromise(state.close());
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Baserow recovers from deleted and reused persisted row IDs safely", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bellwatch-baserow-stale-id-"));
+  const file = join(directory, "state.sqlite");
+  const state = await Effect.runPromise(createStateStore({ file }));
+  const listing: SourcedFinding = {
+    source: "myhome",
+    sourceId: "unit-72",
+    finding: {
+      id: "unit-72",
+      title: "Three-bedroom house",
+      developmentTitle: "Example Grove",
+      priceText: "€340,000",
+      bedrooms: 3,
+      propertyType: "House",
+      address: "1 Example Grove",
+      eircode: "D01 AB12",
+      url: "https://www.myhome.ie/residential/example/72",
+    },
+  };
+  const calls: RecordedCall[] = [];
+  const rows = new Map<string, Record<string, unknown>>();
+  let nextRowId = 72;
+  const fakeFetch: typeof fetch = async (input, init) => {
+    const url = new URL(requestUrl(input));
+    const method = init?.method ?? "GET";
+    const requestBody = init?.body;
+    const body = requestBody === undefined
+      ? undefined
+      : typeof requestBody === "string"
+        ? parseObjectJson(requestBody)
+        : (() => { throw new TypeError("Expected a JSON request body"); })();
+    calls.push({
+      method,
+      url,
+      authorization: new Headers(init?.headers).get("Authorization"),
+      body,
+    });
+
+    if (method === "GET") {
+      const identity = url.searchParams.get("filter__bellwatch_key__equal");
+      if (identity !== null) {
+        const results = [...rows.values()].filter(
+          (row) => row["bellwatch_key"] === identity,
+        );
+        return new Response(JSON.stringify({ count: results.length, results }), {
+          status: 200,
+        });
+      }
+      const rowId = url.pathname.split("/").at(-2);
+      const row = rowId === undefined ? undefined : rows.get(rowId);
+      return row === undefined
+        ? new Response(null, { status: 404 })
+        : new Response(JSON.stringify(row), { status: 200 });
+    }
+    if (method === "POST") {
+      const id = nextRowId;
+      nextRowId += 1;
+      const row = { id, ...(body ?? {}) };
+      rows.set(String(id), row);
+      return new Response(JSON.stringify(row), { status: 201 });
+    }
+    const rowId = url.pathname.split("/").at(-2);
+    if (rowId === undefined) { return new Response(null, { status: 404 }); }
+    const row = rows.get(rowId);
+    if (row === undefined) {
+      return new Response(null, { status: 404 });
+    }
+    const updated = { ...row, ...(body ?? {}) };
+    rows.set(rowId, updated);
+    return new Response(JSON.stringify(updated), { status: 200 });
+  };
+  const options = {
+    baseUrl: "https://baserow.example.test",
+    token: "stale-row-test-token",
+    tableId: "listings-table",
+    state,
+    fetch: fakeFetch,
+  };
+
+  try {
+    await Effect.runPromise(state.observeFinding(listing));
+    await Effect.runPromise(syncBaserow(options));
+    assert.equal(rows.get("72")?.["bellwatch_key"], "myhome:unit-72");
+
+    rows.set("72", { id: 72, bellwatch_key: "daft:other-property" });
+    await Effect.runPromise(
+      state.observeFinding({
+        ...listing,
+        finding: { ...listing.finding, priceText: "€345,000" },
+      }),
+    );
+    await Effect.runPromise(syncBaserow(options));
+
+    assert.deepEqual(
+      calls.slice(2).map((call) => call.method),
+      ["GET", "GET", "POST"],
+    );
+    assert.equal(
+      callAt(calls, 2).url.pathname,
+      "/api/database/rows/table/listings-table/72/",
+    );
+    assert.equal(
+      callAt(calls, 3).url.searchParams.get("filter__bellwatch_key__equal"),
+      "myhome:unit-72",
+    );
+    assert.equal(rows.get("72")?.["bellwatch_key"], "daft:other-property");
+    assert.equal(rows.get("73")?.["bellwatch_key"], "myhome:unit-72");
+
+    rows.delete("73");
+    rows.set("90", {
+      id: 90,
+      bellwatch_key: "myhome:unit-72",
+      price_text: "€345,000",
+    });
+    await Effect.runPromise(
+      state.observeFinding({
+        ...listing,
+        finding: { ...listing.finding, priceText: "€350,000" },
+      }),
+    );
+    await Effect.runPromise(syncBaserow(options));
+
+    assert.deepEqual(
+      calls.slice(5).map((call) => call.method),
+      ["GET", "GET", "PATCH"],
+    );
+    assert.equal(
+      callAt(calls, 5).url.pathname,
+      "/api/database/rows/table/listings-table/73/",
+    );
+    assert.equal(
+      callAt(calls, 6).url.searchParams.get("filter__bellwatch_key__equal"),
+      "myhome:unit-72",
+    );
+    assert.equal(
+      callAt(calls, 7).url.pathname,
+      "/api/database/rows/table/listings-table/90/",
+    );
+    assert.equal(rows.get("73"), undefined);
+    assert.equal(rows.get("90")?.["price_text"], "€350,000");
     assert.equal(
       (await Effect.runPromise(state.listPendingBaserowListings())).length,
       0,

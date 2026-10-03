@@ -237,6 +237,157 @@ test("stores source-keyed current listings and only meaningful dated changes", a
     await rm(directory, { recursive: true, force: true });
   }
 });
+test("groups richer and poorer cross-provider identity evidence safely", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "bellwatch-identity-groups-"));
+  const file = join(directory, "state.sqlite");
+  const state = await Effect.runPromise(createStateStore({ file }));
+  const initialPoor: SourcedFinding = {
+    source: "daft",
+    sourceId: "property-1",
+    finding: {
+      ...finding,
+      bedrooms: 3,
+      propertyType: "Semi-Detached House",
+      address: "1 Example Grove",
+    },
+  };
+  const richer: SourcedFinding = {
+    source: "daft",
+    sourceId: "property-1",
+    finding: {
+      ...finding,
+      bedrooms: 3,
+      propertyType: "Semi-Detached House",
+      address: "1 Example Grove",
+      eircode: "D01 AB12",
+    },
+  };
+  const poorer: SourcedFinding = {
+    source: "myhome",
+    sourceId: "property-2",
+    finding: {
+      ...finding,
+      id: "property-2",
+      url: "https://www.myhome.ie/residential/example/property-2",
+      bedrooms: 3,
+      propertyType: "Semi detached house",
+      address: "1 Example Grove",
+    },
+  };
+  const unrelated: SourcedFinding = {
+    source: "myhome",
+    sourceId: "property-3",
+    finding: {
+      ...finding,
+      id: "property-3",
+      url: "https://www.myhome.ie/residential/example/property-3",
+      bedrooms: 2,
+      propertyType: "Apartment",
+      address: "1 Example Grove",
+    },
+  };
+  const conflictingRicher: SourcedFinding = {
+    ...richer,
+    sourceId: "property-4",
+    finding: {
+      ...richer.finding,
+      id: "property-4",
+      eircode: "D02 XY34",
+    },
+  };
+
+  try {
+    await Effect.runPromise(state.observeFinding(initialPoor));
+    const initialGroupKey = (await Effect.runPromise(
+      state.getCurrentListing("daft:property-1"),
+    ))?.canonicalGroupKey;
+    assert.ok(initialGroupKey);
+    await Effect.runPromise(
+      state.markSeen(
+        { ...initialPoor.finding, id: "daft:property-1" },
+        initialGroupKey,
+      ),
+    );
+    await Effect.runPromise(state.observeFinding(richer));
+    await Effect.runPromise(state.observeFinding(poorer));
+    await Effect.runPromise(state.observeFinding(unrelated));
+    const richerKey = (await Effect.runPromise(
+      state.getCurrentListing("daft:property-1"),
+    ))?.canonicalGroupKey;
+    const poorerKey = (await Effect.runPromise(
+      state.getCurrentListing("myhome:property-2"),
+    ))?.canonicalGroupKey;
+    const unrelatedKey = (await Effect.runPromise(
+      state.getCurrentListing("myhome:property-3"),
+    ))?.canonicalGroupKey;
+
+    assert.ok(richerKey);
+    assert.equal(poorerKey, richerKey);
+    assert.ok(unrelatedKey);
+    assert.notEqual(unrelatedKey, richerKey);
+    assert.equal(
+      await Effect.runPromise(
+        state.isSeen("myhome:property-2", poorerKey),
+      ),
+      true,
+    );
+    assert.equal(
+      await Effect.runPromise(
+        state.isSeen("myhome:property-3", unrelatedKey),
+      ),
+      false,
+    );
+
+    await Effect.runPromise(state.observeFinding(richer));
+    await Effect.runPromise(state.observeFinding(poorer));
+    assert.equal(
+      (await Effect.runPromise(state.getCurrentListing("daft:property-1")))
+        ?.canonicalGroupKey,
+      richerKey,
+    );
+    assert.equal(
+      (await Effect.runPromise(state.getCurrentListing("myhome:property-2")))
+        ?.canonicalGroupKey,
+      richerKey,
+    );
+    assert.equal(
+      (await Effect.runPromise(state.listListingObservations("daft:property-1")))
+        .length,
+      2,
+    );
+    assert.equal(
+      (await Effect.runPromise(state.listListingObservations("myhome:property-2")))
+        .length,
+      1,
+    );
+    assert.equal(
+      await Effect.runPromise(
+        state.isSeen("myhome:property-2", poorerKey),
+      ),
+      true,
+    );
+    await Effect.runPromise(state.observeFinding(conflictingRicher));
+    const conflictingKey = (await Effect.runPromise(
+      state.getCurrentListing("daft:property-4"),
+    ))?.canonicalGroupKey;
+    const ambiguousPoorKey = (await Effect.runPromise(
+      state.getCurrentListing("myhome:property-2"),
+    ))?.canonicalGroupKey;
+    assert.ok(conflictingKey);
+    assert.notEqual(conflictingKey, richerKey);
+    assert.equal(ambiguousPoorKey, undefined);
+    assert.equal(
+      await Effect.runPromise(
+        state.isSeen("myhome:property-2", ambiguousPoorKey),
+      ),
+      false,
+    );
+  } finally {
+    await Effect.runPromise(state.close());
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("migrates existing registration history to explicit consent state", async () => {
   const directory = await mkdtemp(join(tmpdir(), "bellwatch-registration-migration-"));
   const file = join(directory, "state.sqlite");

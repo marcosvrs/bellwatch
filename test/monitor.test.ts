@@ -6,6 +6,7 @@ import test from "node:test";
 import * as Effect from "effect/Effect";
 import * as Logger from "effect/Logger";
 import { parseEnvironment } from "../src/config.js";
+import { classifyHelpToBuyEvidence } from "../src/daft/shps.js";
 import { MonitorError, runOnce, writeHeartbeat } from "../src/monitor.js";
 import { sourcedFindingKey, type DiscoveryCandidate } from "../src/listings.js";
 import type { DaftFinding } from "../src/daft/parser.js";
@@ -1057,6 +1058,49 @@ test("keeps findings when detail pages have no description", async () => {
   );
   assert.equal(result.findings, 1);
   assert.deepEqual(sent, ["804"]);
+});
+
+test("records Help to Buy evidence for Baserow when SHPS filtering is off", async () => {
+  const finding = makeFinding("805");
+  const description = "Eligible purchasers may use Help to Buy.";
+  const state = makeState();
+  let detailRequests = 0;
+  const baserowConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    SHPS_FILTER: "off",
+    DAFT_MAX_PAGES: "1",
+    MYHOME_ENABLED: "false",
+    BASEROW_BASE_URL: "http://baserow.test",
+    BASEROW_TOKEN: "test-token",
+    BASEROW_TABLE_ID: "listings",
+  });
+
+  const result = await Effect.runPromise(
+    runOnce(baserowConfig, {
+      fetchPage: (url) => {
+        if (url === finding.url) {
+          detailRequests += 1;
+          return Effect.succeed(detailPayload(description));
+        }
+        return Effect.succeed(payload([finding]));
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  const observation = (await Effect.runPromise(state.listCurrentListings()))
+    .find((listing) => listing.source === "daft");
+  assert.equal(result.findings, 1);
+  assert.equal(detailRequests, 1);
+  assert.ok(observation);
+  assert.equal(observation.finding.schemeText, description);
+  assert.equal(
+    classifyHelpToBuyEvidence(observation.finding),
+    "mentioned",
+  );
 });
 
 test("notifies and preserves detail-fetch failures", async () => {
@@ -2194,6 +2238,104 @@ test("keeps Daft results when MyHome source requests fail", async () => {
       (message) =>
         message.includes("MyHome source failed") &&
         message.includes("MyHome temporarily unavailable"),
+    ),
+  );
+});
+
+test("isolates a MyHome detail failure without losing other source findings", async () => {
+  const detailFailure = new Error("listing detail temporarily unavailable");
+  const daftFinding = makeFinding("987");
+  const state = makeState();
+  const warnings: string[] = [];
+  const published: { readonly source: string; readonly url: string }[] = [];
+  const logger = Logger.make(({ message }) => {
+    warnings.push(String(message));
+  });
+  const listHtml =
+    `<main><article><a href="/residential/good-house/986">Good House</a></article>` +
+    `<article><a href="/residential/broken-house/988">Broken House</a></article></main>`;
+  const detailHtml =
+    `<main><h1>Good House</h1><dl>` +
+    `<dt>Property Type</dt><dd>Semi-detached house</dd>` +
+    `<dt>Price</dt><dd>€340,000</dd>` +
+    `<dt>Bedrooms</dt><dd>3</dd>` +
+    `<dt>Availability</dt><dd>For Sale</dd></dl>` +
+    `<div data-latitude="53.3"></div></main>`;
+  const boundary: DublinBoundaryGeometry = {
+    type: "Polygon",
+    coordinates: [[
+      [-6.3, 53.2],
+      [-6.1, 53.2],
+      [-6.1, 53.4],
+      [-6.3, 53.4],
+      [-6.3, 53.2],
+    ]],
+  };
+  let boundaryLoads = 0;
+  const resilientConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+
+  const result = await Effect.runPromise(
+    runOnce(resilientConfig, {
+      fetchPage: () => Effect.succeed(payload([daftFinding])),
+      fetchMyHomePage: (url) => {
+        const path = new URL(url).pathname;
+        if (path === "/residential/ireland/new-homes/property-for-sale") {
+          return Effect.succeed(listHtml);
+        }
+        if (path === "/residential/broken-house/988") {
+          return Effect.fail(detailFailure);
+        }
+        return Effect.succeed(detailHtml);
+      },
+      loadDublinBoundary: () => {
+        boundaryLoads += 1;
+        return Effect.succeed(boundary);
+      },
+      publish: (finding, source) =>
+        Effect.sync(() => {
+          published.push({ source, url: finding.url });
+        }),
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }).pipe(Effect.provide(Logger.layer([logger]))),
+  );
+
+  const records = await Effect.runPromise(state.listCurrentListings());
+  assert.equal(result.findings, 2);
+  assert.equal(result.notified, 2);
+  assert.deepEqual(
+    records.map((record) => record.bellwatchKey).sort(),
+    ["daft:987", "myhome:986"],
+  );
+  assert.deepEqual(
+    published.map(({ source }) => source).sort(),
+    ["daft", "myhome"],
+  );
+  assert.ok(
+    published.some(
+      ({ source, url }) =>
+        source === "daft" && url === daftFinding.url,
+    ),
+  );
+  assert.ok(
+    published.some(
+      ({ source, url }) =>
+        source === "myhome" && url.endsWith("/good-house/986"),
+    ),
+  );
+  assert.equal(boundaryLoads, 0);
+  const goodMyHome = records.find((record) => record.bellwatchKey === "myhome:986");
+  assert.ok(goodMyHome?.dublinBoundary?.status === "unclassified");
+  assert.equal(goodMyHome.dublinBoundary.reason, "missing-coordinates");
+  assert.ok(
+    warnings.some(
+      (message) =>
+        message.includes("988") && message.includes(detailFailure.message),
     ),
   );
 });

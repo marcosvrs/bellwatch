@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DAFT_FACILITIES, type DaftFilters } from "../src/daft/filters.js";
+import { DAFT_ADDED_IN_LAST_DAYS, DAFT_FACILITIES, type DaftFilters } from "../src/daft/filters.js";
 import type { DaftSectionPath } from "../src/daft/sections.js";
 import type { SourcedFinding } from "../src/listings.js";
+import { classifyShpsAvailability, filterShpsFindings } from "../src/daft/shps.js";
 import {
   applyMyHomeFilters,
   buildMyHomeUrl,
@@ -136,6 +137,23 @@ test("builds canonical residential and rental URLs with page-only pagination", (
     buildMyHomeUrl(BASE_URL, "/rentals/ireland/property-to-rent", 2),
     `${BASE_URL}/rentals/ireland/property-to-rent?page=2`,
   );
+
+  assert.equal(
+    buildMyHomeUrl(
+      "https://homes.example/root/path///?stale=1",
+      "/residential/ireland/property-for-sale",
+      2,
+    ),
+    "https://homes.example/root/path/residential/ireland/property-for-sale?page=2",
+  );
+  assert.equal(
+    buildMyHomeUrl("https://homes.example/", "/rentals/ireland/property-to-rent"),
+    "https://homes.example/rentals/ireland/property-to-rent",
+  );
+  assert.throws(
+    () => buildMyHomeUrl("https://homes.example/root", "https://attacker.example/residential/home/12345"),
+    /origin/,
+  );
   assert.throws(() => buildMyHomeUrl(BASE_URL, "/residential/search?beds=3"), /canonical/);
   assert.throws(() => buildMyHomeUrl(BASE_URL, "/residential/search#results"), /canonical/);
   assert.throws(() => buildMyHomeUrl(BASE_URL, "https://attacker.example/residential/search"), /origin/);
@@ -158,6 +176,10 @@ test("parses canonical list cards, keeps raw source IDs, and deduplicates respon
       <a href="?page=2">2</a><a href="?page=8">8</a>
       <a href="?page=9&beds=3">9</a><a href="https://other.example/residential/house/998877">Other</a>
       <a href="/residential/ireland/property-for-sale">Browse all</a>
+      <nav><a href="/residential/ordinary-navigation/12345">Residential navigation</a></nav>
+      <article><a href="/residential/estate-agent/12346">Estate agent profile</a></article>
+      <article><a href="/residential/harbour-view/details">Non-listing detail link</a></article>
+      <article><a href="/residential/agents/jane-doe/12347">Agent profile</a></article>
     </main>`,
     `${SEARCH_URL}?page=2`,
   );
@@ -177,10 +199,27 @@ test("parses canonical list cards, keeps raw source IDs, and deduplicates respon
   assert.throws(() => parseMyHomeListPage("", "https://www.myhome.ie/search"), /canonical/);
 });
 
+test("preserves configured base paths when parsing listing-card URLs", () => {
+  const page = parseMyHomeListPage(
+    `<main><article><a href="/residential/harbour-view/12345">Harbour View</a></article></main>`,
+    "https://homes.example/root/residential/ireland/property-for-sale",
+  );
+  const candidate = checkedFirst(page.findings);
+  assert.equal(
+    candidate.finding.url,
+    "https://homes.example/root/residential/harbour-view/12345",
+  );
+  const detail = parseMyHomeDetailPage(
+    detailHtml({ propertyType: "House" }),
+    candidate.finding.url,
+  );
+  assert.equal(detail.url, candidate.finding.url);
+});
+
 test("parses and filters rental listings under canonical rentals routes", () => {
   const rentalUrl = `${BASE_URL}/rentals/ireland/property-to-rent`;
   const candidate = checkedFirst(parseMyHomeListPage(
-    `<main><a href="/rentals/brochure/house-on-the-green/90006">House on the Green</a></main>`,
+    `<main><article><a href="/rentals/brochure/house-on-the-green/90006">House on the Green</a></article></main>`,
     rentalUrl,
   ).findings);
   assert.equal(candidate.finding.url, `${BASE_URL}/rentals/brochure/house-on-the-green/90006`);
@@ -207,6 +246,39 @@ test("parses and filters rental listings under canonical rentals routes", () => 
     }, FIXED_NOW).findings,
     [rental],
   );
+});
+
+test("maps rental availability labels through MyHome filters", () => {
+  const rentalSearch = `${BASE_URL}/rentals/ireland/property-to-rent`;
+  const labels = [
+    { label: "To Let", availability: "published" },
+    { label: "To Rent", availability: "published" },
+    { label: "Let Agreed", availability: "sale-agreed" },
+  ] as const;
+  for (const [index, { label, availability }] of labels.entries()) {
+    const sourceId = String(90010 + index);
+    const candidate = checkedFirst(parseMyHomeListPage(
+      `<main><article><a href="/rentals/brochure/rental-home/${sourceId}">Rental Home</a></article></main>`,
+      rentalSearch,
+    ).findings);
+    const rental = enrichMyHomeFinding(candidate, parseMyHomeDetailPage(
+      detailHtml({ propertyType: "House", availability: label }),
+      candidate.finding.url,
+    ));
+    assert.equal(rental.myhomeEvidence.availability, availability);
+    assert.deepEqual(
+      apply([rental], { availability }, "property-for-rent").findings,
+      [rental],
+    );
+    assert.deepEqual(
+      apply(
+        [rental],
+        { availability: availability === "published" ? "sale-agreed" : "published" },
+        "property-for-rent",
+      ).findings,
+      [],
+    );
+  }
 });
 
 test("derives total pages from MyHome result-count metadata and rel-next links", () => {
@@ -314,8 +386,8 @@ test("decodes server-rendered HTML and rejects embedded non-content or paginatio
     `<!doctype html><!-- responsive page --><script><a href="/residential/house/90000">ignored</a></script>
       <style>.card::before { content: "<a>"; }</style>
       <main>
-        <a href="/residential/harbour-house/90001" title="&quot;Harbour&apos;s&quot; &euro; &#65; &#x42; &#0;" title="ignored">A &amp; B &lt; C &gt; D&nbsp;E</a>
-        <a href="/residential/blank-card/90002"></a>
+        <article><a href="/residential/harbour-house/90001" title="&quot;Harbour&apos;s&quot; &euro; &#65; &#x42; &#0;" title="ignored">A &amp; B &lt; C &gt; D&nbsp;E</a></article>
+        <article><a href="/residential/blank-card/90002"></a></article>
         <a href="#fragment">invalid detail</a>
       </main></unmatched>`,
     SEARCH_URL,
@@ -335,7 +407,7 @@ test("decodes server-rendered HTML and rejects embedded non-content or paginatio
 
 test("parses and enriches type-level detail facts without losing source identity", () => {
   const candidate = checkedFirst(parseMyHomeListPage(
-    `<a href="/residential/harbour-view/12345678">Harbour View</a>`,
+    `<main><article><a href="/residential/harbour-view/12345678">Harbour View</a></article></main>`,
     SEARCH_URL,
   ).findings);
   const detail: MyHomeDetail = parseMyHomeDetailPage(detailHtml({
@@ -391,6 +463,31 @@ test("parses and enriches type-level detail facts without losing source identity
     ...candidate,
     sourceId: "wrong-id",
   }, detail), /does not match/);
+});
+
+test("preserves SHPS and LAAPS evidence for SHPS filtering with or without Help to Buy", () => {
+  const shpsOnly = findingFrom({
+    id: "24001",
+    schemeText: "This development is available under SHPS for eligible buyers.",
+  });
+  assert.match(shpsOnly.finding.schemeText ?? "", /\bSHPS\b/);
+  assert.equal(classifyShpsAvailability(shpsOnly.finding), "shps-only");
+  assert.deepEqual(
+    filterShpsFindings([shpsOnly.finding], { filter: "only" }),
+    [shpsOnly.finding],
+  );
+
+  const shpsWithHtb = findingFrom({
+    id: "24002",
+    schemeText: "This development is available under LAAPS. Help to Buy funding may also be available.",
+  });
+  assert.match(shpsWithHtb.finding.schemeText ?? "", /\bLAAPS\b/);
+  assert.match(shpsWithHtb.finding.schemeText ?? "", /\bHelp to Buy\b/);
+  assert.equal(classifyShpsAvailability(shpsWithHtb.finding), "shps-and-other");
+  assert.deepEqual(
+    filterShpsFindings([shpsWithHtb.finding], { filter: "only" }),
+    [],
+  );
 });
 
 test("parses MyHome metric square units and source-linked property coordinates", () => {
@@ -455,6 +552,23 @@ test("keeps POA nonnumeric and marks malformed individual prices unverified", ()
   const priceFilteredPoa = apply([poa], { priceMinEur: 400_000 });
   assert.deepEqual(priceFilteredPoa.findings, []);
   assert.deepEqual(priceFilteredPoa.unsupportedFilters, []);
+
+  for (const [index, price] of [
+    "€2,500 per month",
+    "€2,500 / month",
+    "€2,500 monthly",
+  ].entries()) {
+    const rental = findingFrom({ id: String(10010 + index), price });
+    assert.equal(rental.myhomeEvidence.priceState, "amount", price);
+    assert.equal(rental.myhomeEvidence.priceEur, 2_500, price);
+    assert.deepEqual(
+      apply([rental], { priceMinEur: 2_500 }, "property-for-rent").findings,
+      [rental],
+    );
+  }
+  const monthlyRange = findingFrom({ id: "10020", price: "€2,500 - €3,000 per month" });
+  assert.equal(monthlyRange.myhomeEvidence.priceState, "unknown");
+  assert.equal(monthlyRange.myhomeEvidence.priceEur, undefined);
 
   const malformed = findingFrom({ id: "10002", price: "€450,000 - €475,000" });
   assert.equal(malformed.myhomeEvidence.priceState, "unknown");
@@ -544,7 +658,7 @@ test("excludes records that lack evidence for an active supported filter", () =>
   };
   assertUnverified(findingFrom({ id: "22001", availability: undefined }));
   assertUnverified(findingFrom({ id: "22002", publishedAt: undefined }), { addedInLastDays: 7 });
-  assertUnverified(findingFrom({ id: "22002a", publishedAt: undefined }), { sort: "publishDateDesc" });
+  assertUnverified(findingFrom({ id: "22020", publishedAt: undefined }), { sort: "publishDateDesc" });
   assertUnverified(findingFrom({ id: "22003", openViewing: undefined }), { openViewingsFrom: "2026-10-10" });
   assertUnverified(findingFrom({ id: "22004", floorArea: undefined }), { floorSizeMinSqm: 80 }, "property-for-sale");
   const missingSaleFacts = findingFrom({
@@ -602,7 +716,7 @@ test("applies shared price, bed, bath, keyword, availability, date, and sort pre
   assert.deepEqual(apply([current], { keyword: "harbour" }).findings, [current]);
   assert.deepEqual(apply([current], { keyword: "garage" }).findings, []);
   assert.deepEqual(apply([current], { addedInLastDays: 7 }).findings, [current]);
-  assert.deepEqual(apply([current], { addedInLastDays: 1 }).findings, []);
+  assert.deepEqual(apply([current], { addedInLastDays: 1 }).findings, [current]);
   assert.deepEqual(
     applyMyHomeFilters(
       [current],
@@ -620,6 +734,46 @@ test("applies shared price, bed, bath, keyword, availability, date, and sort pre
   assert.deepEqual(apply([current], { availability: "sale-agreed" }).findings, []);
   assert.deepEqual(apply([noOffers], { onlineOffers: false }, "property-for-sale").findings, [noOffers]);
   assert.deepEqual(apply([notAuction], { saleType: "auction" }, "property-for-sale").findings, []);
+});
+
+test("includes every Added In Last period through its full-day cutoff", () => {
+  const dayMs = 86_400_000;
+  const today = Date.UTC(
+    FIXED_NOW.getUTCFullYear(),
+    FIXED_NOW.getUTCMonth(),
+    FIXED_NOW.getUTCDate(),
+  );
+  for (const days of DAFT_ADDED_IN_LAST_DAYS) {
+    if (days === 0) {
+      const noCutoff = findingFrom({ id: "50000", publishedAt: "2020-01-01" });
+      assert.deepEqual(
+        apply([noCutoff], { addedInLastDays: days }).findings,
+        [noCutoff],
+        "zero days disables the publication-date cutoff",
+      );
+      continue;
+    }
+    const cutoff = new Date(today - days * dayMs).toISOString().slice(0, 10);
+    const outside = new Date(today - (days + 1) * dayMs).toISOString().slice(0, 10);
+    const inRange = findingFrom({
+      id: String(50000 + days),
+      publishedAt: cutoff,
+    });
+    const outOfRange = findingFrom({
+      id: String(51000 + days),
+      publishedAt: outside,
+    });
+    assert.deepEqual(
+      apply([inRange], { addedInLastDays: days }).findings,
+      [inRange],
+      `${days} days includes its cutoff date`,
+    );
+    assert.deepEqual(
+      apply([outOfRange], { addedInLastDays: days }).findings,
+      [],
+      `${days} days excludes the preceding date`,
+    );
+  }
 });
 
 test("applies new-home viewing and property-sale/rental detail predicates within Daft scopes", () => {

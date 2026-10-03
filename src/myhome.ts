@@ -73,20 +73,6 @@ const HOUSE_PROPERTY_TYPES: Readonly<Record<string, true>> = {
   townhouses: true,
   bungalows: true,
 };
-const SEARCH_ROUTE_TAILS: Readonly<Record<string, true>> = {
-  "for-sale": true,
-  "for-rent": true,
-  "house-for-sale": true,
-  "house-to-rent": true,
-  ireland: true,
-  "new-homes": true,
-  "new-homes-for-sale": true,
-  "property-for-sale": true,
-  "property-for-rent": true,
-  "property-to-rent": true,
-  residential: true,
-  rentals: true,
-};
 const BER_RATINGS: readonly DaftBerRating[] = [
   "exempt",
   "G",
@@ -135,6 +121,12 @@ const PROPERTY_TYPES: readonly PropertyTypeMapping[] = [
   { label: "Site", daftTypes: ["sites"] },
   { label: "House", daftTypes: ["houses"] },
 ];
+const SCHEME_EVIDENCE_MARKERS = [
+  /\b(?:help to buy|htb|shps|laaps)\b/i,
+  /\b(?:starter home purchase scheme|starter homes? programme)\b/i,
+  /\b(?:local authority affordable purchase(?: scheme)?|affordable dwelling purchase arrangement|affordable purchase scheme|first home scheme|cost rental)\b/i,
+] as const;
+
 
 export type MyHomeFilterName = keyof DaftFilters;
 export type MyHomeFilterSource = "source-backed-local" | "unsupported";
@@ -337,13 +329,39 @@ const canonicalMyHomePath = (path: string): string | undefined => {
   return canonical;
 };
 
+interface MyHomePathParts {
+  readonly basePath: string;
+  readonly canonicalPath: string;
+}
+
+const myHomePathParts = (pathname: string): MyHomePathParts | undefined => {
+  let parts: MyHomePathParts | undefined;
+  for (const match of pathname.matchAll(/\/(?:residential|rentals)\//g)) {
+    const canonicalPath = canonicalMyHomePath(pathname.slice(match.index));
+    if (canonicalPath !== undefined) {
+      parts = {
+        basePath: pathname.slice(0, match.index).replace(/\/+$/, ""),
+        canonicalPath,
+      };
+    }
+  }
+  return parts;
+};
+
 const sourceIdFromUrl = (url: URL): string => {
-  const segments = url.pathname.split("/").filter(Boolean);
-  const sourceId = segments.at(-1);
+  const path = myHomePathParts(url.pathname)?.canonicalPath;
+  const segments = path?.split("/").filter(Boolean);
+  const sourceId = segments?.at(-1);
+  const nonListingRoute = segments?.slice(1, -1).some((segment) =>
+    /^(?:agent|agents|estate-agent|estate-agents)$/i.test(segment),
+  ) === true;
   if (
-    canonicalMyHomePath(url.pathname) === undefined ||
+    path === undefined ||
+    segments === undefined ||
+    segments.length < 3 ||
     sourceId === undefined ||
-    SEARCH_ROUTE_TAILS[sourceId.toLowerCase()] === true
+    !/^\d+$/.test(sourceId) ||
+    nonListingRoute
   ) {
     throw new Error(`MyHome detail URL must identify a listing: ${url.pathname}`);
   }
@@ -371,7 +389,7 @@ export const buildMyHomeUrl = (
   if (normalizedPath === undefined || url.search !== "" || url.hash !== "") {
     throw new Error("MyHome URLs must be canonical /residential or /rentals paths without a query or fragment");
   }
-  url.pathname = normalizedPath;
+  url.pathname = `${base.pathname.replace(/\/+$/, "")}${normalizedPath}`;
   if (page > 1) { url.search = `?page=${page}`; }
   return url.toString();
 };
@@ -480,7 +498,18 @@ const detailUrlFromHref = (href: string, pageUrl: URL): string | undefined => {
     if (candidate.origin !== pageUrl.origin || candidate.hash !== "" || candidate.search !== "") {
       return undefined;
     }
-    const canonical = buildMyHomeUrl(pageUrl.origin, candidate.pathname);
+    const pagePath = myHomePathParts(pageUrl.pathname);
+    const candidatePath = myHomePathParts(candidate.pathname);
+    if (
+      pagePath === undefined ||
+      candidatePath === undefined ||
+      (candidatePath.basePath !== "" && candidatePath.basePath !== pagePath.basePath)
+    ) {
+      return undefined;
+    }
+    const base = new URL(pageUrl.origin);
+    base.pathname = pagePath.basePath || "/";
+    const canonical = buildMyHomeUrl(base.toString(), candidatePath.canonicalPath);
     sourceIdFromUrl(new URL(canonical));
     return canonical;
   } catch {
@@ -492,6 +521,23 @@ const cardTitle = (anchor: HtmlElement, sourceId: string): string =>
   attribute(anchor, "aria-label") ??
   attribute(anchor, "title") ??
   (elementText(anchor) || `MyHome listing ${sourceId}`);
+
+const hasListingCardContext = (anchor: HtmlElement): boolean => {
+  for (let context: HtmlElement | undefined = anchor; context !== undefined; context = context.parent) {
+    if (context.tag === "article") { return true; }
+    const marker = ["class", "data-testid", "data-type", "itemtype"]
+      .map((name) => attribute(context, name) ?? "")
+      .join(" ")
+      .replace(/([a-z])([A-Z])/g, "$1 $2");
+    if (
+      /\bcard\b|\b(?:listing|property).*\b(?:card|item|result)\b|\b(?:card|item|result).*\b(?:listing|property)\b/i
+        .test(marker)
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
 
 const unverifiedEvidence = (searchableText = ""): MyHomeEvidence => ({
   typeVerified: false,
@@ -545,7 +591,13 @@ export const parseMyHomeListPage = (
 ): MyHomeListPage => {
   const parsedUrl = new URL(pageUrl);
   const currentPage = pageNumberFromUrl(parsedUrl);
-  const canonicalPageUrl = new URL(buildMyHomeUrl(parsedUrl.origin, parsedUrl.pathname, currentPage));
+  const pagePath = myHomePathParts(parsedUrl.pathname);
+  if (pagePath === undefined) {
+    throw new Error("MyHome page URLs must use canonical /residential or /rentals paths");
+  }
+  const base = new URL(parsedUrl.origin);
+  base.pathname = pagePath.basePath || "/";
+  const canonicalPageUrl = new URL(buildMyHomeUrl(base.toString(), pagePath.canonicalPath, currentPage));
   const root = parseHtml(html);
   const byUrl = new Map<string, MyHomeFinding>();
   let totalPages = Math.max(currentPage, totalPagesFromDescription(root, currentPage) ?? currentPage);
@@ -579,6 +631,7 @@ export const parseMyHomeListPage = (
     } catch {
       // Invalid or non-canonical pagination links are ignored; they never broaden the requested route.
     }
+    if (!hasListingCardContext(element)) { continue; }
     const url = detailUrlFromHref(href, canonicalPageUrl);
     if (url === undefined || byUrl.has(url)) { continue; }
     const sourceId = sourceIdFromUrl(new URL(url));
@@ -717,7 +770,8 @@ interface ParsedMyHomePrice {
 const parsePrice = (value: string | undefined): ParsedMyHomePrice => {
   if (value === undefined || value === "") { return { state: "unknown" }; }
   if (/^(?:poa|price on application)$/i.test(value.trim())) { return { state: "poa" }; }
-  const match = /^€?\s*([\d,]+)(?:\.00)?$/i.exec(value.trim());
+  const match = /^€?\s*([\d,]+)(?:\.00)?(?:\s*(?:\/\s*month|per\s+(?:calendar\s+)?month|monthly|pcm|p\.?m\.?))?$/i
+    .exec(value.trim());
   if (match?.[1] === undefined) { return { state: "unknown" }; }
   const amount = Number(match[1].replaceAll(",", ""));
   return Number.isSafeInteger(amount) && amount >= 0
@@ -746,8 +800,10 @@ const parseBer = (value: string | undefined): DaftBerRating | undefined => {
 const parseAvailability = (value: string | undefined): MyHomeEvidence["availability"] => {
   if (value === undefined) { return undefined; }
   const normalized = normalize(value);
-  if (/sale agreed|sold subject to contract/.test(normalized)) { return "sale-agreed"; }
-  if (/^(?:for sale|available(?: to view)?|on market|published)$/.test(normalized)) { return "published"; }
+  if (/sale agreed|let agreed|sold subject to contract/.test(normalized)) { return "sale-agreed"; }
+  if (/^(?:for sale|available(?: to view)?|on market|published|to let|to rent)$/.test(normalized)) {
+    return "published";
+  }
   return undefined;
 };
 
@@ -970,10 +1026,17 @@ export const parseMyHomeDetailPage = (
   detailUrl: string,
 ): MyHomeDetail => {
   const parsedUrl = new URL(detailUrl);
-  if (pageNumberFromUrl(parsedUrl) !== 1 || parsedUrl.search !== "") {
+  const pagePath = myHomePathParts(parsedUrl.pathname);
+  if (
+    pageNumberFromUrl(parsedUrl) !== 1 ||
+    parsedUrl.search !== "" ||
+    pagePath === undefined
+  ) {
     throw new Error("MyHome detail pages must use canonical no-query URLs");
   }
-  const url = buildMyHomeUrl(parsedUrl.origin, parsedUrl.pathname);
+  const base = new URL(parsedUrl.origin);
+  base.pathname = pagePath.basePath || "/";
+  const url = buildMyHomeUrl(base.toString(), pagePath.canonicalPath);
   const sourceId = sourceIdFromUrl(new URL(url));
   const root = mainContent(parseHtml(html));
   const title = textForTitle(root);
@@ -988,8 +1051,9 @@ export const parseMyHomeDetailPage = (
   const rawBer = parseBer(oneValue(fieldValues(root, "ber")));
   const address = parseAddress(oneValue(fieldValues(root, "address")));
   const eircode = parseAddress(oneValue(fieldValues(root, "eircode")));
-  const schemeText = verified && /\b(?:help to buy|htb)\b/i.test(elementText(root))
-    ? elementText(root).match(/.{0,32}\b(?:help to buy|htb)\b.{0,32}/i)?.[0]?.trim()
+  const detailText = elementText(root);
+  const schemeText = verified && SCHEME_EVIDENCE_MARKERS.some((marker) => marker.test(detailText))
+    ? detailText
     : undefined;
   const viewing = parseViewingData(root);
   const features = featureSection(root);
@@ -1215,7 +1279,7 @@ const publishedWithinDays = (
   const published = Date.parse(value);
   if (Number.isNaN(published) || Number.isNaN(now.getTime())) { return false; }
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  return published >= today - (days - 1) * 86_400_000;
+  return published >= today - days * 86_400_000;
 };
 
 const matchesFilters = (

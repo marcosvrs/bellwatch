@@ -337,6 +337,7 @@ const collectDaftFindings = (
     const rawFindings = [...byId.values()];
     const shouldHydrate =
       config.shps.filter !== "off" ||
+      config.baserow !== undefined ||
       rawFindings.some((finding) => needsComparableDetails(config, finding));
     const candidates = shouldHydrate
       ? yield* hydrateListingFindings(
@@ -360,7 +361,8 @@ const collectMyHomeFindings = (
   dependencies: MonitorDependencies,
 ): Effect.Effect<{ findings: readonly SourcedFinding[]; pages: number }, Error> =>
   Effect.gen(function* () {
-    if (!config.myhome.enabled || dependencies.fetchMyHomePage === undefined) {
+    const fetchMyHomePage = dependencies.fetchMyHomePage;
+    if (!config.myhome.enabled || fetchMyHomePage === undefined) {
       return { findings: [], pages: 0 };
     }
     const support = validateMyHomeFilterSupport(
@@ -395,7 +397,7 @@ const collectMyHomeFindings = (
         );
         return { findings: [], pages: 0 };
       }
-      const regionHtml = yield* dependencies.fetchMyHomePage(
+      const regionHtml = yield* fetchMyHomePage(
         buildMyHomeUrl(config.myhome.baseUrl, nationwide.searchPath),
       );
       const regionRoutes = parseMyHomeRegionRoutes(regionHtml);
@@ -427,7 +429,7 @@ const collectMyHomeFindings = (
       page += 1
     ) {
       const url = buildMyHomeUrl(config.myhome.baseUrl, searchPath, page);
-      const html = yield* dependencies.fetchMyHomePage(url);
+      const html = yield* fetchMyHomePage(url);
       const parsed = yield* Effect.try({
         try: () => parseMyHomeListPage(html, url),
         catch: (cause) =>
@@ -440,15 +442,29 @@ const collectMyHomeFindings = (
 
     const enriched: MyHomeFinding[] = [];
     for (const finding of byId.values()) {
-      const html = yield* dependencies.fetchMyHomePage(finding.finding.url);
-      const detail = yield* Effect.try({
-        try: () => parseMyHomeDetailPage(html, finding.finding.url),
-        catch: (cause) =>
-          new MonitorError(`Could not parse MyHome detail ${finding.finding.url}`, {
-            cause,
+      const enrichedFinding = yield* Effect.catch(
+        Effect.gen(function* () {
+          const html = yield* fetchMyHomePage(finding.finding.url);
+          const detail = yield* Effect.try({
+            try: () => parseMyHomeDetailPage(html, finding.finding.url),
+            catch: (cause) =>
+              new MonitorError(`Could not parse MyHome detail ${finding.finding.url}`, {
+                cause,
+              }),
+          });
+          return enrichMyHomeFinding(finding, detail);
+        }),
+        (error) =>
+          Effect.gen(function* () {
+            yield* Effect.logWarning(
+              `Could not hydrate MyHome listing ${finding.sourceId} at ${finding.finding.url}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+            return undefined;
           }),
-      });
-      enriched.push(enrichMyHomeFinding(finding, detail));
+      );
+      if (enrichedFinding !== undefined) { enriched.push(enrichedFinding); }
     }
     const filtered = applyMyHomeFilters(
       enriched,

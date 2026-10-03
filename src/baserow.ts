@@ -58,6 +58,7 @@ const requestJson = (
   url: string,
   method: "GET" | "POST" | "PATCH",
   body?: Record<string, unknown>,
+  notFoundIsMissing = false,
 ): Effect.Effect<unknown, BaserowSyncError> =>
   Effect.gen(function* () {
     const response = yield* Effect.tryPromise({
@@ -74,6 +75,9 @@ const requestJson = (
         new BaserowSyncError(`Baserow ${method} request failed`, { cause }),
     });
     if (!response.ok) {
+      if (notFoundIsMissing && response.status === 404) {
+        return undefined;
+      }
       return yield* Effect.fail(
         new BaserowSyncError(
           `Baserow ${method} request failed with HTTP ${response.status}`,
@@ -120,17 +124,13 @@ const findRowId = (
         new BaserowSyncError("Baserow returned an invalid row search response"),
       );
     }
-    const row = rows.find((candidate) => {
-      if (
-        candidate === null ||
-        typeof candidate !== "object" ||
-        Array.isArray(candidate) ||
-        !(identityField in candidate)
-      ) {
-        return false;
-      }
-      return Reflect.get(candidate, identityField) === identityValue;
-    });
+    const row = rows.find((candidate) =>
+      candidate !== null &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate) &&
+      identityField in candidate &&
+      Reflect.get(candidate, identityField) === identityValue,
+    );
     if (row === undefined) {
       return undefined;
     }
@@ -152,9 +152,35 @@ const upsertRow = (
   persistedRowId: string | null,
 ): Effect.Effect<string, BaserowSyncError> =>
   Effect.gen(function* () {
-    const existingRowId =
-      persistedRowId ??
-      (yield* findRowId(options, endpoint, identityField, identityValue));
+    let existingRowId: string | undefined;
+    if (persistedRowId !== null) {
+      const rowUrl = new URL(
+        `${endpoint}${encodeURIComponent(persistedRowId)}/`,
+      );
+      rowUrl.searchParams.set("user_field_names", "true");
+      const persistedRow = yield* requestJson(
+        options,
+        rowUrl.toString(),
+        "GET",
+        undefined,
+        true,
+      );
+      if (
+        persistedRow !== null &&
+        typeof persistedRow === "object" &&
+        !Array.isArray(persistedRow) &&
+        identityField in persistedRow &&
+        Reflect.get(persistedRow, identityField) === identityValue
+      ) {
+        existingRowId = persistedRowId;
+      }
+    }
+    existingRowId ??= yield* findRowId(
+      options,
+      endpoint,
+      identityField,
+      identityValue,
+    );
     if (existingRowId !== undefined) {
       yield* requestJson(
         options,

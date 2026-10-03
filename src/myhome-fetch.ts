@@ -52,6 +52,7 @@ export const createMyHomePageFetcher = (
     try {
       return await fetchImpl(url, {
         method: "GET",
+        redirect: "manual",
         headers: {
           accept: "text/html,application/xhtml+xml",
           "user-agent": options.userAgent,
