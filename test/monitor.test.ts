@@ -1769,7 +1769,7 @@ test("does not hydrate complete new-home findings when a location supplies spati
     false,
   );
 });
-test("keeps both provider records and notifies one cross-provider duplicate", async () => {
+test("keeps cross-provider duplicates and notifies independent listings", async () => {
   const state = makeState();
   await Effect.runPromise(state.markInitialized());
   const daftFinding = makeFinding("901", {
@@ -1781,7 +1781,10 @@ test("keeps both provider records and notifies one cross-provider duplicate", as
     eircode: "D01 AB12",
   });
   const listHtml =
-    `<main><article><a href="/residential/example-grove/901">Example Grove</a></article></main>`;
+    `<main>` +
+    `<article><a href="/residential/example-grove/901">Example Grove</a></article>` +
+    `<article><a href="/residential/other-grove/902">Other Grove</a></article>` +
+    `</main>`;
   const detailHtml =
     `<main><h1>Example Grove three-bedroom house</h1><dl>` +
     `<dt>Property Type</dt><dd>Semi-detached house</dd>` +
@@ -1790,6 +1793,14 @@ test("keeps both provider records and notifies one cross-provider duplicate", as
     `<dt>Availability</dt><dd>For Sale</dd>` +
     `<dt>Address</dt><dd>1 Example Grove</dd>` +
     `<dt>Eircode</dt><dd>D01 AB12</dd></dl></main>`;
+  const secondDetailHtml =
+    `<main><h1>Other Grove three-bedroom house</h1><dl>` +
+    `<dt>Property Type</dt><dd>Semi-detached house</dd>` +
+    `<dt>Price</dt><dd>€360,000</dd>` +
+    `<dt>Bedrooms</dt><dd>3</dd>` +
+    `<dt>Availability</dt><dd>For Sale</dd>` +
+    `<dt>Address</dt><dd>2 Other Grove</dd>` +
+    `<dt>Eircode</dt><dd>D02 CD34</dd></dl></main>`;
   const published: DaftFinding[] = [];
   const config = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
@@ -1799,13 +1810,18 @@ test("keeps both provider records and notifies one cross-provider duplicate", as
   const result = await Effect.runPromise(
     runOnce(config, {
       fetchPage: () => Effect.succeed(payload([daftFinding])),
-      fetchMyHomePage: (url) =>
-        Effect.succeed(
-          new URL(url).pathname ===
-            "/residential/ireland/new-homes/property-for-sale"
-            ? listHtml
-            : detailHtml,
-        ),
+      fetchMyHomePage: (url) => {
+        const parsedUrl = new URL(url);
+        if (
+          parsedUrl.pathname ===
+          "/residential/ireland/new-homes/property-for-sale"
+        ) {
+          return Effect.succeed(listHtml);
+        }
+        return Effect.succeed(
+          parsedUrl.pathname.endsWith("/902") ? secondDetailHtml : detailHtml,
+        );
+      },
       publish: (finding) =>
         Effect.sync(() => {
           published.push(finding);
@@ -1816,17 +1832,30 @@ test("keeps both provider records and notifies one cross-provider duplicate", as
     }),
   );
   const records = await Effect.runPromise(state.listCurrentListings());
-  assert.equal(result.findings, 2);
-  assert.equal(result.notified, 1);
-  assert.equal(published.length, 1);
+  assert.equal(result.findings, 3);
+  assert.equal(result.notified, 2);
+  assert.deepEqual(
+    published.map((finding) => finding.title).sort(),
+    [
+      "Example Grove three-bedroom house — 3 Bed · Semi-detached house",
+      "Other Grove three-bedroom house",
+    ],
+  );
   assert.deepEqual(
     records.map((record) => record.bellwatchKey).sort(),
-    ["daft:901", "myhome:901"],
+    ["daft:901", "myhome:901", "myhome:902"],
   );
-  assert.equal(records.find((record) => record.source === "daft")?.finding.url, daftFinding.url);
   assert.equal(
-    records.find((record) => record.source === "myhome")?.finding.url,
+    records.find((record) => record.source === "daft")?.finding.url,
+    daftFinding.url,
+  );
+  assert.equal(
+    records.find((record) => record.bellwatchKey === "myhome:901")?.finding.url,
     "https://www.myhome.ie/residential/example-grove/901",
+  );
+  assert.equal(
+    records.find((record) => record.bellwatchKey === "myhome:902")?.finding.url,
+    "https://www.myhome.ie/residential/other-grove/902",
   );
   assert.equal(
     records.every(
@@ -1886,6 +1915,23 @@ test("searches SearXNG only when configured and stores candidates as unverified"
   assert.equal(stored[0]?.verified, false);
   assert.deepEqual(stored, [candidate]);
 });
+test("skips configured SearXNG when its search adapter is unavailable", async () => {
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    SEARXNG_BASE_URL: "http://searxng.test",
+  });
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(result.findings, 0);
+});
 test("backfills cross-provider identity from an existing namespaced seen ID", async () => {
   const state = makeState(["daft:999"]);
   const config = parseEnvironment({
@@ -1929,6 +1975,7 @@ test("does not fetch MyHome when an active Daft filter is unsupported", async ()
   const unsupportedConfig = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_LOCATION: "dublin",
+    DAFT_RADIUS_KM: "5",
     DAFT_MEDIA_TYPES: "video",
     DAFT_MAX_PAGES: "1",
   });
@@ -1953,7 +2000,14 @@ test("does not fetch MyHome when an active Daft filter is unsupported", async ()
   assert.equal(myHomeRequests, 0);
   assert.equal(result.pages, 1);
   assert.equal(result.findings, 0);
-  assert.ok(warnings.some((message) => message.includes("mediaTypes")));
+  assert.ok(
+    warnings.some(
+      (message) =>
+        /\bradiusKm\b/.test(message) &&
+        /\bmediaTypes\b/.test(message) &&
+        message.includes("unsupported"),
+    ),
+  );
 });
 
 test("classifies valid MyHome coordinates using the loaded county boundary", async () => {
@@ -1961,7 +2015,6 @@ test("classifies valid MyHome coordinates using the loaded county boundary", asy
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_LOCATION: "dublin",
     DAFT_PROPERTY_TYPES: "houses",
-    DAFT_MAX_PAGES: "3",
   });
   const geometry: DublinBoundaryGeometry = {
     type: "Polygon",
@@ -1983,10 +2036,11 @@ test("classifies valid MyHome coordinates using the loaded county boundary", asy
     `<main><article><a href="/residential/example-grove/901">Example Grove</a></article></main>`;
   const secondListPage =
     `<main><article><a href="/residential/example-road/902">Example Road</a></article>` +
-    `<article><a href="/residential/example-lane/903">Example Lane</a></article></main>`;
+    `<article><a href="/residential/example-lane/903">Example Lane</a></article>` +
+    `<article><a href="/residential/example-rise/904">Example Rise</a></article></main>`;
   const detailHtml = (
     title: string,
-    latitude: number,
+    latitude?: number,
     longitude?: number,
   ) =>
     `<main><h1>${title}</h1><dl>` +
@@ -1994,10 +2048,14 @@ test("classifies valid MyHome coordinates using the loaded county boundary", asy
     `<dt>Price</dt><dd>€340,000</dd>` +
     `<dt>Bedrooms</dt><dd>3</dd>` +
     `<dt>Availability</dt><dd>For Sale</dd></dl>` +
-    `<div data-latitude="${latitude}"${
+    `<div${latitude === undefined ? "" : ` data-latitude="${latitude}"`}${
       longitude === undefined ? "" : ` data-longitude="${longitude}"`
     }></div></main>`;
   const state = makeState();
+  const warnings: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    warnings.push(String(message));
+  });
   let boundaryLoads = 0;
   const result = await Effect.runPromise(
     runOnce(configWithLocation, {
@@ -2010,9 +2068,9 @@ test("classifies valid MyHome coordinates using the loaded county boundary", asy
           return Effect.succeed(regionHtml);
         }
         if (path === "/residential/dublin/new-homes/house-for-sale") {
-          return Effect.succeed(
-            requestUrl.search === "?page=2" ? secondListPage : firstListPage,
-          );
+          if (requestUrl.search === "") { return Effect.succeed(firstListPage); }
+          if (requestUrl.search === "?page=2") { return Effect.succeed(secondListPage); }
+          return Effect.fail(new Error(`Unexpected MyHome page ${requestUrl.search}`));
         }
         if (path === "/residential/example-grove/901") {
           return Effect.succeed(detailHtml("Example Grove", 53.3, -6.2));
@@ -2022,6 +2080,9 @@ test("classifies valid MyHome coordinates using the loaded county boundary", asy
         }
         if (path === "/residential/example-lane/903") {
           return Effect.succeed(detailHtml("Example Lane", 53.3));
+        }
+        if (path === "/residential/example-rise/904") {
+          return Effect.succeed(detailHtml("Example Rise", undefined, -6.2));
         }
         return Effect.fail(new Error(`Unexpected MyHome path ${path}`));
       },
@@ -2033,10 +2094,10 @@ test("classifies valid MyHome coordinates using the loaded county boundary", asy
       publishError: () => Effect.void,
       state,
       heartbeat: () => Effect.void,
-    }),
+    }).pipe(Effect.provide(Logger.layer([logger]))),
   );
   assert.equal(result.pages, 3);
-  assert.equal(result.findings, 3);
+  assert.equal(result.findings, 4);
   assert.equal(boundaryLoads, 1);
   assert.deepEqual(requestedPaths, [
     "/residential/ireland/new-homes/property-for-sale",
@@ -2045,10 +2106,12 @@ test("classifies valid MyHome coordinates using the loaded county boundary", asy
     "/residential/example-grove/901",
     "/residential/example-road/902",
     "/residential/example-lane/903",
+    "/residential/example-rise/904",
   ]);
   const myHomeRecords = (await Effect.runPromise(state.listCurrentListings()))
     .filter((record) => record.source === "myhome");
-  assert.equal(myHomeRecords.length, 3);
+  assert.equal(myHomeRecords.length, 4);
+  assert.equal(warnings.some((message) => message.includes("unverified")), false);
   const inside = myHomeRecords.find((record) => record.sourceId === "901");
   const outside = myHomeRecords.find((record) => record.sourceId === "902");
   assert.ok(inside?.dublinBoundary?.status === "classified");
@@ -2058,7 +2121,11 @@ test("classifies valid MyHome coordinates using the loaded county boundary", asy
   const partial = myHomeRecords.find((record) => record.sourceId === "903");
   assert.ok(partial?.dublinBoundary?.status === "unclassified");
   assert.equal(partial.dublinBoundary.reason, "missing-coordinates");
+  const longitudeOnly = myHomeRecords.find((record) => record.sourceId === "904");
+  assert.ok(longitudeOnly?.dublinBoundary?.status === "unclassified");
+  assert.equal(longitudeOnly.dublinBoundary.reason, "missing-coordinates");
 });
+
 test("keeps MyHome findings unclassified when the county boundary cannot load", async () => {
   const state = makeState();
   const warnings: string[] = [];
@@ -2245,4 +2312,179 @@ test("applies SHPS and qualifying-house filters before storing MyHome findings",
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_MAX_PAGES: "1",
   }, detailHtml("Apartment"));
+});
+
+test("honors the configured MyHome page cap when more pages are available", async () => {
+  const state = makeState();
+  const requestedPaths: string[] = [];
+  const firstPage =
+    `<head><link rel="next" href="?page=2">` +
+    `<meta name="description" content="Listings 1-20 (out of 41) for Ireland property for sale."></head>` +
+    `<main><article><a href="/residential/example/981">First House</a></article></main>`;
+  const laterPage =
+    `<meta name="description" content="Listings 21-40 (out of 41) for Ireland property for sale.">` +
+    `<main><article><a href="/residential/example/982">Second House</a></article></main>`;
+  const detail =
+    `<main><h1>First House</h1><dl>` +
+    `<dt>Property Type</dt><dd>Semi-detached house</dd>` +
+    `<dt>Price</dt><dd>€340,000</dd>` +
+    `<dt>Bedrooms</dt><dd>3</dd>` +
+    `<dt>Availability</dt><dd>For Sale</dd></dl></main>`;
+  const limitedConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+  });
+  const result = await Effect.runPromise(
+    runOnce(limitedConfig, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) => {
+        const request = new URL(url);
+        requestedPaths.push(`${request.pathname}${request.search}`);
+        if (request.pathname === "/residential/example/981") {
+          return Effect.succeed(detail);
+        }
+        return Effect.succeed(
+          request.search === "" ? firstPage : laterPage,
+        );
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(result.pages, 2);
+  assert.equal(result.findings, 1);
+  assert.deepEqual(requestedPaths, [
+    "/residential/ireland/new-homes/property-for-sale",
+    "/residential/example/981",
+  ]);
+  assert.deepEqual(
+    (await Effect.runPromise(state.listCurrentListings()))
+      .map((listing) => listing.bellwatchKey),
+    ["myhome:981"],
+  );
+});
+
+test("reports unverified active-filter evidence and excludes the listing", async () => {
+  const state = makeState();
+  const warnings: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    warnings.push(String(message));
+  });
+  const result = await Effect.runPromise(
+    runOnce(
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        DAFT_PRICE_MIN_EUR: "300000",
+        DAFT_MAX_PAGES: "1",
+      }),
+      {
+        fetchPage: () => Effect.succeed(payload([])),
+        fetchMyHomePage: (url) =>
+          Effect.succeed(
+            new URL(url).pathname ===
+              "/residential/ireland/new-homes/property-for-sale"
+              ? `<main><article><a href="/residential/example/983">Unpriced House</a></article></main>`
+              : `<main><h1>Unpriced House</h1><dl>` +
+                `<dt>Property Type</dt><dd>Semi-detached house</dd>` +
+                `<dt>Bedrooms</dt><dd>3</dd>` +
+                `<dt>Availability</dt><dd>For Sale</dd></dl></main>`,
+          ),
+        publish: () => Effect.void,
+        publishError: () => Effect.void,
+        state,
+        heartbeat: () => Effect.void,
+      },
+    ).pipe(Effect.provide(Logger.layer([logger]))),
+  );
+  assert.equal(result.findings, 0);
+  assert.deepEqual(
+    await Effect.runPromise(state.listCurrentListings()),
+    [],
+  );
+  assert.ok(
+    warnings.some(
+      (message) =>
+        message.includes("unverified") &&
+        message.includes("active-filter evidence") &&
+        message.includes("1"),
+    ),
+    JSON.stringify({ warnings, result }),
+  );
+});
+
+test("does not request a Dublin boundary without a configured loader", async () => {
+  const state = makeState();
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) =>
+        Effect.succeed(
+          new URL(url).pathname ===
+            "/residential/ireland/new-homes/property-for-sale"
+            ? `<main><article><a href="/residential/example/984">Located House</a></article></main>`
+            : `<main><h1>Located House</h1><dl>` +
+              `<dt>Property Type</dt><dd>Semi-detached house</dd>` +
+              `<dt>Price</dt><dd>€340,000</dd>` +
+              `<dt>Bedrooms</dt><dd>3</dd>` +
+              `<dt>Availability</dt><dd>For Sale</dd></dl>` +
+              `<div data-latitude="53.3" data-longitude="-6.2"></div></main>`,
+        ),
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(result.findings, 1);
+  const listing = (await Effect.runPromise(state.listCurrentListings()))
+    .find((record) => record.source === "myhome");
+  assert.ok(listing?.dublinBoundary?.status === "unclassified");
+  assert.equal(listing.dublinBoundary.reason, "boundary-unavailable");
+});
+
+test("keeps listings when SearXNG returns an unsuccessful search result", async () => {
+  const state = makeState();
+  const warnings: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    warnings.push(String(message));
+  });
+  const configWithSearch = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    MYHOME_ENABLED: "false",
+    SEARXNG_BASE_URL: "http://searxng.test",
+  });
+  const result = await Effect.runPromise(
+    runOnce(configWithSearch, {
+      fetchPage: () => Effect.succeed(payload([makeFinding("985")])),
+      searchSearxng: () =>
+        Effect.succeed({
+          ok: false,
+          error: {
+            code: "rate-limited",
+            message: "search service is temporarily busy",
+          },
+        }),
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }).pipe(Effect.provide(Logger.layer([logger]))),
+  );
+  assert.equal(result.findings, 1);
+  assert.deepEqual(
+    (await Effect.runPromise(state.listCurrentListings()))
+      .map((record) => record.bellwatchKey),
+    ["daft:985"],
+  );
+  assert.ok(
+    warnings.some(
+      (message) =>
+        message.toLowerCase().includes("searxng") &&
+        message.includes("rate-limited"),
+    ),
+    JSON.stringify({ warnings, result }),
+  );
 });

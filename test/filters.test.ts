@@ -353,6 +353,18 @@ test("validates optional source URLs and Baserow integration combinations", () =
     timeoutMs: 15_000,
   });
 });
+test("preserves the URL parser cause for invalid optional service URLs", () => {
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        SEARXNG_BASE_URL: "http://[",
+      }),
+    (error: unknown) =>
+      error instanceof ConfigurationError && error.cause instanceof TypeError,
+  );
+});
+
 test("parses profile-specific filters and rejects incompatible combinations", () => {
   const sale = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",

@@ -405,10 +405,7 @@ const collectMyHomeFindings = (
         config.daft.filters,
         regionRoutes,
       );
-      if (
-        locationSupport.searchPath === undefined ||
-        locationSupport.unsupportedLocationFilters.length > 0
-      ) {
+      if (locationSupport.searchPath === undefined) {
         yield* Effect.logWarning(
           `MyHome skipped; unsupported active Daft location filters: ${
             locationSupport.unsupportedLocationFilters.join(", ") || "unverified route"
@@ -422,7 +419,6 @@ const collectMyHomeFindings = (
       yield* Effect.logWarning("MyHome skipped; no verified search route");
       return { findings: [], pages: 0 };
     }
-
     const byId = new Map<string, MyHomeFinding>();
     let pages = 0;
     for (
@@ -459,12 +455,6 @@ const collectMyHomeFindings = (
       config.daft.sectionPath,
       config.daft.filters,
     );
-    if (filtered.unsupportedFilters.length > 0) {
-      yield* Effect.logWarning(
-        `MyHome skipped; filter evidence unsupported: ${filtered.unsupportedFilters.join(", ")}`,
-      );
-      return { findings: [], pages };
-    }
     if (filtered.unverifiedSourceIds.length > 0) {
       yield* Effect.logWarning(
         `MyHome excluded ${filtered.unverifiedSourceIds.length} listing(s) with unverified active-filter evidence`,
@@ -491,19 +481,6 @@ const withDublinClassification = (
     return {
       ...listing,
       dublinBoundary: { status: "unclassified", reason: "missing-coordinates" },
-    };
-  }
-  if (
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude) ||
-    latitude < -90 ||
-    latitude > 90 ||
-    longitude < -180 ||
-    longitude > 180
-  ) {
-    return {
-      ...listing,
-      dublinBoundary: { status: "unclassified", reason: "invalid-coordinates" },
     };
   }
   if (geometry === undefined) {
@@ -567,14 +544,7 @@ const collectFindings = (
 
     const hasValidCoordinates = findings.some(
       ({ latitude, longitude }) =>
-        latitude !== undefined &&
-        longitude !== undefined &&
-        Number.isFinite(latitude) &&
-        Number.isFinite(longitude) &&
-        latitude >= -90 &&
-        latitude <= 90 &&
-        longitude >= -180 &&
-        longitude <= 180,
+        latitude !== undefined && longitude !== undefined,
     );
     let geometry: DublinBoundaryGeometry | undefined;
     if (hasValidCoordinates && dependencies.loadDublinBoundary !== undefined) {
