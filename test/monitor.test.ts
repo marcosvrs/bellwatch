@@ -2170,6 +2170,58 @@ test("classifies valid MyHome coordinates using the loaded county boundary", asy
   assert.equal(longitudeOnly.dublinBoundary.reason, "missing-coordinates");
 });
 
+test("does not load the county boundary for a longitude-only MyHome finding", async () => {
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_LOCATION: "dublin",
+    DAFT_PROPERTY_TYPES: "houses",
+    DAFT_MAX_PAGES: "1",
+  });
+  const state = makeState();
+  const regionHtml =
+    `<script id="ng-state" type="application/json">` +
+    `{"bootstrap":[{"RegionUrls":{"1":"/residential/dublin/new-homes/house-for-sale"}}]}` +
+    `</script>`;
+  const listHtml =
+    `<main><article><a href="/residential/example-house/905">Example House</a></article></main>`;
+  const detailHtml =
+    `<main><h1>Example House</h1><dl>` +
+    `<dt>Property Type</dt><dd>Semi-detached house</dd>` +
+    `<dt>Price</dt><dd>€340,000</dd>` +
+    `<dt>Bedrooms</dt><dd>3</dd>` +
+    `<dt>Availability</dt><dd>For Sale</dd></dl>` +
+    `<div data-longitude="-6.2"></div></main>`;
+  let boundaryLoads = 0;
+  await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) => {
+        const path = new URL(url).pathname;
+        if (path === "/residential/ireland/new-homes/property-for-sale") {
+          return Effect.succeed(regionHtml);
+        }
+        if (path === "/residential/dublin/new-homes/house-for-sale") {
+          return Effect.succeed(listHtml);
+        }
+        return Effect.succeed(detailHtml);
+      },
+      loadDublinBoundary: () => {
+        boundaryLoads += 1;
+        return Effect.fail(new Error("unexpected boundary load"));
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(boundaryLoads, 0);
+  const record = (await Effect.runPromise(state.listCurrentListings()))
+    .find((listing) => listing.bellwatchKey === "myhome:905");
+  assert.ok(record?.dublinBoundary?.status === "unclassified");
+  assert.equal(record.dublinBoundary.reason, "missing-coordinates");
+});
+
 test("keeps MyHome findings unclassified when the county boundary cannot load", async () => {
   const state = makeState();
   const warnings: string[] = [];

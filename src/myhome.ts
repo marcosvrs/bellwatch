@@ -64,6 +64,9 @@ const SECTION_SEARCH_ROUTES: Readonly<Record<
     houseSuffix: "/house-to-rent",
   },
 };
+export const getMyHomeNationalSearchPath = (sectionPath: DaftSectionPath): string =>
+  SECTION_SEARCH_ROUTES[sectionPath].nationalPath;
+
 const HOUSE_PROPERTY_TYPES: Readonly<Record<string, true>> = {
   houses: true,
   "detached-houses": true,

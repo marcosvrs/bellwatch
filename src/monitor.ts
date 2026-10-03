@@ -18,6 +18,7 @@ import {
   applyMyHomeFilters,
   buildMyHomeUrl,
   enrichMyHomeFinding,
+  getMyHomeNationalSearchPath,
   parseMyHomeDetailPage,
   parseMyHomeListPage,
   parseMyHomeRegionRoutes,
@@ -376,29 +377,15 @@ const collectMyHomeFindings = (
       return { findings: [], pages: 0 };
     }
 
-    let searchPath: string | undefined;
+    let searchPath: string;
     if (config.daft.locations.length === 0) {
-      searchPath = resolveMyHomeSearchPath(
-        config.daft.sectionPath,
-        [],
-        config.daft.filters,
-        [],
-      ).searchPath;
+      searchPath = getMyHomeNationalSearchPath(config.daft.sectionPath);
     } else {
-      const nationwide = resolveMyHomeSearchPath(
-        config.daft.sectionPath,
-        [],
-        config.daft.filters,
-        [],
-      );
-      if (nationwide.searchPath === undefined) {
-        yield* Effect.logWarning(
-          "MyHome skipped; no verified nationwide route for location discovery",
-        );
-        return { findings: [], pages: 0 };
-      }
       const regionHtml = yield* fetchMyHomePage(
-        buildMyHomeUrl(config.myhome.baseUrl, nationwide.searchPath),
+        buildMyHomeUrl(
+          config.myhome.baseUrl,
+          getMyHomeNationalSearchPath(config.daft.sectionPath),
+        ),
       );
       const regionRoutes = parseMyHomeRegionRoutes(regionHtml);
       const locationSupport = resolveMyHomeSearchPath(
@@ -410,16 +397,12 @@ const collectMyHomeFindings = (
       if (locationSupport.searchPath === undefined) {
         yield* Effect.logWarning(
           `MyHome skipped; unsupported active Daft location filters: ${
-            locationSupport.unsupportedLocationFilters.join(", ") || "unverified route"
+            JSON.stringify(locationSupport.unsupportedLocationFilters)
           }`,
         );
         return { findings: [], pages: 0 };
       }
       searchPath = locationSupport.searchPath;
-    }
-    if (searchPath === undefined) {
-      yield* Effect.logWarning("MyHome skipped; no verified search route");
-      return { findings: [], pages: 0 };
     }
     const byId = new Map<string, MyHomeFinding>();
     let pages = 0;
@@ -621,11 +604,12 @@ const runPoll = (
           );
           continue;
         }
-        if (groupKey !== undefined && pendingGroups.has(groupKey)) {
+        const pendingKey = groupKey ?? key;
+        if (pendingGroups.has(pendingKey)) {
           continue;
         }
         pending.push(listing);
-        if (groupKey !== undefined) { pendingGroups.add(groupKey); }
+        pendingGroups.add(pendingKey);
       }
 
       const daftFindings = pending
