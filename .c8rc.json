@@ -6,6 +6,7 @@
     "src/healthcheck.ts",
     "src/main.ts",
     "src/runtime-metrics.ts",
+    "src/registration-cli.ts",
     "src/state.ts"
   ],
   "extension": [".ts"],

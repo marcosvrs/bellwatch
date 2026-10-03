@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "MIT-0",
-  "description": "Bellwatch Daft.ie monitor with Shoutrrr notifications",
+  "description": "Bellwatch Irish new-build house monitor for Daft.ie and MyHome",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -25,6 +25,7 @@
     "security:local": "npm run security:deps && npm run scan:secrets",
     "prepare": "simple-git-hooks",
     "start": "node dist/main.js",
+    "registration": "node dist/registration-cli.js",
     "healthcheck": "node dist/healthcheck.js",
     "alchemy:plan": "alchemy plan",
     "alchemy:deploy": "alchemy deploy",
@@ -39,21 +40,21 @@
     "postgres": "3.4.9"
   },
   "devDependencies": {
-    "@effect/platform-node": "4.0.0-rc.117",
+    "@effect/platform-node": "4.0.0-rc.116",
     "@eslint/js": "^10.0.1",
     "@stryker-mutator/core": "^10.0.0",
-    "@types/node": "26.6.3",
+    "@types/node": "26.6.2",
     "@typescript/native": "npm:typescript@7.0.2",
     "alchemy": "2.0.0-beta.79",
     "c8": "^12.0.0",
-    "effect": "4.0.0-rc.117",
+    "effect": "4.0.0-rc.116",
     "esbuild": "0.28.2",
     "eslint": "^10.11.0",
     "redis": "^6.2.1",
     "simple-git-hooks": "^2.14.0",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "typescript-eslint": "^8.70.1",
-    "vitest": "^5.0.2"
+    "typescript-eslint": "^8.70.0",
+    "vitest": "^5.0.1"
   },
   "overrides": {
     "@effect/platform-node-shared": "4.0.0-rc.116",

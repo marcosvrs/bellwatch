@@ -108,6 +108,23 @@ export const classifyShpsAvailability = (
   return "shps-only";
 };
 
+export type HelpToBuyEvidenceStatus =
+  | "mentioned"
+  | "not-mentioned"
+  | "unknown";
+
+export const classifyHelpToBuyEvidence = (
+  finding: DaftFinding,
+): HelpToBuyEvidenceStatus => {
+  const text = [
+    finding.title,
+    finding.developmentTitle,
+    finding.schemeText,
+  ].join("\n");
+  if (/\b(?:help to buy|htb)\b/i.test(text)) { return "mentioned"; }
+  return finding.schemeText?.trim() ? "not-mentioned" : "unknown";
+};
+
 export const isShpsOnlyFinding = (finding: DaftFinding): boolean =>
   classifyShpsAvailability(finding) === "shps-only";
 

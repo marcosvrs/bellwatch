@@ -1,5 +1,4 @@
 import * as Effect from "effect/Effect";
-import { setTimeout as sleep } from "node:timers/promises";
 import {
   chromium,
   type Browser,
@@ -8,21 +7,12 @@ import {
 } from "playwright-core";
 import type { MonitorConfig } from "./config.js";
 import { isRobotsAllowed } from "./daft/robots.js";
-interface BrowserErrorOptions extends ErrorOptions {
-  readonly status?: number;
-  readonly retryAfterMs?: number;
-}
-
 class BrowserError extends Error {
   readonly _tag = "BrowserError";
-  readonly status: number | undefined;
-  readonly retryAfterMs: number | undefined;
 
-  constructor(message: string, options?: BrowserErrorOptions) {
+  constructor(message: string, options?: ErrorOptions) {
     super(message, options);
     this.name = "BrowserError";
-    this.status = options?.status;
-    this.retryAfterMs = options?.retryAfterMs;
   }
 }
 export const DEFAULT_BROWSER_USER_AGENT =
@@ -38,55 +28,14 @@ export const resolveBrowserStrategy = (
   browser: MonitorConfig["browser"],
 ): BrowserStrategy => (browser.externalEndpoint ? "external" : "local");
 
-export const assertDaftHttpStatus = (
-  status: number | undefined,
-  retryAfterMs?: number,
-): void => {
+export const assertDaftHttpStatus = (status: number | undefined): void => {
   if (status !== 200) {
-    const options: BrowserErrorOptions = {
-      ...(status === undefined ? {} : { status }),
-      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
-    };
     throw new BrowserError(
       `Daft page returned HTTP ${status ?? "no response"}`,
-      options,
     );
   }
 };
 const BROWSER_IDLE_CLOSE_MS = 30_000;
-const MAX_DAFT_HTTP_RETRIES = 2;
-const DAFT_429_BACKOFF_MS = 30_000;
-const MAX_DAFT_RETRY_DELAY_MS = 120_000;
-
-const parseRetryAfterMs = (value: string | undefined): number | undefined => {
-  if (!value) {return undefined;}
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.min(seconds * 1_000, MAX_DAFT_RETRY_DELAY_MS);
-  }
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp)
-    ? undefined
-    : Math.min(
-        Math.max(0, timestamp - Date.now()),
-        MAX_DAFT_RETRY_DELAY_MS,
-      );
-};
-
-const retryDelayMs = (
-  config: MonitorConfig,
-  error: BrowserError,
-  attempt: number,
-): number =>
-  Math.min(
-    MAX_DAFT_RETRY_DELAY_MS,
-    Math.max(
-      config.daft.requestDelayMs,
-      DAFT_429_BACKOFF_MS,
-      error.retryAfterMs ??
-        config.daft.requestDelayMs * 2 ** (attempt + 1),
-    ),
-  );
 
 interface BrowserSession {
   readonly browser: Browser;
@@ -149,14 +98,8 @@ const loadRobotsText = async (config: MonitorConfig): Promise<string> => {
       timeout: config.browser.timeoutMs,
     });
     const status = response?.status();
-    const retryAfterMs =
-      status === 429
-        ? parseRetryAfterMs(response?.headers()["retry-after"])
-        : undefined;
     if (status === 429) {
-      const options: BrowserErrorOptions =
-        retryAfterMs === undefined ? { status } : { status, retryAfterMs };
-      throw new BrowserError("Daft robots.txt returned HTTP 429", options);
+      throw new BrowserError("Daft robots.txt returned HTTP 429");
     }
     if (status !== 404 && status !== 200) {
       throw new Error(
@@ -291,11 +234,7 @@ const fetchDaftPayloadOnce = async (
       timeout: config.browser.timeoutMs,
     });
     const status = response?.status();
-    const retryAfterMs =
-      status === 429
-        ? parseRetryAfterMs(response?.headers()["retry-after"])
-        : undefined;
-    assertDaftHttpStatus(status, retryAfterMs);
+    assertDaftHttpStatus(status);
     const nextData = await page
       .locator("#__NEXT_DATA__")
       .textContent({ timeout: config.browser.timeoutMs });
@@ -326,33 +265,13 @@ const fetchDaftPayloadOnce = async (
   }
 };
 
-const fetchDaftPayloadWithRetry = async (
-  config: MonitorConfig,
-  url: string,
-  signal: AbortSignal,
-): Promise<unknown> => {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await fetchDaftPayloadOnce(config, url);
-    } catch (cause) {
-      if (
-        !(cause instanceof BrowserError) ||
-        cause.status !== 429 ||
-        attempt >= MAX_DAFT_HTTP_RETRIES
-      ) {
-        throw cause;
-      }
-      await sleep(retryDelayMs(config, cause, attempt), undefined, { signal });
-    }
-  }
-};
 
 export const fetchDaftPayload = (
   config: MonitorConfig,
   url: string,
 ): Effect.Effect<unknown, BrowserError> =>
   Effect.tryPromise({
-    try: async (signal) => fetchDaftPayloadWithRetry(config, url, signal),
+    try: async () => fetchDaftPayloadOnce(config, url),
     catch: (cause) =>
       cause instanceof BrowserError
         ? cause

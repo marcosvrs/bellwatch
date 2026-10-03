@@ -82,6 +82,29 @@ export interface HermesConfig {
   readonly timeoutMs: number;
 }
 
+export interface MyHomeConfig {
+  readonly baseUrl: string;
+  readonly enabled: boolean;
+}
+
+export interface SearxngConfig {
+  readonly baseUrl: string;
+  readonly timeoutMs: number;
+}
+
+export interface BaserowConfig {
+  readonly baseUrl: string;
+  readonly token: string;
+  readonly tableId: string;
+  readonly candidateTableId?: string;
+}
+
+export interface StateConfig {
+  readonly file: string;
+  readonly databaseUrl?: string;
+  readonly heartbeatFile: string;
+}
+
 export interface MonitorConfig {
   readonly daft: {
     readonly baseUrl: string;
@@ -91,6 +114,7 @@ export interface MonitorConfig {
     readonly maxPages?: number;
     readonly requestDelayMs: number;
   };
+  readonly myhome: MyHomeConfig;
   readonly shps: ShpsConfig;
   readonly notificationBackends: readonly NotificationBackend[];
   readonly browser: {
@@ -100,11 +124,9 @@ export interface MonitorConfig {
   };
   readonly shoutrrr: ShoutrrrConfig;
   readonly hermes?: HermesConfig;
-  readonly state: {
-    readonly file: string;
-    readonly databaseUrl?: string;
-    readonly heartbeatFile: string;
-  };
+  readonly state: StateConfig;
+  readonly searxng?: SearxngConfig;
+  readonly baserow?: BaserowConfig;
   readonly polling: {
     readonly cron: string;
     readonly timezone: string;
@@ -293,6 +315,34 @@ const httpUrl = (value: string, name: string): string => {
   }
   return url.toString().replace(/\/$/, "");
 };
+const optionalHttpBaseUrl = (
+  env: NodeJS.ProcessEnv,
+  name: string,
+): string | undefined => {
+  const value = trimmed(env, name);
+  if (value === undefined) {return undefined;}
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch (cause) {
+    throw new ConfigurationError(
+      `${name} must be an HTTP(S) base URL without credentials, query, or fragment`,
+      { cause },
+    );
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new ConfigurationError(
+      `${name} must be an HTTP(S) base URL without credentials, query, or fragment`,
+    );
+  }
+  return url.toString().replace(/\/+$/, "");
+};
 
 const websocketUrl = (
   env: NodeJS.ProcessEnv,
@@ -315,6 +365,19 @@ const databaseUrl = (env: NodeJS.ProcessEnv): string | undefined => {
     );
   }
   return value;
+};
+
+export const parseStateConfig = (
+  env: NodeJS.ProcessEnv = process.env,
+): StateConfig => {
+  const stateDatabaseUrl = databaseUrl(env);
+  return {
+    file: "/data/state.sqlite",
+    ...(stateDatabaseUrl === undefined
+      ? {}
+      : { databaseUrl: stateDatabaseUrl }),
+    heartbeatFile: "/data/heartbeat",
+  };
 };
 
 const validatePath = (name: string, value: string): string => {
@@ -499,6 +562,61 @@ export const parseEnvironment = (
     ],
     ["property-for-sale"],
   );
+  const myhomeEnabled = boolean(env, "MYHOME_ENABLED", true);
+  const myhomeBaseUrl =
+    optionalHttpBaseUrl(env, "MYHOME_BASE_URL") ?? "https://www.myhome.ie";
+  const searxngBaseUrl = optionalHttpBaseUrl(env, "SEARXNG_BASE_URL");
+  const baserowBaseUrl = optionalHttpBaseUrl(env, "BASEROW_BASE_URL");
+  const baserowToken = trimmed(env, "BASEROW_TOKEN");
+  const baserowTableId = trimmed(env, "BASEROW_TABLE_ID");
+  const baserowCandidateTableId = trimmed(env, "BASEROW_CANDIDATE_TABLE_ID");
+  const baserowConfigured = [
+    baserowBaseUrl,
+    baserowToken,
+    baserowTableId,
+    baserowCandidateTableId,
+  ].some((value) => value !== undefined);
+  const baserowComplete =
+    baserowBaseUrl !== undefined &&
+    baserowToken !== undefined &&
+    baserowTableId !== undefined;
+  if (baserowConfigured && !baserowComplete) {
+    throw new ConfigurationError(
+      "BASEROW_BASE_URL, BASEROW_TOKEN, and BASEROW_TABLE_ID must be set together",
+    );
+  }
+  if (
+    baserowCandidateTableId !== undefined &&
+    baserowCandidateTableId === baserowTableId
+  ) {
+    throw new ConfigurationError(
+      "BASEROW_CANDIDATE_TABLE_ID must differ from BASEROW_TABLE_ID",
+    );
+  }
+  if (
+    searxngBaseUrl !== undefined &&
+    baserowComplete &&
+    baserowCandidateTableId === undefined
+  ) {
+    throw new ConfigurationError(
+      "BASEROW_CANDIDATE_TABLE_ID is required when SearXNG and Baserow are both enabled",
+    );
+  }
+  const baserow: BaserowConfig | undefined =
+    baserowComplete
+      ? {
+          baseUrl: baserowBaseUrl,
+          token: baserowToken,
+          tableId: baserowTableId,
+          ...(baserowCandidateTableId === undefined
+            ? {}
+            : { candidateTableId: baserowCandidateTableId }),
+        }
+      : undefined;
+  const searxng: SearxngConfig | undefined =
+    searxngBaseUrl === undefined
+      ? undefined
+      : { baseUrl: searxngBaseUrl, timeoutMs: 15_000 };
   const externalEndpoint = websocketUrl(env, "PLAYWRIGHT_WS_ENDPOINT");
 
   const priceMinEur = optionalInteger(env, "DAFT_PRICE_MIN_EUR", 0, 100_000_000);
@@ -634,9 +752,7 @@ export const parseEnvironment = (
     availability,
     ...(radiusKm === undefined ? {} : { radiusKm }),
     ...(priceMinEur === undefined ? {} : { priceMinEur }),
-    ...((priceMaxEur ?? section.defaultPriceMaxEur) === undefined
-      ? {}
-      : { priceMaxEur: priceMaxEur ?? section.defaultPriceMaxEur }),
+    ...(priceMaxEur === undefined ? {} : { priceMaxEur }),
     ...(bedsMin === undefined ? {} : { bedsMin }),
     ...(bedsMax === undefined ? {} : { bedsMax }),
     ...(bathsMin === undefined ? {} : { bathsMin }),
@@ -659,7 +775,7 @@ export const parseEnvironment = (
 
   const maxPages = optionalInteger(env, "DAFT_MAX_PAGES", 1, 20);
   const userAgent = trimmed(env, "BROWSER_USER_AGENT");
-  const stateDatabaseUrl = databaseUrl(env);
+  const stateConfig = parseStateConfig(env);
   const hermes = hasHermesCredentials
     ? {
         url: httpUrl(hermesValues[0], "HERMES_WEBHOOK_URL"),
@@ -670,6 +786,10 @@ export const parseEnvironment = (
     : undefined;
   return {
     notificationBackends,
+    myhome: {
+      baseUrl: myhomeBaseUrl,
+      enabled: myhomeEnabled,
+    },
     daft: {
       baseUrl,
       sectionPath: section.path,
@@ -696,14 +816,10 @@ export const parseEnvironment = (
       titlePrefix: section.notificationTitlePrefix,
       timeoutMs: SHOUTRRR_TIMEOUT_DEFAULT_MS,
     },
+    ...(searxng === undefined ? {} : { searxng }),
+    ...(baserow === undefined ? {} : { baserow }),
     ...(hermes === undefined ? {} : { hermes }),
-    state: {
-      file: "/data/state.sqlite",
-      ...(stateDatabaseUrl === undefined
-        ? {}
-        : { databaseUrl: stateDatabaseUrl }),
-      heartbeatFile: "/data/heartbeat",
-    },
+    state: stateConfig,
     polling: {
       cron: pollingSchedule.cron,
       timezone: pollingSchedule.timezone,

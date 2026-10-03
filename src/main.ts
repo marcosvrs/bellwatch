@@ -2,11 +2,18 @@ import { performance } from "node:perf_hooks";
 import * as Effect from "effect/Effect";
 import * as Schedule from "effect/Schedule";
 import { parseEnvironment, ConfigurationError } from "./config.js";
-import { fetchDaftPayload } from "./browser.js";
+import { fetchDaftPayload, resolveBrowserUserAgent } from "./browser.js";
 import { runOnce, writeHeartbeat } from "./monitor.js";
 import { publishFinding, publishMessage } from "./shoutrrr.js";
 import { publishHermesFinding, publishHermesMessage } from "./hermes.js";
 import { createStateStore } from "./state.js";
+import { createMyHomePageFetcher } from "./myhome-fetch.js";
+import {
+  loadDublinBoundary,
+  type DublinBoundaryGeometry,
+} from "./dublin-boundary.js";
+import { searchSearxng } from "./searxng.js";
+import { syncBaserow } from "./baserow.js";
 import {
   createRuntimeMetrics,
   type RuntimeMetrics,
@@ -16,6 +23,8 @@ import {
   publishToAll,
   type NotificationPublisher,
 } from "./notifications.js";
+import type { DaftFinding } from "./daft/parser.js";
+import type { ListingSource } from "./listings.js";
 
 const formatRuntimeMetrics = (
   metrics: RuntimeMetrics,
@@ -44,6 +53,15 @@ const formatRuntimeMetrics = (
     `gc_weakcb=${metrics.gc.weakCallback}`,
   ].join(" ");
 
+const fetchWithTimeout = (timeoutMs: number): typeof fetch =>
+  async (input, init) => {
+    const requestInit = init ?? {};
+    return globalThis.fetch(input, {
+      ...requestInit,
+      signal: requestInit.signal ?? AbortSignal.timeout(timeoutMs),
+    });
+  };
+
 const program = Effect.gen(function* () {
   const config = yield* Effect.try({
     try: () => parseEnvironment(),
@@ -55,19 +73,69 @@ const program = Effect.gen(function* () {
           }),
   });
   const state = yield* createStateStore(config.state);
+  const sharedFetch = fetchWithTimeout(15_000);
+  const myhomePageFetcher = createMyHomePageFetcher({
+    baseUrl: config.myhome.baseUrl,
+    userAgent: resolveBrowserUserAgent(config.browser),
+    minimumDelayMs: config.daft.requestDelayMs,
+    timeoutMs: config.browser.timeoutMs,
+  });
+  let dublinBoundaryPromise: Promise<DublinBoundaryGeometry> | undefined;
+  const cachedDublinBoundary = async (): Promise<DublinBoundaryGeometry> => {
+    dublinBoundaryPromise ??= loadDublinBoundary(sharedFetch).catch((error: unknown) => {
+      dublinBoundaryPromise = undefined;
+      throw error;
+    });
+    return dublinBoundaryPromise;
+  };
   const dependencies = {
     fetchPage: (url: string) => fetchDaftPayload(config, url),
-    publish: (finding: Parameters<typeof publishFinding>[1]) => {
+    fetchMyHomePage: (url: string) =>
+      Effect.tryPromise({
+        try: async () => myhomePageFetcher(url),
+        catch: (cause) =>
+          cause instanceof Error
+            ? cause
+            : new Error("MyHome request failed", { cause }),
+      }),
+    loadDublinBoundary: () =>
+      Effect.tryPromise({
+        try: cachedDublinBoundary,
+        catch: (cause) =>
+          cause instanceof Error
+            ? cause
+            : new Error("Dublin boundary request failed", { cause }),
+      }),
+    searchSearxng: (baseUrl: string) =>
+      Effect.tryPromise({
+        try: async () =>
+          searchSearxng({
+            baseUrl,
+            sectionPath: config.daft.sectionPath,
+            locations: config.daft.locations,
+            filters: config.daft.filters,
+            fetch: fetchWithTimeout(config.searxng?.timeoutMs ?? 15_000),
+          }),
+        catch: (cause) =>
+          cause instanceof Error
+            ? cause
+            : new Error("SearXNG request failed", { cause }),
+      }),
+    publish: (finding: DaftFinding, source: ListingSource) => {
       const publishers: NotificationPublisher[] = [];
       if (config.notificationBackends.includes("shoutrrr")) {
-        publishers.push(() => publishFinding(config.shoutrrr, finding));
+        publishers.push(() =>
+          publishFinding(config.shoutrrr, finding, source),
+        );
       }
       if (config.notificationBackends.includes("hermes")) {
         const hermes = config.hermes;
         if (hermes === undefined) {
           throw new Error("Hermes backend configuration is missing");
         }
-        publishers.push(() => publishHermesFinding(hermes, finding));
+        publishers.push(() =>
+          publishHermesFinding(hermes, finding, source),
+        );
       }
       return publishToAll(publishers);
     },
@@ -100,17 +168,32 @@ const program = Effect.gen(function* () {
         const stats = yield* runOnce(config, dependencies);
         const runtime = yield* Effect.sync(() => metrics.snapshot());
         yield* Effect.logInfo(
-          `Daft poll complete: pages=${stats.pages} findings=${stats.findings} notified=${stats.notified} seeded=${stats.seeded} ${formatRuntimeMetrics(runtime, performance.now() - cycleStartedAt)}`,
+          `Property poll complete: pages=${stats.pages} findings=${stats.findings} notified=${stats.notified} seeded=${stats.seeded} ${formatRuntimeMetrics(runtime, performance.now() - cycleStartedAt)}`,
         );
       }),
       (error: unknown) =>
         Effect.gen(function* () {
           const runtime = yield* Effect.sync(() => metrics.snapshot());
           yield* Effect.logError(
-            `Daft poll failed: ${error instanceof Error ? error.message : String(error)} ${formatRuntimeMetrics(runtime, performance.now() - cycleStartedAt)}`,
+            `Property poll failed: ${error instanceof Error ? error.message : String(error)} ${formatRuntimeMetrics(runtime, performance.now() - cycleStartedAt)}`,
           );
         }),
     );
+    if (config.baserow !== undefined) {
+      yield* Effect.catch(
+        syncBaserow({
+          ...config.baserow,
+          state,
+          fetch: sharedFetch,
+        }),
+        (error) =>
+          Effect.logWarning(
+            `Baserow sync failed; local outbox retained: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+      );
+    }
   });
 
   yield* Effect.ensuring(
