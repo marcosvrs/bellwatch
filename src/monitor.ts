@@ -413,11 +413,7 @@ const collectMyHomeFindings = (
     ) {
       const url = buildMyHomeUrl(config.myhome.baseUrl, searchPath, page);
       const html = yield* fetchMyHomePage(url);
-      const parsed = yield* Effect.try({
-        try: () => parseMyHomeListPage(html, url),
-        catch: (cause) =>
-          new MonitorError(`Could not parse MyHome page ${page}`, { cause }),
-      });
+      const parsed = yield* Effect.try(() => parseMyHomeListPage(html, url));
       pages += 1;
       for (const finding of parsed.findings) { byId.set(finding.sourceId, finding); }
       if (parsed.currentPage >= parsed.totalPages) { break; }
@@ -428,13 +424,9 @@ const collectMyHomeFindings = (
       const enrichedFinding = yield* Effect.catch(
         Effect.gen(function* () {
           const html = yield* fetchMyHomePage(finding.finding.url);
-          const detail = yield* Effect.try({
-            try: () => parseMyHomeDetailPage(html, finding.finding.url),
-            catch: (cause) =>
-              new MonitorError(`Could not parse MyHome detail ${finding.finding.url}`, {
-                cause,
-              }),
-          });
+          const detail = yield* Effect.try(() =>
+            parseMyHomeDetailPage(html, finding.finding.url),
+          );
           return enrichMyHomeFinding(finding, detail);
         }),
         (error) =>
@@ -626,9 +618,7 @@ const runPoll = (
       for (const listing of pending) {
         const key = sourcedFindingKey(listing);
         const finding =
-          listing.source === "daft"
-            ? enrichedById.get(listing.finding.id) ?? listing.finding
-            : listing.finding;
+          enrichedById.get(listing.finding.id) ?? listing.finding;
         yield* dependencies.publish(finding, listing.source);
         const current = yield* dependencies.state.getCurrentListing(key);
         yield* dependencies.state.markSeen(

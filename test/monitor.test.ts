@@ -601,6 +601,64 @@ test("seeds first results and notifies only later unseen findings", async () => 
   assert.deepEqual(sent, ["103"]);
 });
 
+test("handles missing current rows while seeding and notifying", async () => {
+  const seenKeys: string[] = [];
+  const missingCurrent = makeState();
+  const notifyingState: StateStore = {
+    ...missingCurrent,
+    getCurrentListing: () => Effect.succeed(undefined),
+    isInitialized: () => Effect.succeed(true),
+    isSeen: (key) => Effect.succeed(key === "daft:930"),
+    markSeen: (finding) =>
+      Effect.sync(() => {
+        seenKeys.push(finding.id);
+      }),
+  };
+  const published: string[] = [];
+  const notifyConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const notified = await Effect.runPromise(
+    runOnce(notifyConfig, {
+      fetchPage: () => Effect.succeed(payload([makeFinding("930"), makeFinding("931")])),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding.id);
+        }),
+      publishError: () => Effect.void,
+      state: notifyingState,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(notified.notified, 1);
+  assert.deepEqual(published, ["931"]);
+  assert.deepEqual(seenKeys, ["daft:930", "daft:931"]);
+
+  const seededKeys: string[] = [];
+  const seedingBase = makeState();
+  const seedingState: StateStore = {
+    ...seedingBase,
+    getCurrentListing: () => Effect.succeed(undefined),
+    markSeen: (finding) =>
+      Effect.sync(() => {
+        seededKeys.push(finding.id);
+      }),
+  };
+  const seeded = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([makeFinding("932")])),
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: seedingState,
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.equal(seeded.seeded, 1);
+  assert.deepEqual(seededKeys, ["daft:932"]);
+});
+
 test("notifies a finding that appears after an empty first poll", async () => {
   const state = makeState();
   const sent: string[] = [];
@@ -1844,8 +1902,12 @@ test("keeps cross-provider duplicates and notifies independent listings", async 
     `<dt>Bedrooms</dt><dd>3</dd>` +
     `<dt>Availability</dt><dd>For Sale</dd>` +
     `<dt>Address</dt><dd>2 Other Grove</dd>` +
-    `<dt>Eircode</dt><dd>D02 CD34</dd></dl></main>`;
+    `<dt>Eircode</dt><dd>D02 CD34</dd>` +
+    `<dt>Bathrooms</dt><dd>2</dd>` +
+    `<dt>Floor Area</dt><dd>120 m²</dd>` +
+    `<dt>BER</dt><dd>B2</dd></dl></main>`;
   const published: DaftFinding[] = [];
+  const daftRequests: string[] = [];
   const config = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_MAX_PAGES: "1",
@@ -1853,7 +1915,10 @@ test("keeps cross-provider duplicates and notifies independent listings", async 
   });
   const result = await Effect.runPromise(
     runOnce(config, {
-      fetchPage: () => Effect.succeed(payload([daftFinding])),
+      fetchPage: (url) => {
+        daftRequests.push(url);
+        return Effect.succeed(payload([daftFinding]));
+      },
       fetchMyHomePage: (url) => {
         const parsedUrl = new URL(url);
         if (
@@ -1876,6 +1941,7 @@ test("keeps cross-provider duplicates and notifies independent listings", async 
     }),
   );
   const records = await Effect.runPromise(state.listCurrentListings());
+  assert.equal(daftRequests.some((url) => url.includes("/sold-properties/")), false);
   assert.equal(result.findings, 3);
   assert.equal(result.notified, 2);
   assert.deepEqual(
