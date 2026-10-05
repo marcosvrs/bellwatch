@@ -49,7 +49,7 @@ test("publishes a signed Hermes WhatsApp payload", async () => {
     sleep: async () => undefined,
   };
 
-  await Effect.runPromise(publishHermesFinding(config, finding, transport));
+  await Effect.runPromise(publishHermesFinding(config, finding, "daft", transport));
 
   assert.ok(invocation);
   assert.equal(invocation.url, config.url);
@@ -92,7 +92,7 @@ test("retries Hermes server failures with the same signed request", async () => 
     },
   };
 
-  await Effect.runPromise(publishHermesFinding(config, finding, transport));
+  await Effect.runPromise(publishHermesFinding(config, finding, "daft", transport));
 
   assert.equal(calls, 2);
   assert.deepEqual(sleeps, [500]);
@@ -113,7 +113,7 @@ test("does not retry Hermes client failures", async () => {
   };
 
   await assert.rejects(
-    Effect.runPromise(publishHermesFinding(config, finding, transport)),
+    Effect.runPromise(publishHermesFinding(config, finding, "daft", transport)),
     (error: unknown) => {
       assert.equal(error instanceof HermesError, true);
       assert.ok(error instanceof Error);
@@ -145,7 +145,7 @@ test("retries network failures and preserves the final error", async () => {
   };
 
   await assert.rejects(
-    Effect.runPromise(publishHermesFinding(config, finding, transport)),
+    Effect.runPromise(publishHermesFinding(config, finding, "daft", transport)),
     (error: unknown) => {
       assert.ok(error instanceof Error);
       assert.equal(error.message, "Hermes webhook request failed");
@@ -170,7 +170,7 @@ test("handles an unreadable Hermes error response", async () => {
   };
 
   await assert.rejects(
-    Effect.runPromise(publishHermesFinding(config, finding, transport)),
+    Effect.runPromise(publishHermesFinding(config, finding, "daft", transport)),
     (error: unknown) => {
       assert.ok(error instanceof Error);
       assert.equal(error.message, "Hermes webhook returned HTTP 400");
@@ -189,7 +189,7 @@ test("wraps failures before the Hermes request starts", async () => {
   };
 
   await assert.rejects(
-    Effect.runPromise(publishHermesFinding(config, finding, transport)),
+    Effect.runPromise(publishHermesFinding(config, finding, "daft", transport)),
     (error: unknown) => {
       assert.equal(error instanceof HermesError, true);
       assert.ok(error instanceof Error);

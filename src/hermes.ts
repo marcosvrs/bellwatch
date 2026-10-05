@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import * as Effect from "effect/Effect";
 import type { HermesConfig } from "./config.js";
 import type { DaftFinding } from "./daft/parser.js";
+import type { ListingSource } from "./listings.js";
 import { formatFindingMessage } from "./shoutrrr.js";
 
 const RETRY_DELAYS_MS = [500, 1_000] as const;
@@ -117,6 +118,11 @@ export const publishHermesMessage = (
 export const publishHermesFinding = (
   config: HermesConfig,
   finding: DaftFinding,
+  source: ListingSource = "daft",
   transport: HermesTransport = defaultTransport,
 ): Effect.Effect<void, HermesError> =>
-  publishHermesMessage(config, formatFindingMessage(finding), transport);
+  publishHermesMessage(
+    config,
+    formatFindingMessage(finding, source),
+    transport,
+  );

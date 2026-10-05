@@ -259,6 +259,112 @@ test("accepts Daft web filters from environment variables", () => {
   assert.equal(config.daft.filters.openViewingsFrom, "2026-08-01");
   assert.equal(config.daft.filters.sort, "publishDateDesc");
 });
+test("validates optional source URLs and Baserow integration combinations", () => {
+  const base = { SHOUTRRR_URL: "ntfy://ntfy.sh/daft" };
+  const defaults = parseEnvironment(base);
+  assert.equal(defaults.myhome.enabled, true);
+  assert.equal(defaults.myhome.baseUrl, "https://www.myhome.ie");
+  assert.equal(defaults.searxng, undefined);
+  assert.equal(defaults.baserow, undefined);
+
+  const configured = parseEnvironment({
+    ...base,
+    MYHOME_BASE_URL: "https://myhome.example/path///",
+    MYHOME_ENABLED: "false",
+    BASEROW_BASE_URL: "https://tables.example/",
+    BASEROW_TOKEN: "token",
+    BASEROW_TABLE_ID: "listings",
+  });
+  assert.equal(configured.myhome.enabled, false);
+  assert.equal(configured.myhome.baseUrl, "https://myhome.example/path");
+  assert.deepEqual(configured.baserow, {
+    baseUrl: "https://tables.example",
+    token: "token",
+    tableId: "listings",
+  });
+
+  for (const invalidUrl of [
+    "not a URL",
+    "ftp://myhome.example",
+    "https://user@myhome.example",
+    "https://:password@myhome.example",
+    "https://myhome.example/?query=value",
+    "https://myhome.example/#fragment",
+  ]) {
+    assert.throws(
+      () => parseEnvironment({ ...base, MYHOME_BASE_URL: invalidUrl }),
+      /MYHOME_BASE_URL/,
+    );
+  }
+
+  for (const partial of [
+    { BASEROW_BASE_URL: "https://tables.example" },
+    { BASEROW_TOKEN: "token" },
+    { BASEROW_TABLE_ID: "listings" },
+    { BASEROW_CANDIDATE_TABLE_ID: "candidates" },
+    {
+      BASEROW_BASE_URL: "https://tables.example",
+      BASEROW_TOKEN: "token",
+    },
+    {
+      BASEROW_BASE_URL: "https://tables.example",
+      BASEROW_TABLE_ID: "listings",
+    },
+    { BASEROW_TOKEN: "token", BASEROW_TABLE_ID: "listings" },
+  ]) {
+    assert.throws(
+      () => parseEnvironment({ ...base, ...partial }),
+      /BASEROW_/,
+    );
+  }
+
+  const complete = {
+    BASEROW_BASE_URL: "https://tables.example",
+    BASEROW_TOKEN: "token",
+    BASEROW_TABLE_ID: "listings",
+  };
+  assert.throws(
+    () =>
+      parseEnvironment({
+        ...base,
+        ...complete,
+        BASEROW_CANDIDATE_TABLE_ID: "listings",
+      }),
+    /BASEROW_CANDIDATE_TABLE_ID/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        ...base,
+        ...complete,
+        SEARXNG_BASE_URL: "https://search.example",
+      }),
+    /BASEROW_CANDIDATE_TABLE_ID/,
+  );
+  const withCandidateTable = parseEnvironment({
+    ...base,
+    ...complete,
+    BASEROW_CANDIDATE_TABLE_ID: "candidates",
+    SEARXNG_BASE_URL: "https://search.example",
+  });
+  assert.equal(withCandidateTable.baserow?.candidateTableId, "candidates");
+  assert.deepEqual(withCandidateTable.searxng, {
+    baseUrl: "https://search.example",
+    timeoutMs: 15_000,
+  });
+});
+test("preserves the URL parser cause for invalid optional service URLs", () => {
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        SEARXNG_BASE_URL: "http://[",
+      }),
+    (error: unknown) =>
+      error instanceof ConfigurationError && error.cause instanceof TypeError,
+  );
+});
+
 test("parses profile-specific filters and rejects incompatible combinations", () => {
   const sale = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
@@ -596,7 +702,6 @@ test("parses optional resource settings and rejects malformed environment values
       DAFT_MEDIA_TYPES: "any",
     }).daft.filters,
     {
-      priceMaxEur: 499_999,
       propertyTypes: [],
       mediaTypes: [],
       availability: "published",
@@ -680,7 +785,6 @@ test("covers trimming, defaults, and boundary validation", () => {
     filter: "off",
   });
   assert.deepEqual(defaults.daft.filters, {
-    priceMaxEur: 499_999,
     propertyTypes: [],
     mediaTypes: [],
     availability: "published",
@@ -1071,7 +1175,6 @@ test("covers section metadata and profile validation boundaries", () => {
       id: "new-homes",
       path: "new-homes-for-sale",
       priceParameter: "salePrice",
-      defaultPriceMaxEur: 499_999,
       supportsShps: true,
       notificationTitlePrefix: "Bellwatch new home",
       allowedFacilities: [],
@@ -1331,5 +1434,72 @@ test("covers remaining section encoders and configuration failure messages", () 
         DAFT_SECTION_PATH: "not-a-daft-section",
       }),
     /DAFT_SECTION_PATH must be one of: new-homes-for-sale, property-for-sale, property-for-rent/,
+  );
+});
+test("configures MyHome, optional SearXNG, and isolated Baserow tables", () => {
+  const defaults = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+  });
+  assert.deepEqual(defaults.myhome, {
+    baseUrl: "https://www.myhome.ie",
+    enabled: true,
+  });
+  assert.equal(Object.hasOwn(defaults, "searxng"), false);
+  assert.equal(Object.hasOwn(defaults, "baserow"), false);
+
+  const configured = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    MYHOME_ENABLED: "false",
+    MYHOME_BASE_URL: "https://homes.example/",
+    SEARXNG_BASE_URL: "http://search.example/",
+    BASEROW_BASE_URL: "http://baserow.example/",
+    BASEROW_TOKEN: "local-test-token",
+    BASEROW_TABLE_ID: "listing-table",
+    BASEROW_CANDIDATE_TABLE_ID: "candidate-table",
+  });
+  assert.deepEqual(configured.myhome, {
+    baseUrl: "https://homes.example",
+    enabled: false,
+  });
+  assert.deepEqual(configured.searxng, {
+    baseUrl: "http://search.example",
+    timeoutMs: 15_000,
+  });
+  assert.deepEqual(configured.baserow, {
+    baseUrl: "http://baserow.example",
+    token: "local-test-token",
+    tableId: "listing-table",
+    candidateTableId: "candidate-table",
+  });
+
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        BASEROW_BASE_URL: "http://baserow.example",
+      }),
+    /BASEROW_BASE_URL, BASEROW_TOKEN, and BASEROW_TABLE_ID must be set together/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        SEARXNG_BASE_URL: "http://search.example",
+        BASEROW_BASE_URL: "http://baserow.example",
+        BASEROW_TOKEN: "local-test-token",
+        BASEROW_TABLE_ID: "one-table",
+      }),
+    /BASEROW_CANDIDATE_TABLE_ID is required/,
+  );
+  assert.throws(
+    () =>
+      parseEnvironment({
+        SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+        BASEROW_BASE_URL: "http://baserow.example",
+        BASEROW_TOKEN: "local-test-token",
+        BASEROW_TABLE_ID: "same-table",
+        BASEROW_CANDIDATE_TABLE_ID: "same-table",
+      }),
+    /BASEROW_CANDIDATE_TABLE_ID must differ/,
   );
 });

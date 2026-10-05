@@ -5,8 +5,6 @@ services:
     init: true
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
       browserless:
         condition: service_started
     environment:
@@ -16,8 +14,8 @@ services:
       HERMES_WEBHOOK_SECRET: "${HERMES_WEBHOOK_SECRET:-}"
       HERMES_CHAT_ID: "${HERMES_CHAT_ID:-}"
 
-      # Active for this Compose stack: use shared Postgres state.
-      DATABASE_URL: "postgresql://daft:${POSTGRES_PASSWORD}@postgres:5432/daft"
+      # SQLite is the default; set DATABASE_URL explicitly to keep using PostgreSQL state.
+      DATABASE_URL: "${DATABASE_URL:-}"
 
       # Optional state and healthcheck overrides. Empty values use application defaults.
       HEALTHCHECK_MAX_AGE_SECONDS: "${HEALTHCHECK_MAX_AGE_SECONDS:-}"
@@ -60,6 +58,13 @@ services:
       DAFT_MAX_PAGES: "${DAFT_MAX_PAGES:-}"
       DAFT_REQUEST_DELAY_MS: "${DAFT_REQUEST_DELAY_MS:-}"
       SHPS_FILTER: "${SHPS_FILTER:-}"
+      MYHOME_ENABLED: "${MYHOME_ENABLED:-true}"
+      MYHOME_BASE_URL: "${MYHOME_BASE_URL:-}"
+      SEARXNG_BASE_URL: "${SEARXNG_BASE_URL:-}"
+      BASEROW_BASE_URL: "${BASEROW_BASE_URL:-}"
+      BASEROW_TOKEN: "${BASEROW_TOKEN:-}"
+      BASEROW_TABLE_ID: "${BASEROW_TABLE_ID:-}"
+      BASEROW_CANDIDATE_TABLE_ID: "${BASEROW_CANDIDATE_TABLE_ID:-}"
 
       # Image defaults already supplied by Dockerfile.
       # NODE_ENV: "production"
@@ -69,16 +74,15 @@ services:
     networks:
       - bellwatch
 
-  # Persistent listing state for the monitor.
+  # Optional PostgreSQL compatibility for deployments with existing database state.
+  # Set DATABASE_URL in .env and start with `--profile postgres`.
   postgres:
+    profiles: ["postgres"]
     image: postgres:17-alpine
-    # POSTGRES_DB and POSTGRES_USER default to daft in this stack so they
-    # match the monitor's active DATABASE_URL default.
-    # POSTGRES_PASSWORD is required.
     environment:
       POSTGRES_DB: "daft"
       POSTGRES_USER: "daft"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

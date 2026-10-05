@@ -111,8 +111,10 @@ test("parses unit findings and development fallbacks", () => {
     bathrooms: 2,
     propertyType: "Terrace",
     url: "https://www.daft.ie/new-home-for-sale/3-bed-example/101",
+    individualUnit: true,
   });
   assert.equal(defined(result.findings[1]).id, "200");
+  assert.equal(defined(result.findings[1]).individualUnit, false);
 });
 
 test("handles malformed and string-valued listing data", () => {
@@ -218,6 +220,7 @@ test("preserves fallback fields and deduplicates unit ids", () => {
     priceText: "TBC",
     bedrooms: 12,
     propertyType: "Semi",
+    individualUnit: false,
     url: "https://www.daft.ie/new-home-for-sale/listing/303",
   });
   assert.equal(defined(result.findings[1]).title, "Daft development 304 — 2 Bed · 1 Bath · Flat");
