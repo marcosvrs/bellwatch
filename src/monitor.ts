@@ -364,6 +364,17 @@ const collectMyHomeFindings = (
     if (!config.myhome.enabled || fetchMyHomePage === undefined) {
       return { findings: [], pages: 0 };
     }
+    const sort = config.daft.filters.sort;
+    if (
+      config.daft.maxPages !== undefined &&
+      sort !== undefined &&
+      sort !== "bestMatch"
+    ) {
+      yield* Effect.logWarning(
+        `MyHome skipped; cannot preserve ${sort} with DAFT_MAX_PAGES`,
+      );
+      return { findings: [], pages: 0 };
+    }
     const support = validateMyHomeFilterSupport(
       config.daft.sectionPath,
       config.daft.filters,
@@ -376,12 +387,18 @@ const collectMyHomeFindings = (
 
     let searchPath: string;
     if (config.daft.locations.length === 0) {
-      searchPath = getMyHomeNationalSearchPath(config.daft.sectionPath);
+      searchPath = getMyHomeNationalSearchPath(
+        config.daft.sectionPath,
+        config.daft.filters.availability,
+      );
     } else {
       const regionHtml = yield* fetchMyHomePage(
         buildMyHomeUrl(
           config.myhome.baseUrl,
-          getMyHomeNationalSearchPath(config.daft.sectionPath),
+          getMyHomeNationalSearchPath(
+            config.daft.sectionPath,
+            config.daft.filters.availability,
+          ),
         ),
       );
       const regionRoutes = parseMyHomeRegionRoutes(regionHtml);

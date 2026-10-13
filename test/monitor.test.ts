@@ -2134,6 +2134,50 @@ test("uses native MyHome filters while ignoring unsupported ones", async () => {
     JSON.stringify(warnings),
   );
 });
+test("uses the native MyHome sale-agreed catalog", async () => {
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_AVAILABILITY: "sale-agreed",
+    DAFT_LOCATION: "dublin",
+    DAFT_PROPERTY_TYPES: "houses",
+    DAFT_MAX_PAGES: "1",
+  });
+  const requested: string[] = [];
+  const warnings: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    warnings.push(String(message));
+  });
+  const regionHtml =
+    `<script id="ng-state" type="application/json">` +
+    `{"bootstrap":[{"RegionUrls":{"1":"/residential/dublin/sale-agreed-house"}}]}` +
+    `</script>`;
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) => {
+        const request = new URL(url);
+        requested.push(`${request.pathname}${request.search}`);
+        return Effect.succeed(
+          request.pathname === "/residential/ireland/sale-agreed-property"
+            ? regionHtml
+            : "<main></main>",
+        );
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }).pipe(Effect.provide(Logger.layer([logger]))),
+  );
+  assert.deepEqual(requested, [
+    "/residential/ireland/sale-agreed-property",
+    "/residential/dublin/sale-agreed-house?propertytypeids=97",
+  ]);
+  assert.equal(result.pages, 2);
+  assert.equal(result.findings, 0);
+  assert.deepEqual(warnings, []);
+});
 
 test("classifies valid MyHome coordinates using the loaded county boundary", async () => {
   const configWithLocation = parseEnvironment({
@@ -2649,7 +2693,7 @@ test("honors the configured MyHome page cap when more pages are available", asyn
   );
 });
 
-test("uses MyHome while ignoring a sort without a native equivalent", async () => {
+test("skips MyHome when a page cap cannot preserve a non-default sort", async () => {
   for (const sort of ["priceAsc", "priceDesc", "publishDateDesc"] as const) {
     const requestedMyHomePages: string[] = [];
     const warnings: string[] = [];
@@ -2665,25 +2709,56 @@ test("uses MyHome while ignoring a sort without a native equivalent", async () =
     const result = await Effect.runPromise(
       runOnce(config, {
         fetchPage: () => Effect.succeed(payload([])),
-        fetchMyHomePage: (url) => {
-          requestedMyHomePages.push(new URL(url).pathname);
-          return Effect.succeed("<main></main>");
-        },
+        fetchMyHomePage: (url) =>
+          Effect.sync(() => {
+            requestedMyHomePages.push(new URL(url).pathname);
+            return "<main></main>";
+          }),
         publish: () => Effect.void,
         publishError: () => Effect.void,
         state,
         heartbeat: () => Effect.void,
       }).pipe(Effect.provide(Logger.layer([logger]))),
     );
-    assert.equal(result.pages, 2);
+    assert.equal(result.pages, 1);
     assert.equal(result.findings, 0);
-    assert.deepEqual(requestedMyHomePages, [
-      "/residential/ireland/new-homes/property-for-sale",
-    ]);
+    assert.deepEqual(requestedMyHomePages, []);
     assert.deepEqual(warnings, [
-      "MyHome ignoring filters without native equivalents: sort",
+      `MyHome skipped; cannot preserve ${sort} with DAFT_MAX_PAGES`,
     ]);
   }
+});
+
+test("uses MyHome when a non-default sort has no page cap", async () => {
+  const requestedMyHomePages: string[] = [];
+  const warnings: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    warnings.push(String(message));
+  });
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SORT: "priceAsc",
+  });
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) => {
+        requestedMyHomePages.push(new URL(url).pathname);
+        return Effect.succeed("<main></main>");
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }).pipe(Effect.provide(Logger.layer([logger]))),
+  );
+  assert.equal(result.pages, 2);
+  assert.deepEqual(requestedMyHomePages, [
+    "/residential/ireland/new-homes/property-for-sale",
+  ]);
+  assert.deepEqual(warnings, [
+    "MyHome ignoring filters without native equivalents: sort",
+  ]);
 });
 
 test("retains MyHome results when native-filter detail facts are missing", async () => {

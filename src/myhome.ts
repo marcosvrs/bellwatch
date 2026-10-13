@@ -33,36 +33,64 @@ const VOID_TAGS: Readonly<Record<string, true>> = {
   track: true,
   wbr: true,
 };
+type MyHomeSearchRoutes = {
+  readonly nationalPath: string;
+  readonly locationRoot: "residential" | "rentals";
+  readonly genericSuffix: string;
+  readonly houseSuffix: string;
+};
+type MyHomeSectionRoutes = {
+  readonly published: MyHomeSearchRoutes;
+  readonly saleAgreed?: MyHomeSearchRoutes;
+};
 const SECTION_SEARCH_ROUTES: Readonly<Record<
   DaftSectionPath,
-  {
-    readonly nationalPath: string;
-    readonly locationRoot: "residential" | "rentals";
-    readonly genericSuffix: string;
-    readonly houseSuffix: string;
-  }
+  MyHomeSectionRoutes
 >> = {
   "new-homes-for-sale": {
-    nationalPath: "/residential/ireland/new-homes/property-for-sale",
-    locationRoot: "residential",
-    genericSuffix: "/new-homes/property-for-sale",
-    houseSuffix: "/new-homes/house-for-sale",
+    published: {
+      nationalPath: "/residential/ireland/new-homes/property-for-sale",
+      locationRoot: "residential",
+      genericSuffix: "/new-homes/property-for-sale",
+      houseSuffix: "/new-homes/house-for-sale",
+    },
   },
   "property-for-sale": {
-    nationalPath: "/residential/ireland/property-for-sale",
-    locationRoot: "residential",
-    genericSuffix: "/property-for-sale",
-    houseSuffix: "/house-for-sale",
+    published: {
+      nationalPath: "/residential/ireland/property-for-sale",
+      locationRoot: "residential",
+      genericSuffix: "/property-for-sale",
+      houseSuffix: "/house-for-sale",
+    },
+    saleAgreed: {
+      nationalPath: "/residential/ireland/sale-agreed-property",
+      locationRoot: "residential",
+      genericSuffix: "/sale-agreed-property",
+      houseSuffix: "/sale-agreed-house",
+    },
   },
   "property-for-rent": {
-    nationalPath: "/rentals/ireland/property-to-rent",
-    locationRoot: "rentals",
-    genericSuffix: "/property-to-rent",
-    houseSuffix: "/house-to-rent",
+    published: {
+      nationalPath: "/rentals/ireland/property-to-rent",
+      locationRoot: "rentals",
+      genericSuffix: "/property-to-rent",
+      houseSuffix: "/house-to-rent",
+    },
   },
 };
-export const getMyHomeNationalSearchPath = (sectionPath: DaftSectionPath): string =>
-  SECTION_SEARCH_ROUTES[sectionPath].nationalPath;
+const searchRoutesFor = (
+  sectionPath: DaftSectionPath,
+  availability: DaftFilters["availability"],
+): MyHomeSearchRoutes => {
+  const sectionRoutes = SECTION_SEARCH_ROUTES[sectionPath];
+  return availability === "sale-agreed" && sectionRoutes.saleAgreed !== undefined
+    ? sectionRoutes.saleAgreed
+    : sectionRoutes.published;
+};
+export const getMyHomeNationalSearchPath = (
+  sectionPath: DaftSectionPath,
+  availability: DaftFilters["availability"] = "published",
+): string => searchRoutesFor(sectionPath, availability).nationalPath;
 
 const HOUSE_PROPERTY_TYPES: Readonly<Record<string, true>> = {
   houses: true,
@@ -455,7 +483,7 @@ export const resolveMyHomeSearchPath = (
   }
   if (locations.length === 0) {
     return {
-      searchPath: SECTION_SEARCH_ROUTES[sectionPath].nationalPath,
+      searchPath: searchRoutesFor(sectionPath, filters.availability).nationalPath,
       unsupportedLocationFilters,
     };
   }
@@ -463,7 +491,7 @@ export const resolveMyHomeSearchPath = (
   if (location === undefined || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(location)) {
     return { unsupportedLocationFilters: ["locations"] };
   }
-  const routes = SECTION_SEARCH_ROUTES[sectionPath];
+  const routes = searchRoutesFor(sectionPath, filters.availability);
   const locationPrefix = `/${routes.locationRoot}/${location}`;
   const genericPath = `${locationPrefix}${routes.genericSuffix}`;
   const housePath = `${locationPrefix}${routes.houseSuffix}`;
@@ -1216,33 +1244,37 @@ const activeFilterNames = (
 const nativePropertyTypeIds = (
   sectionPath: DaftSectionPath,
   propertyTypes: readonly DaftPropertyType[],
-): readonly number[] =>
-  propertyTypes.flatMap((propertyType) => {
+): readonly number[] | undefined => {
+  const ids: number[] = [];
+  for (const propertyType of propertyTypes) {
     const id = MYHOME_PROPERTY_TYPE_IDS[sectionPath][propertyType];
-    return id === undefined ? [] : [id];
-  });
+    if (id === undefined) { return undefined; }
+    ids.push(id);
+  }
+  return ids;
+};
 
 const isNativeFilter = (
   sectionPath: DaftSectionPath,
   name: MyHomeFilterName,
   filters: DaftFilters,
 ): boolean => {
-  if (name === "availability") { return filters.availability === "published"; }
+  if (name === "availability") {
+    if (filters.availability === "published") { return true; }
+    return sectionPath === "property-for-sale";
+  }
   if (
     name === "priceMinEur" ||
     name === "priceMaxEur" ||
     name === "bedsMin" ||
     name === "bedsMax" ||
     name === "bathsMin" ||
-    name === "bathsMax" ||
     name === "keyword"
   ) {
     return true;
   }
   if (name === "propertyTypes") {
-    return filters.propertyTypes.every((propertyType) =>
-      MYHOME_PROPERTY_TYPE_IDS[sectionPath][propertyType] !== undefined,
-    );
+    return nativePropertyTypeIds(sectionPath, filters.propertyTypes) !== undefined;
   }
   return sectionPath === "property-for-sale" &&
     (name === "floorSizeMinSqm" || name === "floorSizeMaxSqm");
@@ -1283,14 +1315,14 @@ export const buildMyHomeSearchUrl = (
     ["minbeds", filters.bedsMin],
     ["maxbeds", filters.bedsMax],
     ["minbathrooms", filters.bathsMin],
-    ["maxbaths", filters.bathsMax],
     ["minsize", filters.floorSizeMinSqm],
     ["maxsize", filters.floorSizeMaxSqm],
   ] as const;
   for (const [name, value] of numericFilters) {
     if (value !== undefined) { query.set(name, String(value)); }
   }
-  for (const id of nativePropertyTypeIds(sectionPath, filters.propertyTypes)) {
+  const propertyTypeIds = nativePropertyTypeIds(sectionPath, filters.propertyTypes);
+  for (const id of propertyTypeIds ?? []) {
     query.append("propertytypeids", String(id));
   }
   const keyword = filters.keyword?.trim();

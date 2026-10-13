@@ -313,14 +313,25 @@ relevant scheme and local authority.
 | `BASEROW_CANDIDATE_TABLE_ID` | unset | Separate candidate table ID; required when both Baserow and SearXNG are enabled. |
 
 MyHome uses only its public server-rendered search controls. Price, bedroom,
-bathroom, size, keyword, and supported property-type constraints are encoded
-as native MyHome query parameters. If a configured Daft filter has no verified
-MyHome equivalent, Bellwatch logs it and omits only that parameter; it still
-runs MyHome with the other native filters. It does not reapply filters to
-parsed detail facts, and missing facts never exclude a provider result.
+minimum-bathroom, size, keyword, supported property-type, and sale-agreed
+(for `property-for-sale`) constraints use native MyHome routes or query
+parameters. A maximum-bathroom constraint has no verified MyHome equivalent and
+is omitted. If a configured Daft filter has no verified MyHome equivalent,
+Bellwatch logs it and omits only that parameter; it still runs MyHome with the
+other native filters. It does not reapply filters to parsed detail facts, and
+missing facts never exclude a provider result.
+
+MyHome has no verified server-side control for non-default sort order. When
+`DAFT_MAX_PAGES` is set with a non-default `DAFT_SORT`, Bellwatch skips MyHome
+instead of silently collecting only the first pages in the wrong order. Without
+a page cap, it runs MyHome and logs the unsupported sort. This ordering
+exception does not suppress other unsupported filters.
+
 Regional MyHome paths are used only when their route is evidenced by the
 nationwide page's rendered links. An unsupported radius can therefore be
-ignored while the evidenced regional path and remaining native query run.
+ignored while the evidenced regional path and remaining native query run. If no
+route is evidenced for the configured location scope, Bellwatch skips MyHome
+rather than silently broadening the search to all Ireland.
 
 SearXNG is never queried unless `SEARXNG_BASE_URL` is set. Search results do not
 become listings, do not generate listing alerts, and are kept in a separate

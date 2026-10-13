@@ -6,6 +6,7 @@ import { classifyShpsAvailability, filterShpsFindings } from "../src/daft/shps.j
 import {
   buildMyHomeSearchUrl,
   buildMyHomeUrl,
+  getMyHomeNationalSearchPath,
   enrichMyHomeFinding,
   parseMyHomeDetailPage,
   parseMyHomeListPage,
@@ -153,6 +154,7 @@ test("builds canonical URLs and provider-native search queries", () => {
       priceMaxEur: 500_000,
       bedsMin: 3,
       bathsMin: 2,
+      bathsMax: 4,
       floorSizeMinSqm: 90,
       keyword: "harbour view",
       propertyTypes: ["detached-houses", "terraced-houses"],
@@ -163,6 +165,7 @@ test("builds canonical URLs and provider-native search queries", () => {
   assert.equal(searchUrl.searchParams.get("maxprice"), "500000");
   assert.equal(searchUrl.searchParams.get("minbeds"), "3");
   assert.equal(searchUrl.searchParams.get("minbathrooms"), "2");
+  assert.equal(searchUrl.searchParams.has("maxbaths"), false);
   assert.equal(searchUrl.searchParams.get("minsize"), "90");
   assert.equal(searchUrl.searchParams.get("query"), "harbour view");
   assert.deepEqual(searchUrl.searchParams.getAll("propertytypeids"), ["39", "37"]);
@@ -194,6 +197,13 @@ test("builds canonical URLs and provider-native search queries", () => {
     }).unsupportedFilters,
     ["radiusKm", "addedInLastDays"],
   );
+  const mixedPropertyTypes = new URL(buildMyHomeSearchUrl(
+    BASE_URL,
+    "/residential/ireland/new-homes/property-for-sale",
+    "new-homes-for-sale",
+    { ...EMPTY_FILTERS, propertyTypes: ["houses", "duplexes"] },
+  ));
+  assert.deepEqual(mixedPropertyTypes.searchParams.getAll("propertytypeids"), []);
   assert.equal(
     buildMyHomeUrl("https://homes.example/root/path///?stale=1", "/residential/ireland/property-for-sale", 2),
     "https://homes.example/root/path/residential/ireland/property-for-sale?page=2",
@@ -348,6 +358,11 @@ test("resolves nationwide scope and only exact RegionUrls-backed locations", () 
     "/rentals/dublin/house-to-rent",
     "/residential/cork/new-homes/house-for-sale",
   ]);
+  const saleAgreedRoutes = parseMyHomeRegionRoutes(
+    `<script id="ng-state" type="application/json">` +
+    `{"bootstrap":[{"RegionUrls":{"1":"/residential/dublin/sale-agreed-house"}}]}` +
+    `</script>`,
+  );
   assert.deepEqual(parseMyHomeRegionRoutes(`<script id="ng-state">{bad JSON}</script>`), []);
   assert.deepEqual(parseMyHomeRegionRoutes(""), []);
 
@@ -372,6 +387,28 @@ test("resolves nationwide scope and only exact RegionUrls-backed locations", () 
     "/rentals/ireland/property-to-rent",
   );
   const houseFilters: DaftFilters = { ...EMPTY_FILTERS, propertyTypes: ["houses"] };
+  const saleAgreedFilters: DaftFilters = {
+    ...houseFilters,
+    availability: "sale-agreed",
+  };
+  assert.equal(
+    getMyHomeNationalSearchPath("property-for-sale", "sale-agreed"),
+    "/residential/ireland/sale-agreed-property",
+  );
+  assert.equal(
+    resolveMyHomeSearchPath(
+      "property-for-sale",
+      ["dublin"],
+      saleAgreedFilters,
+      saleAgreedRoutes,
+    ).searchPath,
+    "/residential/dublin/sale-agreed-house",
+  );
+  assert.equal(
+    validateMyHomeFilterSupport("property-for-sale", saleAgreedFilters)
+      .filterSources.availability,
+    "native",
+  );
   const regionalNewHomes = resolveMyHomeSearchPath(
     "new-homes-for-sale",
     ["dublin"],
@@ -632,6 +669,7 @@ test("reports native MyHome filter support without treating detail evidence as a
     bedsMin: 3,
     propertyTypes: ["houses"],
     bathsMin: 2,
+    bathsMax: 4,
     keyword: "harbour",
     mediaTypes: ["video"],
     openViewingsFrom: "2026-10-10",
@@ -649,6 +687,7 @@ test("reports native MyHome filter support without treating detail evidence as a
   ]);
   assert.deepEqual(common.unsupportedFilters, [
     "radiusKm",
+    "bathsMax",
     "mediaTypes",
     "addedInLastDays",
     "sort",
