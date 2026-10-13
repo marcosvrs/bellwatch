@@ -22,7 +22,7 @@ At least one complete notification backend is required:
 - Hermes: set all three `HERMES_WEBHOOK_URL`, `HERMES_WEBHOOK_SECRET`, and `HERMES_CHAT_ID`. A partial Hermes configuration is rejected.
 - Both complete backends may be configured; Bellwatch sends to both.
 
-Start from the user's desired search. Defaults are `DAFT_SECTION_PATH=new-homes-for-sale`, nationwide Daft and MyHome searches, no default price cap, `SHPS_FILTER=off`, and MyHome enabled. Bellwatch's alert catalog retains individual houses with at least three bedrooms; apartments, duplexes, and development-only parent results are excluded, while qualifying houses inside mixed developments remain. The default poll schedule is every eight hours, and a poll starts immediately at startup.
+Start from the user's desired search. Defaults are `DAFT_SECTION_PATH=new-homes-for-sale`, nationwide Daft and MyHome searches, no default price cap, `SHPS_FILTER=off`, and MyHome enabled. Bellwatch trusts provider-returned listings and applies only `SHPS_FILTER` locally; it does not impose its own bedroom or property-type admission rules. The default poll schedule is every eight hours, and a poll starts immediately at startup.
 
 Common environment settings:
 
@@ -31,7 +31,7 @@ Common environment settings:
 | Choose the section | `DAFT_SECTION_PATH=new-homes-for-sale`, `property-for-sale`, or `property-for-rent` |
 | Limit Daft geography | `DAFT_LOCATION=dublin-city` or comma-separated Daft location slugs; unset searches all Ireland |
 | Set price and beds | `DAFT_PRICE_MIN_EUR`, `DAFT_PRICE_MAX_EUR`, `DAFT_BEDS_MIN`, `DAFT_BEDS_MAX`; no price or bedroom limits are set by default |
-| Choose a Daft property type | `DAFT_PROPERTY_TYPES=houses` or supported values; Bellwatch still alerts only on individual houses with at least three bedrooms |
+| Choose a Daft property type | `DAFT_PROPERTY_TYPES=houses` or supported values; Daft/MyHome native results are retained as returned |
 | Add a keyword or age limit | `DAFT_KEYWORD`, `DAFT_ADDED_IN_LAST_DAYS` |
 | Set cadence/timezone | `POLL_CRON` (default `0 */8 * * *`) and `TZ` (for example `Europe/Dublin`) |
 | Control first-run alerts | `NOTIFY_EXISTING_ON_FIRST_RUN=true` only if the user explicitly wants current matches notified |
@@ -41,7 +41,7 @@ Use only filters supported by the selected Daft section. Sale, rental, and new-h
 
 ## MyHome and optional integrations
 
-MyHome uses public server-rendered HTML, not a private or undocumented API. It is enabled by default and searches nationwide or follows regional routes evidenced by rendered links. If an active filter cannot be safely applied by MyHome, Bellwatch skips MyHome for that poll; a listing missing a fact required by a filter is excluded rather than assumed to match.
+MyHome uses public server-rendered HTML, not a private or undocumented API. It is enabled by default and searches nationwide or follows regional routes evidenced by rendered links. Native equivalents for price, beds, baths, size, keyword, and supported property types are included in the MyHome URL. If a configured filter has no MyHome equivalent, Bellwatch logs and omits only that parameter; it still runs the remaining native query. It never re-filters detail facts or drops a listing because a fact is missing.
 
 - Set `MYHOME_ENABLED=false` to disable the source.
 - `SEARXNG_BASE_URL` enables discovery-only searches. Results are unverified candidates; they do not enter the listing catalog or generate listing alerts.
@@ -100,7 +100,7 @@ Changing environment settings requires recreating the container with the updated
 
 - **Container exits at startup:** inspect logs for configuration errors. Check that one notification backend is complete, values are valid for the selected section, and minimums do not exceed maximums.
 - **No first-run alert:** this is expected unless `NOTIFY_EXISTING_ON_FIRST_RUN=true`; Bellwatch normally seeds existing matches silently. Check search scope, filters, and poll logs before changing notification settings.
-- **No results:** a successful empty result is not an error. Check the Daft section/location and filters. MyHome may skip a poll if it cannot safely apply an active filter; check the source warning in the logs.
+- **No results:** a successful empty result is not an error. Check the Daft section/location and the provider-native query parameters in the logs. MyHome ignores filters it cannot express natively and still runs the rest of the query; it does not skip the whole source for that reason.
 - **Stale health check:** verify the container is running, `/data` remains persistent and writable, and logs show a completed poll. The health check uses the heartbeat in `/data`.
 - **Request blocked or rate-limited:** do not increase request frequency or bypass the block. Respect the site's rules and retry only through a later scheduled poll.
 - **Possible duplicate/missing notification:** inspect the poll and notification logs first. Bellwatch marks findings seen only after delivery succeeds; changing or deleting its state can cause re-alerts or loss of history.

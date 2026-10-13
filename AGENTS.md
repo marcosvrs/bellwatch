@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-Bellwatch is a scheduled Node.js/TypeScript service that monitors Irish property listings on Daft.ie. It parses listings and detail pages, applies search and Starter Home Purchase Scheme (SHPS/LAAPS) filters, compares sale prices with historical sold-property data, persists seen-listing state, and sends alerts through Shoutrrr and/or signed Hermes webhooks.
+Bellwatch is a scheduled Node.js/TypeScript service that monitors Irish property listings on Daft.ie. It parses listings and detail pages, delegates search constraints to provider-native filters, applies only Starter Home Purchase Scheme (SHPS/LAAPS) post-fetch filtering, compares sale prices with historical sold-property data, persists seen-listing state, and sends alerts through Shoutrrr and/or signed Hermes webhooks.
 
 ## Architecture & Data Flow
 
 1. `src/main.ts` parses environment configuration, opens the state store, installs runtime metrics, and runs the polling cycle on an Effect cron schedule. Shutdown signals close state and metrics resources deterministically.
-2. `src/monitor.ts` orchestrates each poll: build Daft URLs, fetch pages, hydrate details when required, apply SHPS filters, enrich sale findings with sold comparables, deduplicate against persistent state, publish notifications, and write the heartbeat.
+2. `src/monitor.ts` orchestrates each poll: build provider-native Daft/MyHome URLs, fetch pages, hydrate details when required, apply only SHPS filters, enrich sale findings with sold comparables, deduplicate against persistent state, publish notifications, and write the heartbeat.
 3. `src/browser.ts` owns browser/page retrieval. Daft requests must pass robots.txt checks (`src/daft/robots.ts`) and the shared request-rate gate. Payloads come from Next.js `#__NEXT_DATA__`, using local Chromium or an external CDP endpoint.
 4. `src/daft/` contains pure-ish URL, filter, robots, JSON, section, listing-parser, SHPS, and sold-comparison logic. Keep parsing and URL construction separate from browser/network I/O.
 5. `src/state.ts` persists `seen_listings` and `monitor_state` through SQLite or PostgreSQL. First-run seeding and notification ordering are part of the behavioral contract.
