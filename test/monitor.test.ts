@@ -2729,6 +2729,39 @@ test("skips MyHome when a page cap cannot preserve a non-default sort", async ()
   }
 });
 
+test("uses MyHome for the default sort with a page cap", async () => {
+  const requestedMyHomePages: string[] = [];
+  const warnings: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    warnings.push(String(message));
+  });
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    DAFT_SORT: "bestMatch",
+  });
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) => {
+        requestedMyHomePages.push(new URL(url).pathname);
+        return Effect.succeed("<main></main>");
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }).pipe(Effect.provide(Logger.layer([logger]))),
+  );
+  assert.equal(result.pages, 2);
+  assert.deepEqual(requestedMyHomePages, [
+    "/residential/ireland/new-homes/property-for-sale",
+  ]);
+  assert.deepEqual(warnings, [
+    "MyHome ignoring filters without native equivalents: sort",
+  ]);
+});
+
 test("uses MyHome when a non-default sort has no page cap", async () => {
   const requestedMyHomePages: string[] = [];
   const warnings: string[] = [];
