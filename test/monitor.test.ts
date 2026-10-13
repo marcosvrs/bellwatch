@@ -2237,6 +2237,10 @@ test("classifies valid MyHome coordinates using the loaded county boundary", asy
     .filter((record) => record.source === "myhome");
   assert.equal(myHomeRecords.length, 4);
   assert.equal(warnings.some((message) => message.includes("unverified")), false);
+  assert.equal(
+    warnings.some((message) => message.includes("MyHome ignoring unsupported location filters")),
+    false,
+  );
   const inside = myHomeRecords.find((record) => record.sourceId === "901");
   const outside = myHomeRecords.find((record) => record.sourceId === "902");
   assert.ok(inside?.dublinBoundary?.status === "classified");
