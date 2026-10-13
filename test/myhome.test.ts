@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DAFT_ADDED_IN_LAST_DAYS, DAFT_FACILITIES, type DaftFilters } from "../src/daft/filters.js";
-import type { DaftSectionPath } from "../src/daft/sections.js";
+import { DAFT_FACILITIES, type DaftFilters } from "../src/daft/filters.js";
 import type { SourcedFinding } from "../src/listings.js";
 import { classifyShpsAvailability, filterShpsFindings } from "../src/daft/shps.js";
 import {
-  applyMyHomeFilters,
+  buildMyHomeSearchUrl,
   buildMyHomeUrl,
   enrichMyHomeFinding,
   parseMyHomeDetailPage,
@@ -19,7 +18,6 @@ import {
 
 const BASE_URL = "https://www.myhome.ie";
 const SEARCH_URL = `${BASE_URL}/residential/ireland/new-homes/property-for-sale`;
-const FIXED_NOW = new Date("2026-10-01T12:00:00.000Z");
 const EMPTY_FILTERS: DaftFilters = {
   propertyTypes: [],
   mediaTypes: [],
@@ -118,13 +116,8 @@ const findingFrom = (options: DetailOptions = {}): MyHomeFinding => {
   return enrichMyHomeFinding(candidate, details);
 };
 
-const apply = (
-  findings: readonly SourcedFinding[],
-  updates: Partial<DaftFilters> = {},
-  sectionPath: DaftSectionPath = "new-homes-for-sale",
-) => applyMyHomeFilters(findings, sectionPath, { ...EMPTY_FILTERS, ...updates }, FIXED_NOW);
 
-test("builds canonical residential and rental URLs with page-only pagination", () => {
+test("builds canonical URLs and provider-native search queries", () => {
   assert.equal(
     buildMyHomeUrl(BASE_URL, "/residential/ireland/new-homes/property-for-sale/"),
     `${BASE_URL}/residential/ireland/new-homes/property-for-sale`,
@@ -144,6 +137,65 @@ test("builds canonical residential and rental URLs with page-only pagination", (
       "/residential/ireland/property-for-sale",
       2,
     ),
+    "https://homes.example/root/path/residential/ireland/property-for-sale?page=2",
+  );
+  assert.equal(
+    buildMyHomeUrl("https://homes.example/", "/rentals/ireland/property-to-rent"),
+    "https://homes.example/rentals/ireland/property-to-rent",
+  );
+  const searchUrl = new URL(buildMyHomeSearchUrl(
+    BASE_URL,
+    "/residential/dublin/property-for-sale",
+    "property-for-sale",
+    {
+      ...EMPTY_FILTERS,
+      priceMinEur: 300_000,
+      priceMaxEur: 500_000,
+      bedsMin: 3,
+      bathsMin: 2,
+      floorSizeMinSqm: 90,
+      keyword: "harbour view",
+      propertyTypes: ["detached-houses", "terraced-houses"],
+    },
+    3,
+  ));
+  assert.equal(searchUrl.searchParams.get("minprice"), "300000");
+  assert.equal(searchUrl.searchParams.get("maxprice"), "500000");
+  assert.equal(searchUrl.searchParams.get("minbeds"), "3");
+  assert.equal(searchUrl.searchParams.get("minbathrooms"), "2");
+  assert.equal(searchUrl.searchParams.get("minsize"), "90");
+  assert.equal(searchUrl.searchParams.get("query"), "harbour view");
+  assert.deepEqual(searchUrl.searchParams.getAll("propertytypeids"), ["39", "37"]);
+  assert.equal(searchUrl.searchParams.get("page"), "3");
+  const partiallyUnsupported = new URL(buildMyHomeSearchUrl(
+    BASE_URL,
+    "/residential/dublin/new-homes/property-for-sale",
+    "new-homes-for-sale",
+    { ...EMPTY_FILTERS, radiusKm: 20, addedInLastDays: 1, bedsMin: 3 },
+  ));
+  assert.equal(partiallyUnsupported.searchParams.get("minbeds"), "3");
+  assert.equal(partiallyUnsupported.searchParams.has("radius"), false);
+  assert.equal(partiallyUnsupported.searchParams.has("firstPublishDate"), false);
+  assert.equal(
+    validateMyHomeFilterSupport("new-homes-for-sale", {
+      ...EMPTY_FILTERS,
+      radiusKm: 20,
+      addedInLastDays: 1,
+      bedsMin: 3,
+    }).filterSources.bedsMin,
+    "native",
+  );
+  assert.deepEqual(
+    validateMyHomeFilterSupport("new-homes-for-sale", {
+      ...EMPTY_FILTERS,
+      radiusKm: 20,
+      addedInLastDays: 1,
+      bedsMin: 3,
+    }).unsupportedFilters,
+    ["radiusKm", "addedInLastDays"],
+  );
+  assert.equal(
+    buildMyHomeUrl("https://homes.example/root/path///?stale=1", "/residential/ireland/property-for-sale", 2),
     "https://homes.example/root/path/residential/ireland/property-for-sale?page=2",
   );
   assert.equal(
@@ -184,7 +236,7 @@ test("parses canonical list cards, keeps raw source IDs, and deduplicates respon
     `${SEARCH_URL}?page=2`,
   );
   assert.equal(result.currentPage, 2);
-  assert.equal(result.totalPages, 8);
+  assert.equal(result.totalPages, 9);
   assert.equal(result.findings.length, 1);
   const finding = checkedFirst(result.findings);
   assert.equal(finding.source, "myhome");
@@ -195,7 +247,8 @@ test("parses canonical list cards, keeps raw source IDs, and deduplicates respon
   assert.equal(finding.finding.propertyType, undefined);
   assert.equal(finding.finding.priceText, "Price unavailable");
   assert.equal(finding.myhomeEvidence.typeVerified, false);
-  assert.throws(() => parseMyHomeListPage("", `${SEARCH_URL}?page=2&beds=3`), /single/);
+  const filteredQueryPage = parseMyHomeListPage("", `${SEARCH_URL}?page=2&minbeds=3`);
+  assert.equal(filteredQueryPage.currentPage, 2);
   assert.throws(() => parseMyHomeListPage("", "https://www.myhome.ie/search"), /canonical/);
 });
 
@@ -216,7 +269,7 @@ test("preserves configured base paths when parsing listing-card URLs", () => {
   assert.equal(detail.url, candidate.finding.url);
 });
 
-test("parses and filters rental listings under canonical rentals routes", () => {
+test("parses and enriches rental listings under canonical rentals routes", () => {
   const rentalUrl = `${BASE_URL}/rentals/ireland/property-to-rent`;
   const candidate = checkedFirst(parseMyHomeListPage(
     `<main><article><a href="/rentals/brochure/house-on-the-green/90006">House on the Green</a></article></main>`,
@@ -236,19 +289,9 @@ test("parses and filters rental listings under canonical rentals routes", () => 
   const rental = enrichMyHomeFinding(candidate, detail);
   assert.equal(rental.sourceId, "90006");
   assert.equal(rental.finding.propertyType, "Semi-detached house");
-  assert.deepEqual(
-    applyMyHomeFilters([rental], "property-for-rent", {
-      ...EMPTY_FILTERS,
-      bedsMin: 3,
-      leaseLengthMinMonths: 12,
-      furnishing: "furnished",
-      facilities: ["parking"],
-    }, FIXED_NOW).findings,
-    [rental],
-  );
 });
 
-test("maps rental availability labels through MyHome filters", () => {
+test("maps rental availability labels from MyHome details", () => {
   const rentalSearch = `${BASE_URL}/rentals/ireland/property-to-rent`;
   const labels = [
     { label: "To Let", availability: "published" },
@@ -266,18 +309,6 @@ test("maps rental availability labels through MyHome filters", () => {
       candidate.finding.url,
     ));
     assert.equal(rental.myhomeEvidence.availability, availability);
-    assert.deepEqual(
-      apply([rental], { availability }, "property-for-rent").findings,
-      [rental],
-    );
-    assert.deepEqual(
-      apply(
-        [rental],
-        { availability: availability === "published" ? "sale-agreed" : "published" },
-        "property-for-rent",
-      ).findings,
-      [],
-    );
   }
 });
 
@@ -331,7 +362,10 @@ test("resolves nationwide scope and only exact RegionUrls-backed locations", () 
       { ...EMPTY_FILTERS, radiusKm: 20 },
       [],
     ),
-    { unsupportedLocationFilters: ["radiusKm"] },
+    {
+      searchPath: "/residential/ireland/new-homes/property-for-sale",
+      unsupportedLocationFilters: ["radiusKm"],
+    },
   );
   assert.equal(
     resolveMyHomeSearchPath("property-for-rent", [], EMPTY_FILTERS, []).searchPath,
@@ -365,7 +399,10 @@ test("resolves nationwide scope and only exact RegionUrls-backed locations", () 
       { ...houseFilters, radiusKm: 20 },
       regionRoutes,
     ),
-    { unsupportedLocationFilters: ["radiusKm"] },
+    {
+      searchPath: "/residential/dublin/new-homes/house-for-sale",
+      unsupportedLocationFilters: ["radiusKm"],
+    },
   );
   assert.deepEqual(
     resolveMyHomeSearchPath("new-homes-for-sale", ["dublin", "cork"], houseFilters, regionRoutes),
@@ -543,76 +580,15 @@ test("does not turn development-wide aggregate values into type-level details", 
   assert.equal(enriched.finding.propertyType, undefined);
   assert.equal(enriched.finding.floorSizeSqm, undefined);
 });
-
-test("keeps POA nonnumeric and marks malformed individual prices unverified", () => {
+test("parses provider detail facts without applying local filter predicates", () => {
   const poa = findingFrom({ id: "10001", price: "POA" });
   assert.equal(poa.finding.priceText, "POA");
   assert.equal(poa.myhomeEvidence.priceState, "poa");
   assert.equal(poa.myhomeEvidence.priceEur, undefined);
-  const priceFilteredPoa = apply([poa], { priceMinEur: 400_000 });
-  assert.deepEqual(priceFilteredPoa.findings, []);
-  assert.deepEqual(priceFilteredPoa.unsupportedFilters, []);
-
-  for (const [index, price] of [
-    "€2,500 per month",
-    "€2,500 / month",
-    "€2,500 monthly",
-  ].entries()) {
-    const rental = findingFrom({ id: String(10010 + index), price });
-    assert.equal(rental.myhomeEvidence.priceState, "amount", price);
-    assert.equal(rental.myhomeEvidence.priceEur, 2_500, price);
-    assert.deepEqual(
-      apply([rental], { priceMinEur: 2_500 }, "property-for-rent").findings,
-      [rental],
-    );
-  }
-  const monthlyRange = findingFrom({ id: "10020", price: "€2,500 - €3,000 per month" });
-  assert.equal(monthlyRange.myhomeEvidence.priceState, "unknown");
-  assert.equal(monthlyRange.myhomeEvidence.priceEur, undefined);
 
   const malformed = findingFrom({ id: "10002", price: "€450,000 - €475,000" });
   assert.equal(malformed.myhomeEvidence.priceState, "unknown");
   assert.equal(malformed.myhomeEvidence.priceEur, undefined);
-  const malformedResult = apply([malformed], { priceMinEur: 400_000 });
-  assert.deepEqual(malformedResult.findings, []);
-  assert.deepEqual(malformedResult.unsupportedFilters, []);
-  assert.deepEqual(malformedResult.unverifiedSourceIds, ["10002"]);
-  assert.equal(malformedResult.filterSources.priceMinEur, "source-backed-local");
-});
-
-test("retains verified houses and excludes apartment, duplex, and unknown types in mixed developments", () => {
-  const house = findingFrom({ id: "20001", propertyType: "Terraced House", price: "€520,000", bedrooms: "4" });
-  const apartment = findingFrom({ id: "20002", propertyType: "Apartment", bedrooms: "3" });
-  const duplex = findingFrom({ id: "20003", propertyType: "Duplex", bedrooms: "3" });
-  const unverified = findingFrom({ id: "20004", propertyType: undefined, bedrooms: "4" });
-  const result = apply(
-    [apartment, house, duplex, unverified],
-    { propertyTypes: ["houses"], bedsMin: 3, priceMinEur: 500_000 },
-  );
-  assert.deepEqual(result.findings.map((finding) => finding.sourceId), ["20001"]);
-  assert.deepEqual(result.unverifiedSourceIds, ["20004"]);
-  assert.deepEqual(result.unsupportedFilters, []);
-  assert.equal(result.findings[0]?.myhomeEvidence.priceEur, 520_000);
-});
-
-test("maps each explicit MyHome property type and Daft facility locally", () => {
-  const typeCases = [
-    ["House", "houses"],
-    ["Detached House", "detached-houses"],
-    ["Semi-Detached House", "semi-detached-houses"],
-    ["Terraced House", "terraced-houses"],
-    ["End of Terrace House", "end-of-terrace-houses"],
-    ["Townhouse", "townhouses"],
-    ["Apartment", "apartments"],
-    ["Studio Apartment", "studio-apartments"],
-    ["Duplex", "duplexes"],
-    ["Bungalow", "bungalows"],
-    ["Site", "sites"],
-  ] as const;
-  for (const [index, [sourceType, daftType]] of typeCases.entries()) {
-    const property = findingFrom({ id: String(21000 + index), propertyType: sourceType });
-    assert.deepEqual(apply([property], { propertyTypes: [daftType] }).findings, [property]);
-  }
 
   const allFacilities = findingFrom({
     id: "21999",
@@ -637,237 +613,67 @@ test("maps each explicit MyHome property type and Daft facility locally", () => 
     ],
   });
   assert.deepEqual(allFacilities.myhomeEvidence.facilities, DAFT_FACILITIES);
-  assert.deepEqual(
-    apply([allFacilities], { facilities: ["alarm", "gas-fired-central-heating", "parking"] }, "property-for-sale").findings,
-    [allFacilities],
-  );
-  const wiredCableOnly = findingFrom({ id: "21998", features: ["Wired for Cable Television"] });
-  assert.deepEqual(wiredCableOnly.myhomeEvidence.facilities, ["wired-for-cable-television"]);
-});
 
-test("excludes records that lack evidence for an active supported filter", () => {
-  const assertUnverified = (
-    candidate: MyHomeFinding,
-    filters: Partial<DaftFilters> = {},
-    section: DaftSectionPath = "new-homes-for-sale",
-  ): void => {
-    const result = apply([candidate], filters, section);
-    assert.deepEqual(result.findings, []);
-    assert.deepEqual(result.unsupportedFilters, []);
-    assert.deepEqual(result.unverifiedSourceIds, [candidate.sourceId]);
-  };
-  assertUnverified(findingFrom({ id: "22001", availability: undefined }));
-  assertUnverified(findingFrom({ id: "22002", publishedAt: undefined }), { addedInLastDays: 7 });
-  assertUnverified(findingFrom({ id: "22020", publishedAt: undefined }), { sort: "publishDateDesc" });
-  assertUnverified(findingFrom({ id: "22003", openViewing: undefined }), { openViewingsFrom: "2026-10-10" });
-  assertUnverified(findingFrom({ id: "22004", floorArea: undefined }), { floorSizeMinSqm: 80 }, "property-for-sale");
-  const missingSaleFacts = findingFrom({
-    id: "22005",
-    ber: undefined,
-    saleType: undefined,
-    onlineOffers: undefined,
-    features: undefined,
-  });
-  assertUnverified(missingSaleFacts, { berMin: "C" }, "property-for-sale");
-  assertUnverified(findingFrom({ id: "22007", saleType: "Unclear" }), { saleType: "auction" }, "property-for-sale");
-  assertUnverified(missingSaleFacts, { saleType: "auction" }, "property-for-sale");
-  assertUnverified(missingSaleFacts, { onlineOffers: true }, "property-for-sale");
-  assertUnverified(missingSaleFacts, { facilities: ["alarm"] }, "property-for-sale");
-  const missingRental = findingFrom({
-    id: "22006",
-    leaseLength: undefined,
-    furnishing: undefined,
-    features: undefined,
-  });
-  assertUnverified(missingRental, { leaseLengthMinMonths: 6 }, "property-for-rent");
-  assertUnverified(missingRental, { furnishing: "furnished" }, "property-for-rent");
-  assertUnverified(missingRental, { facilities: ["alarm"] }, "property-for-rent");
-
-  const verified = findingFrom({ id: "22008", price: "€350,000" });
-  const incomplete = findingFrom({ id: "22009", price: undefined });
-  const partial = apply([verified, incomplete], { priceMinEur: 300_000 });
-  assert.deepEqual(partial.findings.map((item) => item.sourceId), ["22008"]);
-  assert.deepEqual(partial.unverifiedSourceIds, ["22009"]);
-});
-
-test("applies shared price, bed, bath, keyword, availability, date, and sort predicates locally", () => {
-  const current = findingFrom({ id: "30001", title: "Harbour Home", price: "€520,000", bedrooms: "3", bathrooms: "2" });
-  const cheaper = findingFrom({
-    id: "30002",
-    title: "Harbour Apartment House",
-    price: "€480,000",
-    bedrooms: "4",
-    bathrooms: "3",
-    publishedAt: "2026-09-28",
-  });
-  const saleAgreed = findingFrom({ id: "30003", availability: "Sale Agreed" });
-  const noOffers = findingFrom({ id: "30004", onlineOffers: "No" });
-  const notAuction = findingFrom({ id: "30005", saleType: "Private Treaty" });
-  assert.deepEqual(apply([current], { priceMinEur: 520_000 }).findings, [current]);
-  assert.deepEqual(apply([current], { priceMinEur: 520_001 }).findings, []);
-  assert.deepEqual(apply([current], { priceMaxEur: 520_000 }).findings, [current]);
-  assert.deepEqual(apply([current], { priceMaxEur: 519_999 }).findings, []);
-  assert.deepEqual(apply([current], { bedsMin: 3, bedsMax: 3 }).findings, [current]);
-  assert.deepEqual(apply([current], { bedsMin: 4 }).findings, []);
-  assert.deepEqual(apply([current], { bedsMax: 2 }).findings, []);
-  assert.deepEqual(apply([current], { bathsMin: 2, bathsMax: 2 }).findings, [current]);
-  assert.deepEqual(apply([current], { bathsMin: 3 }).findings, []);
-  assert.deepEqual(apply([current], { bathsMax: 1 }).findings, []);
-  assert.deepEqual(apply([current], { keyword: "harbour" }).findings, [current]);
-  assert.deepEqual(apply([current], { keyword: "garage" }).findings, []);
-  assert.deepEqual(apply([current], { addedInLastDays: 7 }).findings, [current]);
-  assert.deepEqual(apply([current], { addedInLastDays: 1 }).findings, [current]);
-  assert.deepEqual(
-    applyMyHomeFilters(
-      [current],
-      "new-homes-for-sale",
-      { ...EMPTY_FILTERS, addedInLastDays: 7 },
-      new Date("invalid"),
-    ).findings,
-    [],
-  );
-  assert.deepEqual(apply([current, cheaper], { sort: "priceAsc" }).findings, [cheaper, current]);
-  assert.deepEqual(apply([current, cheaper], { sort: "priceDesc" }).findings, [current, cheaper]);
-  assert.deepEqual(apply([current, cheaper], { sort: "publishDateDesc" }).findings, [current, cheaper]);
-  assert.deepEqual(apply([current], { availability: "published" }).findings, [current]);
-  assert.deepEqual(apply([saleAgreed], { availability: "sale-agreed" }).findings, [saleAgreed]);
-  assert.deepEqual(apply([current], { availability: "sale-agreed" }).findings, []);
-  assert.deepEqual(apply([noOffers], { onlineOffers: false }, "property-for-sale").findings, [noOffers]);
-  assert.deepEqual(apply([notAuction], { saleType: "auction" }, "property-for-sale").findings, []);
-});
-
-test("includes every Added In Last period through its full-day cutoff", () => {
-  const dayMs = 86_400_000;
-  const today = Date.UTC(
-    FIXED_NOW.getUTCFullYear(),
-    FIXED_NOW.getUTCMonth(),
-    FIXED_NOW.getUTCDate(),
-  );
-  for (const days of DAFT_ADDED_IN_LAST_DAYS) {
-    if (days === 0) {
-      const noCutoff = findingFrom({ id: "50000", publishedAt: "2020-01-01" });
-      assert.deepEqual(
-        apply([noCutoff], { addedInLastDays: days }).findings,
-        [noCutoff],
-        "zero days disables the publication-date cutoff",
-      );
-      continue;
-    }
-    const cutoff = new Date(today - days * dayMs).toISOString().slice(0, 10);
-    const outside = new Date(today - (days + 1) * dayMs).toISOString().slice(0, 10);
-    const inRange = findingFrom({
-      id: String(50000 + days),
-      publishedAt: cutoff,
-    });
-    const outOfRange = findingFrom({
-      id: String(51000 + days),
-      publishedAt: outside,
-    });
-    assert.deepEqual(
-      apply([inRange], { addedInLastDays: days }).findings,
-      [inRange],
-      `${days} days includes its cutoff date`,
-    );
-    assert.deepEqual(
-      apply([outOfRange], { addedInLastDays: days }).findings,
-      [],
-      `${days} days excludes the preceding date`,
-    );
-  }
-});
-
-test("applies new-home viewing and property-sale/rental detail predicates within Daft scopes", () => {
-  const candidate = findingFrom({ id: "40001" });
-  assert.deepEqual(
-    apply([candidate], { openViewingsFrom: "2026-10-10" }, "new-homes-for-sale").findings,
-    [candidate],
-  );
-  assert.deepEqual(
-    apply([candidate], { openViewingsFrom: "2026-10-16" }, "new-homes-for-sale").findings,
-    [],
-  );
-  const saleFilters: Partial<DaftFilters> = {
-    floorSizeMinSqm: 100,
-    floorSizeMaxSqm: 100,
-    berMin: "C",
-    berMax: "C",
-    saleType: "auction",
-    onlineOffers: true,
-    facilities: ["alarm", "parking"],
-  };
-  assert.deepEqual(apply([candidate], saleFilters, "property-for-sale").findings, [candidate]);
-  assert.deepEqual(apply([candidate], { floorSizeMinSqm: 101 }, "property-for-sale").findings, []);
-  assert.deepEqual(apply([candidate], { berMin: "B" }, "property-for-sale").findings, []);
-  assert.deepEqual(apply([candidate], { onlineOffers: false }, "property-for-sale").findings, []);
-  assert.deepEqual(apply([candidate], { facilities: ["dishwasher"] }, "property-for-sale").findings, []);
-  const rentFilters: Partial<DaftFilters> = {
-    leaseLengthMinMonths: 12,
-    leaseLengthMaxMonths: 12,
-    furnishing: "furnished",
-    facilities: ["alarm", "parking"],
-  };
-  assert.deepEqual(apply([candidate], rentFilters, "property-for-rent").findings, [candidate]);
-  assert.deepEqual(apply([candidate], { leaseLengthMinMonths: 24 }, "property-for-rent").findings, []);
-  assert.deepEqual(apply([candidate], { furnishing: "unfurnished" }, "property-for-rent").findings, []);
-  assert.deepEqual(apply([candidate], { openViewingsFrom: "2026-10-16" }, "property-for-sale").findings, [candidate]);
-  assert.deepEqual(apply([candidate], { leaseLengthMinMonths: 24 }, "property-for-sale").findings, [candidate]);
-});
-
-test("normalizes granular MyHome BER grades for broad-band filters", () => {
   for (const [id, grade, band] of [
     ["33001", "A2", "A"],
     ["33002", "B2", "B"],
     ["33003", "B3", "B"],
   ] as const) {
-    const candidate = findingFrom({ id, ber: grade });
-    assert.equal(candidate.finding.berRating, band);
-    assert.deepEqual(
-      apply([candidate], { berMin: band }, "property-for-sale").findings,
-      [candidate],
-    );
-    assert.deepEqual(
-      apply([candidate], { berMax: band }, "property-for-sale").findings,
-      [candidate],
-    );
+    assert.equal(findingFrom({ id, ber: grade }).finding.berRating, band);
   }
-
-  const invalidGrade = findingFrom({ id: "33004", ber: "B4" });
-  const result = apply([invalidGrade], { berMin: "C" }, "property-for-sale");
-  assert.equal(invalidGrade.finding.berRating, undefined);
-  assert.deepEqual(result.findings, []);
-  assert.deepEqual(result.unverifiedSourceIds, [invalidGrade.sourceId]);
+  assert.equal(findingFrom({ id: "33004", ber: "B4" }).finding.berRating, undefined);
 });
 
-
-test("maps filter support by section and fails closed for unsupported features or missing facts", () => {
+test("reports native MyHome filter support without treating detail evidence as a filter", () => {
   const common = validateMyHomeFilterSupport("new-homes-for-sale", {
     ...EMPTY_FILTERS,
     radiusKm: 20,
+    priceMinEur: 300_000,
+    bedsMin: 3,
+    propertyTypes: ["houses"],
+    bathsMin: 2,
+    keyword: "harbour",
     mediaTypes: ["video"],
     openViewingsFrom: "2026-10-10",
-    floorSizeMinSqm: 90,
-    leaseLengthMinMonths: 12,
-    availability: "published",
+    addedInLastDays: 7,
+    sort: "bestMatch",
+    facilities: ["alarm"],
   });
-  assert.deepEqual(common.unsupportedFilters, ["radiusKm", "mediaTypes"]);
-  assert.deepEqual(common.supportedFilters, ["availability", "openViewingsFrom"]);
-  assert.equal(common.filterSources.openViewingsFrom, "source-backed-local");
+  assert.deepEqual(common.supportedFilters, [
+    "priceMinEur",
+    "bedsMin",
+    "propertyTypes",
+    "bathsMin",
+    "keyword",
+    "availability",
+  ]);
+  assert.deepEqual(common.unsupportedFilters, [
+    "radiusKm",
+    "mediaTypes",
+    "addedInLastDays",
+    "sort",
+    "openViewingsFrom",
+    "facilities",
+  ]);
+  assert.equal(common.filterSources.priceMinEur, "native");
+  assert.equal(common.filterSources.radiusKm, "unsupported");
 
   const saleScope = validateMyHomeFilterSupport("property-for-sale", {
     ...EMPTY_FILTERS,
+    priceMaxEur: 500_000,
     floorSizeMinSqm: 90,
     berMin: "D",
     saleType: "auction",
     onlineOffers: false,
     facilities: ["gas-fired-central-heating"],
-    openViewingsFrom: "2026-10-10",
-    furnishing: "furnished",
     availability: "published",
   });
-  assert.deepEqual(saleScope.unsupportedFilters, []);
   assert.deepEqual(saleScope.supportedFilters, [
+    "priceMaxEur",
     "availability",
     "floorSizeMinSqm",
+  ]);
+  assert.deepEqual(saleScope.unsupportedFilters, [
     "berMin",
     "saleType",
     "onlineOffers",
@@ -876,44 +682,15 @@ test("maps filter support by section and fails closed for unsupported features o
 
   const rentScope = validateMyHomeFilterSupport("property-for-rent", {
     ...EMPTY_FILTERS,
+    bedsMax: 4,
     leaseLengthMaxMonths: 24,
     furnishing: "furnished",
     facilities: ["pets-allowed"],
-    floorSizeMinSqm: 90,
-    onlineOffers: false,
-    availability: "published",
   });
-  assert.deepEqual(rentScope.unsupportedFilters, []);
-  assert.deepEqual(rentScope.supportedFilters, [
-    "availability",
+  assert.deepEqual(rentScope.supportedFilters, ["bedsMax", "availability"]);
+  assert.deepEqual(rentScope.unsupportedFilters, [
     "leaseLengthMaxMonths",
     "furnishing",
     "facilities",
   ]);
-
-  assert.deepEqual(validateMyHomeFilterSupport("new-homes-for-sale", {
-    ...EMPTY_FILTERS,
-    facilities: ["alarm"],
-  }).unsupportedFilters, ["facilities"]);
-  assert.deepEqual(validateMyHomeFilterSupport("property-for-rent", {
-    ...EMPTY_FILTERS,
-    facilities: ["gas-fired-central-heating"],
-  }).unsupportedFilters, ["facilities"]);
-  assert.deepEqual(validateMyHomeFilterSupport("new-homes-for-sale", {
-    ...EMPTY_FILTERS,
-    sort: "bestMatch",
-  }).unsupportedFilters, ["sort"]);
-  const staticUnsupported = apply([findingFrom()], { radiusKm: 20 });
-  assert.deepEqual(staticUnsupported.findings, []);
-  assert.deepEqual(staticUnsupported.unsupportedFilters, ["radiusKm"]);
-
-  const incomplete = findingFrom({ id: "40002", price: undefined });
-  const failedClosed = apply([incomplete], { priceMinEur: 300_000 });
-  assert.deepEqual(failedClosed.findings, []);
-  assert.deepEqual(failedClosed.unsupportedFilters, []);
-  assert.deepEqual(failedClosed.unverifiedSourceIds, ["40002"]);
-  const notAType = findingFrom({ id: "40003", propertyType: undefined });
-  const unverified = apply([notAType], { propertyTypes: ["houses"] });
-  assert.deepEqual(unverified.findings, []);
-  assert.deepEqual(unverified.unverifiedSourceIds, ["40003"]);
 });

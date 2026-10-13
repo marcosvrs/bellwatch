@@ -9,13 +9,12 @@ import {
   type DaftFinding,
 } from "./daft/parser.js";
 import {
-  isQualifyingHouse,
   sourcedFindingKey,
   type ListingSource,
   type SourcedFinding,
 } from "./listings.js";
 import {
-  applyMyHomeFilters,
+  buildMyHomeSearchUrl,
   buildMyHomeUrl,
   enrichMyHomeFinding,
   getMyHomeNationalSearchPath,
@@ -348,7 +347,6 @@ const collectDaftFindings = (
         )
       : rawFindings;
     const findings = filterShpsFindings(candidates, config.shps)
-      .filter(isQualifyingHouse)
       .map((finding): SourcedFinding => ({
         source: "daft",
         sourceId: finding.id,
@@ -372,18 +370,8 @@ const collectMyHomeFindings = (
     );
     if (support.unsupportedFilters.length > 0) {
       yield* Effect.logWarning(
-        `MyHome skipped; unsupported active Daft filters: ${support.unsupportedFilters.join(", ")}`,
+        `MyHome ignoring filters without native equivalents: ${support.unsupportedFilters.join(", ")}`,
       );
-      return { findings: [], pages: 0 };
-    }
-    if (
-      config.daft.maxPages !== undefined &&
-      config.daft.filters.sort !== undefined
-    ) {
-      yield* Effect.logWarning(
-        "MyHome skipped; DAFT_MAX_PAGES cannot preserve the requested sort order",
-      );
-      return { findings: [], pages: 0 };
     }
 
     let searchPath: string;
@@ -412,6 +400,13 @@ const collectMyHomeFindings = (
         return { findings: [], pages: 0 };
       }
       searchPath = locationSupport.searchPath;
+      if (locationSupport.unsupportedLocationFilters.length > 0) {
+        yield* Effect.logWarning(
+          `MyHome ignoring unsupported location filters: ${
+            locationSupport.unsupportedLocationFilters.join(", ")
+          }`,
+        );
+      }
     }
     const byId = new Map<string, MyHomeFinding>();
     let pages = 0;
@@ -420,7 +415,13 @@ const collectMyHomeFindings = (
       config.daft.maxPages === undefined || page <= config.daft.maxPages;
       page += 1
     ) {
-      const url = buildMyHomeUrl(config.myhome.baseUrl, searchPath, page);
+      const url = buildMyHomeSearchUrl(
+        config.myhome.baseUrl,
+        searchPath,
+        config.daft.sectionPath,
+        config.daft.filters,
+        page,
+      );
       const html = yield* fetchMyHomePage(url);
       const parsed = yield* Effect.try(() => parseMyHomeListPage(html, url));
       pages += 1;
@@ -450,25 +451,13 @@ const collectMyHomeFindings = (
       );
       if (enrichedFinding !== undefined) { enriched.push(enrichedFinding); }
     }
-    const filtered = applyMyHomeFilters(
-      enriched,
-      config.daft.sectionPath,
-      config.daft.filters,
-    );
-    if (filtered.unverifiedSourceIds.length > 0) {
-      yield* Effect.logWarning(
-        `MyHome excluded ${filtered.unverifiedSourceIds.length} listing(s) with unverified active-filter evidence`,
-      );
-    }
     const shpsIds = new Set(
       filterShpsFindings(
-        filtered.findings.map((finding) => finding.finding),
+        enriched.map((finding) => finding.finding),
         config.shps,
       ).map((finding) => finding.id),
     );
-    const findings = filtered.findings
-      .filter((finding) => shpsIds.has(finding.finding.id))
-      .filter((finding) => isQualifyingHouse(finding.finding));
+    const findings = enriched.filter((finding) => shpsIds.has(finding.finding.id));
     return { findings, pages };
   });
 

@@ -1,8 +1,5 @@
 import {
-  daftBerRatingValue,
   DAFT_FACILITIES,
-  DAFT_RENT_FACILITIES,
-  DAFT_SALE_FACILITIES,
   type DaftBerRating,
   type DaftFacility,
   type DaftFilters,
@@ -132,7 +129,7 @@ const SCHEME_EVIDENCE_MARKERS = [
 
 
 export type MyHomeFilterName = keyof DaftFilters;
-export type MyHomeFilterSource = "source-backed-local" | "unsupported";
+export type MyHomeFilterSource = "native" | "unsupported";
 
 export interface MyHomeFilterSupport {
   readonly supportedFilters: readonly MyHomeFilterName[];
@@ -187,12 +184,6 @@ export interface MyHomeDetail
   readonly longitude?: number;
 }
 
-export interface MyHomeFilterResult {
-  readonly findings: MyHomeFinding[];
-  readonly unsupportedFilters: readonly MyHomeFilterName[];
-  readonly unverifiedSourceIds: readonly string[];
-  readonly filterSources: Readonly<Partial<Record<MyHomeFilterName, MyHomeFilterSource>>>;
-}
 
 const decodeHtml = (value: string): string =>
   value.replace(
@@ -371,11 +362,12 @@ const sourceIdFromUrl = (url: URL): string => {
   return sourceId;
 };
 
-/** Builds canonical residential or rental URLs with optional page-only pagination. */
+/** Builds canonical residential or rental URLs with optional query parameters and pagination. */
 export const buildMyHomeUrl = (
   baseUrl: string,
   canonicalPath: string,
   page = 1,
+  searchParams?: URLSearchParams,
 ): string => {
   if (!Number.isInteger(page) || page < 1) {
     throw new Error(`MyHome page must be a positive integer: ${page}`);
@@ -393,7 +385,13 @@ export const buildMyHomeUrl = (
     throw new Error("MyHome URLs must be canonical /residential or /rentals paths without a query or fragment");
   }
   url.pathname = `${base.pathname.replace(/\/+$/, "")}${normalizedPath}`;
-  if (page > 1) { url.search = `?page=${page}`; }
+  const query = new URLSearchParams(searchParams);
+  if (page > 1) {
+    query.set("page", String(page));
+  } else {
+    query.delete("page");
+  }
+  url.search = query.toString();
   return url.toString();
 };
 
@@ -450,9 +448,10 @@ export const resolveMyHomeSearchPath = (
   if (filters.radiusKm !== undefined && filters.radiusKm > 0) {
     unsupportedLocationFilters.push("radiusKm");
   }
-  if (locations.length > 1) { unsupportedLocationFilters.push("locations"); }
-  if (unsupportedLocationFilters.length > 0) {
-    return { unsupportedLocationFilters };
+  if (locations.length > 1) {
+    return {
+      unsupportedLocationFilters: [...unsupportedLocationFilters, "locations"],
+    };
   }
   if (locations.length === 0) {
     return {
@@ -473,24 +472,25 @@ export const resolveMyHomeSearchPath = (
     const canonical = canonicalMyHomePath(route);
     if (canonical !== undefined) { evidencedRoutes[canonical] = true; }
   }
-  if (evidencedRoutes[genericPath] === true) {
-    return { searchPath: genericPath, unsupportedLocationFilters };
-  }
   const houseOnly = filters.propertyTypes.length > 0 &&
     filters.propertyTypes.every((type) => HOUSE_PROPERTY_TYPES[type] === true);
   if (houseOnly && evidencedRoutes[housePath] === true) {
     return { searchPath: housePath, unsupportedLocationFilters };
+  }
+  if (evidencedRoutes[genericPath] === true) {
+    return { searchPath: genericPath, unsupportedLocationFilters };
   }
   return { unsupportedLocationFilters: ["locations"] };
 };
 
 const pageNumberFromUrl = (url: URL): number => {
   if (url.hash !== "") { throw new Error("MyHome page URLs must not contain fragments"); }
-  if (url.search === "") { return 1; }
-  const match = /^\?page=([1-9]\d*)$/.exec(url.search);
-  const page = match?.[1] === undefined ? Number.NaN : Number(match[1]);
+  const pageValues = url.searchParams.getAll("page");
+  if (pageValues.length === 0) { return 1; }
+  const pageValue = pageValues.length === 1 ? pageValues[0] : undefined;
+  const page = pageValue === undefined ? Number.NaN : Number(pageValue);
   if (!Number.isSafeInteger(page) || page < 1) {
-    throw new Error("MyHome pages may use only the single ?page=N query parameter");
+    throw new Error("MyHome pages may use only one positive integer page query parameter");
   }
   return page;
 };
@@ -600,7 +600,9 @@ export const parseMyHomeListPage = (
   }
   const base = new URL(parsedUrl.origin);
   base.pathname = pagePath.basePath || "/";
-  const canonicalPageUrl = new URL(buildMyHomeUrl(base.toString(), pagePath.canonicalPath, currentPage));
+  const canonicalPageUrl = new URL(
+    buildMyHomeUrl(base.toString(), pagePath.canonicalPath, currentPage, parsedUrl.searchParams),
+  );
   const root = parseHtml(html);
   const byUrl = new Map<string, MyHomeFinding>();
   let totalPages = Math.max(currentPage, totalPagesFromDescription(root, currentPage) ?? currentPage);
@@ -1131,6 +1133,43 @@ export const enrichMyHomeFinding = (
   };
 };
 
+const MYHOME_PROPERTY_TYPE_IDS: Readonly<Record<
+  DaftSectionPath,
+  Readonly<Partial<Record<DaftPropertyType, number>>>
+>> = {
+  "new-homes-for-sale": {
+    apartments: 1,
+    houses: 2,
+    sites: 3,
+  },
+  "property-for-sale": {
+    apartments: 36,
+    houses: 97,
+    "terraced-houses": 37,
+    "semi-detached-houses": 38,
+    "detached-houses": 39,
+    bungalows: 40,
+    "end-of-terrace-houses": 45,
+    duplexes: 47,
+    townhouses: 48,
+    "studio-apartments": 50,
+    sites: 44,
+  },
+  "property-for-rent": {
+    apartments: 55,
+    houses: 98,
+    "terraced-houses": 56,
+    "semi-detached-houses": 57,
+    "detached-houses": 58,
+    bungalows: 59,
+    "end-of-terrace-houses": 64,
+    duplexes: 66,
+    townhouses: 67,
+    "studio-apartments": 69,
+    sites: 63,
+  },
+};
+
 const activeFilterNames = (
   sectionPath: DaftSectionPath,
   filters: DaftFilters,
@@ -1174,24 +1213,42 @@ const activeFilterNames = (
   return active;
 };
 
-const staticallyUnsupported = (
+const nativePropertyTypeIds = (
+  sectionPath: DaftSectionPath,
+  propertyTypes: readonly DaftPropertyType[],
+): readonly number[] =>
+  propertyTypes.flatMap((propertyType) => {
+    const id = MYHOME_PROPERTY_TYPE_IDS[sectionPath][propertyType];
+    return id === undefined ? [] : [id];
+  });
+
+const isNativeFilter = (
   sectionPath: DaftSectionPath,
   name: MyHomeFilterName,
   filters: DaftFilters,
 ): boolean => {
-  const facilities = filters.facilities ?? [];
-  if (name === "radiusKm" || name === "mediaTypes") { return true; }
-  if (name === "sort" && filters.sort === "bestMatch") { return true; }
-  if (name !== "facilities") { return false; }
-  const allowed: readonly DaftFacility[] = sectionPath === "property-for-sale"
-    ? DAFT_SALE_FACILITIES
-    : sectionPath === "property-for-rent"
-      ? DAFT_RENT_FACILITIES
-      : [];
-  return facilities.some((facility) => !allowed.includes(facility));
+  if (name === "availability") { return filters.availability === "published"; }
+  if (
+    name === "priceMinEur" ||
+    name === "priceMaxEur" ||
+    name === "bedsMin" ||
+    name === "bedsMax" ||
+    name === "bathsMin" ||
+    name === "bathsMax" ||
+    name === "keyword"
+  ) {
+    return true;
+  }
+  if (name === "propertyTypes") {
+    return filters.propertyTypes.every((propertyType) =>
+      MYHOME_PROPERTY_TYPE_IDS[sectionPath][propertyType] !== undefined,
+    );
+  }
+  return sectionPath === "property-for-sale" &&
+    (name === "floorSizeMinSqm" || name === "floorSizeMaxSqm");
 };
 
-/** Reports local source-backed filters and rejects any active feature MyHome cannot enforce. */
+/** Reports which configured filters MyHome can enforce through its own search. */
 export const validateMyHomeFilterSupport = (
   sectionPath: DaftSectionPath,
   filters: DaftFilters,
@@ -1200,207 +1257,43 @@ export const validateMyHomeFilterSupport = (
   const unsupportedFilters: MyHomeFilterName[] = [];
   const filterSources: Partial<Record<MyHomeFilterName, MyHomeFilterSource>> = {};
   for (const name of activeFilterNames(sectionPath, filters)) {
-    if (staticallyUnsupported(sectionPath, name, filters)) {
+    if (isNativeFilter(sectionPath, name, filters)) {
+      supportedFilters.push(name);
+      filterSources[name] = "native";
+    } else {
       unsupportedFilters.push(name);
       filterSources[name] = "unsupported";
-    } else {
-      supportedFilters.push(name);
-      filterSources[name] = "source-backed-local";
     }
   }
   return { supportedFilters, unsupportedFilters, filterSources };
 };
 
-const unknownFor = (
-  evidence: MyHomeEvidence,
-  finding: DaftFinding,
-  filters: DaftFilters,
-  sectionPath: DaftSectionPath,
-): MyHomeFilterName[] => {
-  const facilities = filters.facilities ?? [];
-  const unknown: MyHomeFilterName[] = [];
-  if (filters.priceMinEur !== undefined || filters.priceMaxEur !== undefined) {
-    if (evidence.priceState === "unknown") {
-      unknown.push(...[
-        ...(filters.priceMinEur === undefined ? [] : ["priceMinEur" as const]),
-        ...(filters.priceMaxEur === undefined ? [] : ["priceMaxEur" as const]),
-      ]);
-    }
-  }
-  if ((filters.bedsMin !== undefined || filters.bedsMax !== undefined) && finding.bedrooms === undefined) {
-    if (filters.bedsMin !== undefined) { unknown.push("bedsMin"); }
-    if (filters.bedsMax !== undefined) { unknown.push("bedsMax"); }
-  }
-  if ((filters.bathsMin !== undefined || filters.bathsMax !== undefined) && finding.bathrooms === undefined) {
-    if (filters.bathsMin !== undefined) { unknown.push("bathsMin"); }
-    if (filters.bathsMax !== undefined) { unknown.push("bathsMax"); }
-  }
-  if (filters.propertyTypes.length > 0 && evidence.daftPropertyTypes.length === 0) {
-    unknown.push("propertyTypes");
-  }
-  if (filters.keyword !== undefined && filters.keyword.trim() !== "" && evidence.searchableText === "") {
-    unknown.push("keyword");
-  }
-  if (evidence.availability === undefined) { unknown.push("availability"); }
-  if (filters.addedInLastDays !== undefined && filters.addedInLastDays > 0 && evidence.publishedAt === undefined) {
-    unknown.push("addedInLastDays");
-  }
-  if (sectionPath === "new-homes-for-sale" && filters.openViewingsFrom !== undefined && !evidence.openViewingsVerified) {
-    unknown.push("openViewingsFrom");
-  }
-  if (sectionPath === "property-for-sale") {
-    if ((filters.floorSizeMinSqm !== undefined || filters.floorSizeMaxSqm !== undefined) && finding.floorSizeSqm === undefined) {
-      if (filters.floorSizeMinSqm !== undefined) { unknown.push("floorSizeMinSqm"); }
-      if (filters.floorSizeMaxSqm !== undefined) { unknown.push("floorSizeMaxSqm"); }
-    }
-    if ((filters.berMin !== undefined || filters.berMax !== undefined) && finding.berRating === undefined) {
-      if (filters.berMin !== undefined) { unknown.push("berMin"); }
-      if (filters.berMax !== undefined) { unknown.push("berMax"); }
-    }
-    if (filters.saleType !== undefined && !evidence.saleTypeVerified) { unknown.push("saleType"); }
-    if (filters.onlineOffers !== undefined && !evidence.onlineOffersVerified) { unknown.push("onlineOffers"); }
-    if (facilities.length > 0 && !evidence.facilitiesVerified) { unknown.push("facilities"); }
-  }
-  if (sectionPath === "property-for-rent") {
-    if ((filters.leaseLengthMinMonths !== undefined || filters.leaseLengthMaxMonths !== undefined) && evidence.leaseLengthMonths === undefined) {
-      if (filters.leaseLengthMinMonths !== undefined) { unknown.push("leaseLengthMinMonths"); }
-      if (filters.leaseLengthMaxMonths !== undefined) { unknown.push("leaseLengthMaxMonths"); }
-    }
-    if (filters.furnishing !== undefined && evidence.furnishing === undefined) { unknown.push("furnishing"); }
-    if (facilities.length > 0 && !evidence.facilitiesVerified) { unknown.push("facilities"); }
-  }
-  if (
-    (filters.sort === "publishDateDesc" && evidence.publishedAt === undefined) ||
-    ((filters.sort === "priceAsc" || filters.sort === "priceDesc") && evidence.priceState !== "amount")
-  ) {
-    unknown.push("sort");
-  }
-  return unknown;
-};
-
-const publishedWithinDays = (
-  value: string,
-  days: number,
-  now: Date,
-): boolean => {
-  const published = Date.parse(value);
-  if (Number.isNaN(published) || Number.isNaN(now.getTime())) { return false; }
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  return published >= today - days * 86_400_000;
-};
-
-const matchesFilters = (
-  finding: MyHomeFinding,
+/** Builds a MyHome search URL using every available provider-native query parameter. */
+export const buildMyHomeSearchUrl = (
+  baseUrl: string,
+  canonicalPath: string,
   sectionPath: DaftSectionPath,
   filters: DaftFilters,
-  now: Date,
-): boolean => {
-  const facilities = filters.facilities ?? [];
-  const { finding: property, myhomeEvidence: evidence } = finding;
-  if (filters.priceMinEur !== undefined && (evidence.priceEur ?? -1) < filters.priceMinEur) { return false; }
-  if (filters.priceMaxEur !== undefined && (evidence.priceEur ?? Number.POSITIVE_INFINITY) > filters.priceMaxEur) { return false; }
-  if (filters.bedsMin !== undefined && (property.bedrooms ?? -1) < filters.bedsMin) { return false; }
-  if (filters.bedsMax !== undefined && (property.bedrooms ?? Number.POSITIVE_INFINITY) > filters.bedsMax) { return false; }
-  if (filters.bathsMin !== undefined && (property.bathrooms ?? -1) < filters.bathsMin) { return false; }
-  if (filters.bathsMax !== undefined && (property.bathrooms ?? Number.POSITIVE_INFINITY) > filters.bathsMax) { return false; }
-  if (filters.propertyTypes.length > 0 && !filters.propertyTypes.some((type) => evidence.daftPropertyTypes.includes(type))) { return false; }
-  if (filters.keyword !== undefined && !normalize(evidence.searchableText).includes(normalize(filters.keyword))) { return false; }
-  if (evidence.availability !== filters.availability) { return false; }
-  if (
-    filters.addedInLastDays !== undefined &&
-    filters.addedInLastDays > 0 &&
-    evidence.publishedAt !== undefined &&
-    !publishedWithinDays(evidence.publishedAt, filters.addedInLastDays, now)
-  ) { return false; }
-  const openViewingsFrom = filters.openViewingsFrom;
-  if (
-    sectionPath === "new-homes-for-sale" &&
-    openViewingsFrom !== undefined &&
-    !evidence.openViewingDates.some((date) => date >= openViewingsFrom)
-  ) { return false; }
-  if (sectionPath === "property-for-sale") {
-    if (filters.floorSizeMinSqm !== undefined && (property.floorSizeSqm ?? -1) < filters.floorSizeMinSqm) { return false; }
-    if (filters.floorSizeMaxSqm !== undefined && (property.floorSizeSqm ?? Number.POSITIVE_INFINITY) > filters.floorSizeMaxSqm) { return false; }
-    const rating = daftBerRatingValue(
-      property.berRating === undefined ? undefined : parseBer(property.berRating),
-    );
-    const minimumBer = daftBerRatingValue(filters.berMin);
-    const maximumBer = daftBerRatingValue(filters.berMax);
-    if (minimumBer !== undefined && (rating ?? -1) < minimumBer) { return false; }
-    if (maximumBer !== undefined && (rating ?? Number.POSITIVE_INFINITY) > maximumBer) { return false; }
-    if (filters.saleType === "auction" && evidence.saleType !== "auction") { return false; }
-    if (filters.onlineOffers !== undefined && evidence.onlineOffers !== filters.onlineOffers) { return false; }
-    if (facilities.some((facility) => !evidence.facilities.includes(facility))) { return false; }
+  page = 1,
+): string => {
+  const query = new URLSearchParams();
+  const numericFilters = [
+    ["minprice", filters.priceMinEur],
+    ["maxprice", filters.priceMaxEur],
+    ["minbeds", filters.bedsMin],
+    ["maxbeds", filters.bedsMax],
+    ["minbathrooms", filters.bathsMin],
+    ["maxbaths", filters.bathsMax],
+    ["minsize", filters.floorSizeMinSqm],
+    ["maxsize", filters.floorSizeMaxSqm],
+  ] as const;
+  for (const [name, value] of numericFilters) {
+    if (value !== undefined) { query.set(name, String(value)); }
   }
-  if (sectionPath === "property-for-rent") {
-    if (filters.leaseLengthMinMonths !== undefined && (evidence.leaseLengthMonths ?? -1) < filters.leaseLengthMinMonths) { return false; }
-    if (filters.leaseLengthMaxMonths !== undefined && (evidence.leaseLengthMonths ?? Number.POSITIVE_INFINITY) > filters.leaseLengthMaxMonths) { return false; }
-    if (filters.furnishing !== undefined && evidence.furnishing !== filters.furnishing) { return false; }
-    if (facilities.some((facility) => !evidence.facilities.includes(facility))) { return false; }
+  for (const id of nativePropertyTypeIds(sectionPath, filters.propertyTypes)) {
+    query.append("propertytypeids", String(id));
   }
-  return true;
-};
-
-const sortFindings = (
-  findings: MyHomeFinding[],
-  sort: DaftFilters["sort"],
-): MyHomeFinding[] => {
-  if (sort === undefined || sort === "bestMatch") { return findings; }
-  return findings.sort((left, right) => {
-    const comparison = sort === "publishDateDesc"
-      ? Date.parse(right.myhomeEvidence.publishedAt ?? "") - Date.parse(left.myhomeEvidence.publishedAt ?? "")
-      : (left.myhomeEvidence.priceEur ?? 0) - (right.myhomeEvidence.priceEur ?? 0);
-    return sort === "priceDesc" ? -comparison : comparison;
-  });
-};
-
-const isMyHomeFinding = (item: SourcedFinding): item is MyHomeFinding =>
-  item.source === "myhome" &&
-  "myhomeEvidence" in item &&
-  typeof item.myhomeEvidence === "object" &&
-  item.myhomeEvidence !== null &&
-  "typeVerified" in item.myhomeEvidence &&
-  typeof item.myhomeEvidence.typeVerified === "boolean";
-
-/** Applies locally supported semantics and fails closed with explicit unsupported filters. */
-export const applyMyHomeFilters = (
-  findings: readonly SourcedFinding[],
-  sectionPath: DaftSectionPath,
-  filters: DaftFilters,
-  now = new Date(),
-): MyHomeFilterResult => {
-  const support = validateMyHomeFilterSupport(sectionPath, filters);
-  const unverifiedSourceIds = new Set<string>();
-  for (const item of findings) {
-    if (item.source !== "myhome") { throw new Error("MyHome filters accept only MyHome findings"); }
-    if (!isMyHomeFinding(item) || !item.myhomeEvidence.typeVerified) {
-      unverifiedSourceIds.add(item.sourceId);
-    }
-  }
-  if (support.unsupportedFilters.length > 0) {
-    return {
-      findings: [],
-      unsupportedFilters: support.unsupportedFilters,
-      unverifiedSourceIds: [...unverifiedSourceIds],
-      filterSources: support.filterSources,
-    };
-  }
-  const applicable: MyHomeFinding[] = [];
-  for (const item of findings) {
-    if (!isMyHomeFinding(item) || !item.myhomeEvidence.typeVerified) {
-      unverifiedSourceIds.add(item.sourceId);
-      continue;
-    }
-    if (unknownFor(item.myhomeEvidence, item.finding, filters, sectionPath).length > 0) {
-      unverifiedSourceIds.add(item.sourceId);
-      continue;
-    }
-    if (matchesFilters(item, sectionPath, filters, now)) { applicable.push(item); }
-  }
-  return {
-    findings: sortFindings(applicable, filters.sort),
-    unsupportedFilters: [],
-    unverifiedSourceIds: [...unverifiedSourceIds],
-    filterSources: support.filterSources,
-  };
+  const keyword = filters.keyword?.trim();
+  if (keyword !== undefined && keyword !== "") { query.set("query", keyword); }
+  return buildMyHomeUrl(baseUrl, canonicalPath, page, query);
 };
