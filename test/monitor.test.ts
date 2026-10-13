@@ -2124,12 +2124,13 @@ test("uses native MyHome filters while ignoring unsupported ones", async () => {
   assert.equal(result.pages, 2);
   assert.equal(result.findings, 0);
   assert.ok(
-    warnings.some(
-      (message) =>
-        message.includes("MyHome ignoring filters without native equivalents") &&
-        message.includes("radiusKm") &&
-        message.includes("mediaTypes"),
+    warnings.includes(
+      "MyHome ignoring filters without native equivalents: radiusKm, mediaTypes",
     ),
+    JSON.stringify(warnings),
+  );
+  assert.ok(
+    warnings.includes(`MyHome ignoring unsupported location filters: ["radiusKm"]`),
     JSON.stringify(warnings),
   );
 });
