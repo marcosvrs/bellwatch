@@ -403,7 +403,7 @@ const collectMyHomeFindings = (
       if (locationSupport.unsupportedLocationFilters.length > 0) {
         yield* Effect.logWarning(
           `MyHome ignoring unsupported location filters: ${
-            locationSupport.unsupportedLocationFilters.join(", ")
+            JSON.stringify(locationSupport.unsupportedLocationFilters)
           }`,
         );
       }
