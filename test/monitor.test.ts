@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect";
 import * as Logger from "effect/Logger";
 import { parseEnvironment } from "../src/config.js";
 import { classifyHelpToBuyEvidence } from "../src/daft/shps.js";
+import { MyHomeFetchError } from "../src/myhome-fetch.js";
 import { MonitorError, runOnce, writeHeartbeat } from "../src/monitor.js";
 import { sourcedFindingKey, type DiscoveryCandidate } from "../src/listings.js";
 import type { DaftFinding } from "../src/daft/parser.js";
@@ -2177,6 +2178,58 @@ test("uses the native MyHome sale-agreed catalog", async () => {
   assert.equal(result.pages, 2);
   assert.equal(result.findings, 0);
   assert.deepEqual(warnings, []);
+});
+
+test("falls back to robots-safe MyHome paths when native queries are blocked", async () => {
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_LOCATION: "dublin",
+    DAFT_PROPERTY_TYPES: "houses",
+    DAFT_MAX_PAGES: "1",
+  });
+  const requested: string[] = [];
+  const warnings: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    warnings.push(String(message));
+  });
+  const regionHtml =
+    `<script id="ng-state" type="application/json">` +
+    `{"bootstrap":[{"RegionUrls":{"1":"/residential/dublin/house-for-sale"}}]}` +
+    `</script>`;
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) => {
+        const request = new URL(url);
+        requested.push(`${request.pathname}${request.search}`);
+        if (request.pathname === "/residential/ireland/property-for-sale") {
+          return Effect.succeed(regionHtml);
+        }
+        if (request.search !== "") {
+          return Effect.fail(
+            new MyHomeFetchError(
+              `MyHome robots.txt disallows ${request.pathname}${request.search}`,
+            ),
+          );
+        }
+        return Effect.succeed("<main></main>");
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }).pipe(Effect.provide(Logger.layer([logger]))),
+  );
+  assert.deepEqual(requested, [
+    "/residential/ireland/property-for-sale",
+    "/residential/dublin/house-for-sale?propertytypeids=97",
+    "/residential/dublin/house-for-sale",
+  ]);
+  assert.equal(result.pages, 2);
+  assert.deepEqual(warnings, [
+    "MyHome robots.txt blocks native query filters; retrying without them",
+  ]);
 });
 
 test("classifies valid MyHome coordinates using the loaded county boundary", async () => {

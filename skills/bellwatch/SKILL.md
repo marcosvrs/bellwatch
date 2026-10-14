@@ -44,18 +44,21 @@ Use only filters supported by the selected Daft section. Sale, rental, and new-h
 MyHome uses public server-rendered HTML, not a private or undocumented API.
 Native equivalents for price, beds, minimum baths, size, keyword, supported
 property types, and `sale-agreed` property-for-sale searches are included in
-the MyHome route or URL. MyHome has no verified maximum-bathroom parameter, so
-Bellwatch omits that upper bound. If a configured filter has no MyHome
-equivalent, Bellwatch logs and omits only that parameter; it still runs the
-remaining native query. It never re-filters detail facts or drops a listing
-because a fact is missing.
+the MyHome route or URL when permitted by `robots.txt`. MyHome has no verified
+maximum-bathroom parameter, so Bellwatch omits that upper bound. If a configured
+filter has no MyHome equivalent, Bellwatch logs and omits only that parameter;
+it still runs the remaining native query. It never re-filters detail facts or
+drops a listing because a fact is missing.
 
-With `DAFT_MAX_PAGES` and a non-default `DAFT_SORT`, Bellwatch skips MyHome
-because its server-rendered search has no verified sort control; without a page
-cap, it runs MyHome and logs the unsupported ordering. If no regional route is
-evidenced by the nationwide page, Bellwatch skips MyHome rather than broadening
-the configured location to all Ireland. An unsupported radius alone does not
-skip an evidenced regional search.
+MyHome's current `robots.txt` blocks query-string variants other than
+pagination. Bellwatch logs that policy and retries a blocked native search
+route with only its allowed page parameter; it never bypasses robots.txt or
+re-applies the omitted filter locally. With `DAFT_MAX_PAGES` and a non-default
+`DAFT_SORT`, Bellwatch skips MyHome because its server-rendered search has no
+verified sort control; without a page cap, it runs MyHome and logs the
+unsupported ordering. If no regional route is evidenced by the nationwide
+page, Bellwatch skips MyHome rather than broadening the configured location to
+all Ireland. An unsupported radius alone does not skip an evidenced search.
 - Set `MYHOME_ENABLED=false` to disable the source.
 - `SEARXNG_BASE_URL` enables discovery-only searches. Results are unverified candidates; they do not enter the listing catalog or generate listing alerts.
 - To mirror data to Baserow, configure `BASEROW_BASE_URL`, `BASEROW_TOKEN`, and `BASEROW_TABLE_ID`. When SearXNG and Baserow are both enabled, also provide a separate `BASEROW_CANDIDATE_TABLE_ID`. Keep the token in a private env file or secret store; use the README's Baserow field list when creating tables.

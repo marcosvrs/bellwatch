@@ -28,6 +28,10 @@ export class MyHomeFetchError extends Error {
   }
 }
 
+export const isMyHomeRobotsDisallowError = (error: unknown): boolean =>
+  error instanceof MyHomeFetchError &&
+  error.message.startsWith("MyHome robots.txt disallows");
+
 export const createMyHomePageFetcher = (
   options: MyHomePageFetcherOptions,
 ): ((url: string) => Promise<string>) => {

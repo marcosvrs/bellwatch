@@ -320,11 +320,16 @@ relevant scheme and local authority.
 MyHome uses only its public server-rendered search controls. Price, bedroom,
 minimum-bathroom, size, keyword, supported property-type, and sale-agreed
 (for `property-for-sale`) constraints use native MyHome routes or query
-parameters. A maximum-bathroom constraint has no verified MyHome equivalent and
-is omitted. If a configured Daft filter has no verified MyHome equivalent,
-Bellwatch logs it and omits only that parameter; it still runs MyHome with the
-other native filters. It does not reapply filters to parsed detail facts, and
-missing facts never exclude a provider result.
+parameters when permitted by `robots.txt`. A maximum-bathroom constraint has no
+verified MyHome equivalent and is omitted. If a configured Daft filter has no
+verified MyHome equivalent, Bellwatch logs it and omits only that parameter; it
+still runs MyHome with the other native filters. It does not reapply filters to
+parsed detail facts, and missing facts never exclude a provider result.
+
+MyHome's current `robots.txt` blocks query-string variants other than pagination
+(`?page=N`). When a native query is blocked, Bellwatch logs the policy result
+and retries the same route with only its allowed page parameter. It never
+bypasses robots.txt or re-applies the omitted filter locally.
 
 MyHome has no verified server-side control for non-default sort order. When
 `DAFT_MAX_PAGES` is set with a non-default `DAFT_SORT`, Bellwatch skips MyHome
@@ -334,9 +339,10 @@ exception does not suppress other unsupported filters.
 
 Regional MyHome paths are used only when their route is evidenced by the
 nationwide page's rendered links. An unsupported radius can therefore be
-ignored while the evidenced regional path and remaining native query run. If no
-route is evidenced for the configured location scope, Bellwatch skips MyHome
-rather than silently broadening the search to all Ireland.
+ignored while the evidenced regional path runs; blocked query parameters are
+omitted after the robots-safe fallback. If no route is evidenced for the
+configured location scope, Bellwatch skips MyHome rather than silently
+broadening the search to all Ireland.
 
 SearXNG is never queried unless `SEARXNG_BASE_URL` is set. Search results do not
 become listings, do not generate listing alerts, and are kept in a separate

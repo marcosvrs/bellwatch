@@ -25,6 +25,7 @@ import {
   validateMyHomeFilterSupport,
   type MyHomeFinding,
 } from "./myhome.js";
+import { isMyHomeRobotsDisallowError } from "./myhome-fetch.js";
 import {
   classifyDublinBoundary,
   type DublinBoundaryGeometry,
@@ -355,6 +356,13 @@ const collectDaftFindings = (
     return { findings, pages };
   });
 
+const hasMyHomeQueryFilters = (url: string): boolean => {
+  for (const key of new URL(url).searchParams.keys()) {
+    if (key !== "page") { return true; }
+  }
+  return false;
+};
+
 const collectMyHomeFindings = (
   config: MonitorConfig,
   dependencies: MonitorDependencies,
@@ -427,20 +435,44 @@ const collectMyHomeFindings = (
     }
     const byId = new Map<string, MyHomeFinding>();
     let pages = 0;
+    let queryFiltersBlocked = false;
     for (
       let page = 1;
       config.daft.maxPages === undefined || page <= config.daft.maxPages;
       page += 1
     ) {
-      const url = buildMyHomeSearchUrl(
-        config.myhome.baseUrl,
-        searchPath,
-        config.daft.sectionPath,
-        config.daft.filters,
-        page,
-      );
-      const html = yield* fetchMyHomePage(url);
-      const parsed = yield* Effect.try(() => parseMyHomeListPage(html, url));
+      let pageUrl = queryFiltersBlocked
+        ? buildMyHomeUrl(config.myhome.baseUrl, searchPath, page)
+        : buildMyHomeSearchUrl(
+          config.myhome.baseUrl,
+          searchPath,
+          config.daft.sectionPath,
+          config.daft.filters,
+          page,
+        );
+      const fetched = yield* Effect.match(fetchMyHomePage(pageUrl), {
+        onFailure: (error) => ({ _tag: "failure" as const, error }),
+        onSuccess: (html) => ({ _tag: "success" as const, html }),
+      });
+      let html: string;
+      if (fetched._tag === "failure") {
+        if (
+          queryFiltersBlocked ||
+          !hasMyHomeQueryFilters(pageUrl) ||
+          !isMyHomeRobotsDisallowError(fetched.error)
+        ) {
+          return yield* Effect.fail(fetched.error);
+        }
+        queryFiltersBlocked = true;
+        yield* Effect.logWarning(
+          "MyHome robots.txt blocks native query filters; retrying without them",
+        );
+        pageUrl = buildMyHomeUrl(config.myhome.baseUrl, searchPath, page);
+        html = yield* fetchMyHomePage(pageUrl);
+      } else {
+        html = fetched.html;
+      }
+      const parsed = yield* Effect.try(() => parseMyHomeListPage(html, pageUrl));
       pages += 1;
       for (const finding of parsed.findings) { byId.set(finding.sourceId, finding); }
       if (parsed.currentPage >= parsed.totalPages) { break; }
