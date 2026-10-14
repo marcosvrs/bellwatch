@@ -2186,7 +2186,7 @@ test("falls back to robots-safe MyHome paths when native queries are blocked", a
     DAFT_SECTION_PATH: "property-for-sale",
     DAFT_LOCATION: "dublin",
     DAFT_PROPERTY_TYPES: "houses",
-    DAFT_MAX_PAGES: "1",
+    DAFT_MAX_PAGES: "2",
   });
   const requested: string[] = [];
   const warnings: string[] = [];
@@ -2206,6 +2206,9 @@ test("falls back to robots-safe MyHome paths when native queries are blocked", a
         if (request.pathname === "/residential/ireland/property-for-sale") {
           return Effect.succeed(regionHtml);
         }
+        if (request.searchParams.has("page")) {
+          return Effect.succeed("<main></main>");
+        }
         if (request.search !== "") {
           return Effect.fail(
             new MyHomeFetchError(
@@ -2213,7 +2216,9 @@ test("falls back to robots-safe MyHome paths when native queries are blocked", a
             ),
           );
         }
-        return Effect.succeed("<main></main>");
+        return Effect.succeed(
+          `<main><link rel="next" href="/residential/dublin/house-for-sale?page=2"></main>`,
+        );
       },
       publish: () => Effect.void,
       publishError: () => Effect.void,
@@ -2225,10 +2230,85 @@ test("falls back to robots-safe MyHome paths when native queries are blocked", a
     "/residential/ireland/property-for-sale",
     "/residential/dublin/house-for-sale?propertytypeids=97",
     "/residential/dublin/house-for-sale",
+    "/residential/dublin/house-for-sale?page=2",
   ]);
-  assert.equal(result.pages, 2);
+  assert.equal(result.pages, 3);
   assert.deepEqual(warnings, [
     "MyHome robots.txt blocks native query filters; retrying without them",
+  ]);
+});
+
+test("does not retry a robots failure for an allowed pagination URL", async () => {
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "2",
+  });
+  const requested: string[] = [];
+  await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) => {
+        const request = new URL(url);
+        requested.push(`${request.pathname}${request.search}`);
+        if (!request.searchParams.has("page")) {
+          return Effect.succeed(
+            `<main><link rel="next" href="/residential/ireland/new-homes/property-for-sale?page=2"></main>`,
+          );
+        }
+        return Effect.fail(
+          new MyHomeFetchError(
+            `MyHome robots.txt disallows ${request.pathname}${request.search}`,
+          ),
+        );
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.deepEqual(requested, [
+    "/residential/ireland/new-homes/property-for-sale",
+    "/residential/ireland/new-homes/property-for-sale?page=2",
+  ]);
+});
+
+test("does not retry non-robots MyHome query failures without filters", async () => {
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_LOCATION: "dublin",
+    DAFT_PROPERTY_TYPES: "houses",
+    DAFT_MAX_PAGES: "1",
+  });
+  const requested: string[] = [];
+  const regionHtml =
+    `<script id="ng-state" type="application/json">` +
+    `{"bootstrap":[{"RegionUrls":{"1":"/residential/dublin/house-for-sale"}}]}` +
+    `</script>`;
+  await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      fetchMyHomePage: (url) => {
+        const request = new URL(url);
+        requested.push(`${request.pathname}${request.search}`);
+        if (request.pathname === "/residential/ireland/property-for-sale") {
+          return Effect.succeed(regionHtml);
+        }
+        if (request.search !== "") {
+          return Effect.fail(new MyHomeFetchError("MyHome request failed"));
+        }
+        return Effect.succeed("<main></main>");
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+  assert.deepEqual(requested, [
+    "/residential/ireland/property-for-sale",
+    "/residential/dublin/house-for-sale?propertytypeids=97",
   ]);
 });
 
