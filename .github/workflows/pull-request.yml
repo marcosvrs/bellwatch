@@ -111,6 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           runtime_data="$(mktemp -d)"
+          chmod 777 "$runtime_data"
           trap 'rm -rf "$runtime_data"' EXIT
           touch "$runtime_data/heartbeat"
           docker run --rm \
