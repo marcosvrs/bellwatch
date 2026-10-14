@@ -169,13 +169,13 @@ Production and alpha tags publish `linux/amd64` and `linux/arm64` images so
 the same reference works on common server and Apple-hosted Docker
 installations. PR validation runs the full fixture/live E2E against amd64 and
 an arm64 healthcheck smoke test before uploading both image archives; the
-existing publisher consumes those artifacts and uses only trusted default-branch
+existing publisher consumes those artifacts and uses only trusted PR-base
 E2E scripts in its privileged PR path. Production tags receive GitHub
-provenance attestations; alpha tags are signed promotion artifacts and
-intentionally do not claim default-branch provenance. PR alpha tags are for
-testing only; they do not move `latest`. GitHub Actions uses the repository
-`GITHUB_TOKEN` with `packages: write`; no personal token is stored in the
-repository.
+provenance attestations and Cosign signatures; alpha tags are unsigned
+promotion artifacts and intentionally do not claim default-branch provenance.
+PR alpha tags are for testing only; they do not move `latest`. GitHub Actions
+uses the repository `GITHUB_TOKEN` with `packages: write`; no personal token
+is stored in the repository.
 
 The package must be visible to the users who pull it. If the GitHub package is
 private, users and deployment engines need GitHub Container Registry read

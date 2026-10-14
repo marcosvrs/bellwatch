@@ -2180,7 +2180,7 @@ test("uses the native MyHome sale-agreed catalog", async () => {
   assert.deepEqual(warnings, []);
 });
 
-test("falls back to robots-safe MyHome paths when native queries are blocked", async () => {
+test("skips MyHome when robots blocks native query filters", async () => {
   const config = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
     DAFT_SECTION_PATH: "property-for-sale",
@@ -2206,9 +2206,6 @@ test("falls back to robots-safe MyHome paths when native queries are blocked", a
         if (request.pathname === "/residential/ireland/property-for-sale") {
           return Effect.succeed(regionHtml);
         }
-        if (request.searchParams.has("page")) {
-          return Effect.succeed("<main></main>");
-        }
         if (request.search !== "") {
           return Effect.fail(
             new MyHomeFetchError(
@@ -2216,9 +2213,7 @@ test("falls back to robots-safe MyHome paths when native queries are blocked", a
             ),
           );
         }
-        return Effect.succeed(
-          `<main><link rel="next" href="/residential/dublin/house-for-sale?page=2"></main>`,
-        );
+        return Effect.succeed("<main></main>");
       },
       publish: () => Effect.void,
       publishError: () => Effect.void,
@@ -2229,12 +2224,10 @@ test("falls back to robots-safe MyHome paths when native queries are blocked", a
   assert.deepEqual(requested, [
     "/residential/ireland/property-for-sale",
     "/residential/dublin/house-for-sale?propertytypeids=97",
-    "/residential/dublin/house-for-sale",
-    "/residential/dublin/house-for-sale?page=2",
   ]);
-  assert.equal(result.pages, 3);
+  assert.equal(result.pages, 1);
   assert.deepEqual(warnings, [
-    "MyHome robots.txt blocks native query filters; retrying without them",
+    "MyHome skipped; robots.txt blocks native query filters",
   ]);
 });
 
@@ -2244,6 +2237,10 @@ test("does not retry a robots failure for an allowed pagination URL", async () =
     DAFT_MAX_PAGES: "2",
   });
   const requested: string[] = [];
+  const warnings: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    warnings.push(String(message));
+  });
   await Effect.runPromise(
     runOnce(config, {
       fetchPage: () => Effect.succeed(payload([])),
@@ -2265,11 +2262,14 @@ test("does not retry a robots failure for an allowed pagination URL", async () =
       publishError: () => Effect.void,
       state: makeState(),
       heartbeat: () => Effect.void,
-    }),
+    }).pipe(Effect.provide(Logger.layer([logger]))),
   );
   assert.deepEqual(requested, [
     "/residential/ireland/new-homes/property-for-sale",
     "/residential/ireland/new-homes/property-for-sale?page=2",
+  ]);
+  assert.deepEqual(warnings, [
+    "MyHome source failed without affecting Daft results: MyHome robots.txt disallows /residential/ireland/new-homes/property-for-sale?page=2",
   ]);
 });
 
@@ -2282,6 +2282,10 @@ test("does not retry non-robots MyHome query failures without filters", async ()
     DAFT_MAX_PAGES: "1",
   });
   const requested: string[] = [];
+  const warnings: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    warnings.push(String(message));
+  });
   const regionHtml =
     `<script id="ng-state" type="application/json">` +
     `{"bootstrap":[{"RegionUrls":{"1":"/residential/dublin/house-for-sale"}}]}` +
@@ -2304,11 +2308,14 @@ test("does not retry non-robots MyHome query failures without filters", async ()
       publishError: () => Effect.void,
       state: makeState(),
       heartbeat: () => Effect.void,
-    }),
+    }).pipe(Effect.provide(Logger.layer([logger]))),
   );
   assert.deepEqual(requested, [
     "/residential/ireland/property-for-sale",
     "/residential/dublin/house-for-sale?propertytypeids=97",
+  ]);
+  assert.deepEqual(warnings, [
+    "MyHome source failed without affecting Daft results: MyHome request failed",
   ]);
 });
 

@@ -259,6 +259,8 @@ test("parses canonical list cards, keeps raw source IDs, and deduplicates respon
   assert.equal(finding.myhomeEvidence.typeVerified, false);
   const filteredQueryPage = parseMyHomeListPage("", `${SEARCH_URL}?page=2&minbeds=3`);
   assert.equal(filteredQueryPage.currentPage, 2);
+  assert.throws(() => parseMyHomeListPage("", `${SEARCH_URL}?page=1e6`), /positive decimal/);
+  assert.throws(() => parseMyHomeListPage("", `${SEARCH_URL}?page=0x100`), /positive decimal/);
   assert.throws(() => parseMyHomeListPage("", "https://www.myhome.ie/search"), /canonical/);
 });
 

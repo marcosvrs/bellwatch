@@ -119,6 +119,10 @@ jobs:
             --volume "$runtime_data:/data" \
             "$PR_IMAGE" \
             node dist/healthcheck.js
+      - name: Write validation metadata
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: printf '%s\n' "$PR_BASE_SHA" > /tmp/bellwatch-pr-base-sha
       - name: Upload PR images for privileged publication
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -126,6 +130,7 @@ jobs:
           path: |
             /tmp/bellwatch-pr-amd64.tar
             /tmp/bellwatch-pr-arm64.tar
+            /tmp/bellwatch-pr-base-sha
           if-no-files-found: error
           overwrite: true
           retention-days: 7

@@ -435,44 +435,37 @@ const collectMyHomeFindings = (
     }
     const byId = new Map<string, MyHomeFinding>();
     let pages = 0;
-    let queryFiltersBlocked = false;
     for (
       let page = 1;
       config.daft.maxPages === undefined || page <= config.daft.maxPages;
       page += 1
     ) {
-      let pageUrl = queryFiltersBlocked
-        ? buildMyHomeUrl(config.myhome.baseUrl, searchPath, page)
-        : buildMyHomeSearchUrl(
-          config.myhome.baseUrl,
-          searchPath,
-          config.daft.sectionPath,
-          config.daft.filters,
-          page,
-        );
+      const pageUrl = buildMyHomeSearchUrl(
+        config.myhome.baseUrl,
+        searchPath,
+        config.daft.sectionPath,
+        config.daft.filters,
+        page,
+      );
       const fetched = yield* Effect.match(fetchMyHomePage(pageUrl), {
         onFailure: (error) => ({ _tag: "failure" as const, error }),
         onSuccess: (html) => ({ _tag: "success" as const, html }),
       });
-      let html: string;
       if (fetched._tag === "failure") {
         if (
-          queryFiltersBlocked ||
-          !hasMyHomeQueryFilters(pageUrl) ||
-          !isMyHomeRobotsDisallowError(fetched.error)
+          hasMyHomeQueryFilters(pageUrl) &&
+          isMyHomeRobotsDisallowError(fetched.error)
         ) {
-          return yield* Effect.fail(fetched.error);
+          yield* Effect.logWarning(
+            "MyHome skipped; robots.txt blocks native query filters",
+          );
+          return { findings: [], pages };
         }
-        queryFiltersBlocked = true;
-        yield* Effect.logWarning(
-          "MyHome robots.txt blocks native query filters; retrying without them",
-        );
-        pageUrl = buildMyHomeUrl(config.myhome.baseUrl, searchPath, page);
-        html = yield* fetchMyHomePage(pageUrl);
-      } else {
-        html = fetched.html;
+        return yield* Effect.fail(fetched.error);
       }
-      const parsed = yield* Effect.try(() => parseMyHomeListPage(html, pageUrl));
+      const parsed = yield* Effect.try(() =>
+        parseMyHomeListPage(fetched.html, pageUrl),
+      );
       pages += 1;
       for (const finding of parsed.findings) { byId.set(finding.sourceId, finding); }
       if (parsed.currentPage >= parsed.totalPages) { break; }

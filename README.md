@@ -328,7 +328,7 @@ parsed detail facts, and missing facts never exclude a provider result.
 
 MyHome's current `robots.txt` blocks query-string variants other than pagination
 (`?page=N`). When a native query is blocked, Bellwatch logs the policy result
-and retries the same route with only its allowed page parameter. It never
+and skips MyHome rather than fetching an unfiltered result set. It never
 bypasses robots.txt or re-applies the omitted filter locally.
 
 MyHome has no verified server-side control for non-default sort order. When
@@ -339,9 +339,8 @@ exception does not suppress other unsupported filters.
 
 Regional MyHome paths are used only when their route is evidenced by the
 nationwide page's rendered links. An unsupported radius can therefore be
-ignored while the evidenced regional path runs; blocked query parameters are
-omitted after the robots-safe fallback. If no route is evidenced for the
-configured location scope, Bellwatch skips MyHome rather than silently
+ignored while the evidenced regional path runs. If no route is evidenced for
+the configured location scope, Bellwatch skips MyHome rather than silently
 broadening the search to all Ireland.
 
 SearXNG is never queried unless `SEARXNG_BASE_URL` is set. Search results do not

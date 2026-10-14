@@ -516,9 +516,12 @@ const pageNumberFromUrl = (url: URL): number => {
   const pageValues = url.searchParams.getAll("page");
   if (pageValues.length === 0) { return 1; }
   const pageValue = pageValues.length === 1 ? pageValues[0] : undefined;
-  const page = pageValue === undefined ? Number.NaN : Number(pageValue);
-  if (!Number.isSafeInteger(page) || page < 1) {
-    throw new Error("MyHome pages may use only one positive integer page query parameter");
+  if (pageValue === undefined || !/^[1-9][0-9]*$/.test(pageValue)) {
+    throw new Error("MyHome pages may use only one positive decimal page query parameter");
+  }
+  const page = Number(pageValue);
+  if (!Number.isSafeInteger(page)) {
+    throw new Error("MyHome pages may use only one positive decimal page query parameter");
   }
   return page;
 };
