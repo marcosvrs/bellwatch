@@ -4,10 +4,9 @@ on:
   workflow_run:
     workflows:
       - Push validation
+      - Pull request validation
     types:
       - completed
-    branches:
-      - master
   workflow_dispatch:
 
 permissions:
@@ -111,9 +110,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest
-            type=raw,value=sha-${{ github.event.workflow_run.head_sha || github.sha }}
-
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'push' }}
+            type=raw,value=sha-${{ github.event.workflow_run.head_sha || github.sha }},enable=${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.event == 'push' }}
+            type=raw,value=alpha-pr-${{ github.event.workflow_run.pull_requests[0].number }},enable=${{ github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request' }}
       - name: Build and push image
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

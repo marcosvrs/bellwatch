@@ -114,6 +114,11 @@ docker run --detach \
   "$IMAGE"
 ```
 
+For testing a pull request on Jarvis, use the mutable image published after
+validation as `ghcr.io/marcosvrs/bellwatch:alpha-pr-<PR_NUMBER>` (for example,
+`alpha-pr-46`). Alpha tags follow the latest validated commit for that PR and
+must not be used as production release tags.
+
 The first poll runs immediately. Existing results are seeded silently on the
 first run unless `NOTIFY_EXISTING_ON_FIRST_RUN=true`.
 
