@@ -103,6 +103,8 @@ jobs:
           platforms: linux/arm64
           tags: bellwatch:pr-${{ github.event.pull_request.head.sha }}-arm64
           provenance: false
+      - name: Load arm64 production image
+        run: docker load --input /tmp/bellwatch-pr-arm64.tar
       - name: Smoke-test arm64 image and healthcheck
         env:
           PR_IMAGE: bellwatch:pr-${{ github.event.pull_request.head.sha }}-arm64
