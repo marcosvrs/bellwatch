@@ -69,21 +69,46 @@ jobs:
         run: npm run check:changed -- "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
       - name: Run full quality gate
         run: npm run check
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - name: Set up Docker Buildx for live Daft E2E
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Build production image for live Daft E2E
+      - name: Build amd64 production image for live Daft E2E
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ./Dockerfile
           cache-from: type=gha,scope=bellwatch-pr-${{ github.event.pull_request.number }}
           cache-to: type=gha,mode=max,scope=bellwatch-pr-${{ github.event.pull_request.number }}
-          load: true
-          tags: bellwatch:live-e2e-${{ github.run_id }}
+          outputs: type=docker,dest=/tmp/bellwatch-pr-amd64.tar
+          platforms: linux/amd64
+          tags: bellwatch:pr-${{ github.event.pull_request.head.sha }}-amd64
           provenance: false
+      - name: Load amd64 production image
+        run: docker load --input /tmp/bellwatch-pr-amd64.tar
       - name: Run live Daft E2E
         run: npm run e2e:live
         env:
           CONTAINER_CLI: docker
-          E2E_IMAGE: bellwatch:live-e2e-${{ github.run_id }}
+          E2E_IMAGE: bellwatch:pr-${{ github.event.pull_request.head.sha }}-amd64
           E2E_TIMEOUT_MS: "240000"
+      - name: Build arm64 image for privileged publication
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          cache-from: type=gha,scope=bellwatch-pr-${{ github.event.pull_request.number }}
+          cache-to: type=gha,mode=max,scope=bellwatch-pr-${{ github.event.pull_request.number }}
+          outputs: type=docker,dest=/tmp/bellwatch-pr-arm64.tar
+          platforms: linux/arm64
+          tags: bellwatch:pr-${{ github.event.pull_request.head.sha }}-arm64
+          provenance: false
+      - name: Upload PR images for privileged publication
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bellwatch-pr-image-${{ github.event.pull_request.head.sha }}
+          path: |
+            /tmp/bellwatch-pr-amd64.tar
+            /tmp/bellwatch-pr-arm64.tar
+          if-no-files-found: error
+          retention-days: 7

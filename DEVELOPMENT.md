@@ -167,9 +167,11 @@ docker pull ghcr.io/marcosvrs/bellwatch:alpha-pr-46
 
 Production and alpha tags publish `linux/amd64` and `linux/arm64` images so
 the same reference works on common server and Apple-hosted Docker
-installations. PR alpha tags are for testing only; they do not move `latest`.
-GitHub Actions uses the repository `GITHUB_TOKEN` with `packages: write`; no
-personal token is stored in the repository.
+installations. PR validation uploads the two validated image archives; the
+existing publisher consumes those artifacts and uses only trusted default-branch
+E2E scripts in its privileged PR path. PR alpha tags are for testing only; they
+do not move `latest`. GitHub Actions uses the repository `GITHUB_TOKEN` with
+`packages: write`; no personal token is stored in the repository.
 
 The package must be visible to the users who pull it. If the GitHub package is
 private, users and deployment engines need GitHub Container Registry read
