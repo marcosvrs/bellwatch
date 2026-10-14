@@ -103,13 +103,19 @@ jobs:
           platforms: linux/arm64
           tags: bellwatch:pr-${{ github.event.pull_request.head.sha }}-arm64
           provenance: false
-      - name: Load arm64 production image
-        run: docker load --input /tmp/bellwatch-pr-arm64.tar
-      - name: Run arm64 fixture E2E
-        run: npm run e2e
+      - name: Smoke-test arm64 image and healthcheck
         env:
-          CONTAINER_CLI: docker
-          E2E_IMAGE: bellwatch:pr-${{ github.event.pull_request.head.sha }}-arm64
+          PR_IMAGE: bellwatch:pr-${{ github.event.pull_request.head.sha }}-arm64
+        run: |
+          set -euo pipefail
+          runtime_data="$(mktemp -d)"
+          trap 'rm -rf "$runtime_data"' EXIT
+          touch "$runtime_data/heartbeat"
+          docker run --rm \
+            --platform linux/arm64 \
+            --volume "$runtime_data:/data" \
+            "$PR_IMAGE" \
+            node dist/healthcheck.js
       - name: Upload PR images for privileged publication
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

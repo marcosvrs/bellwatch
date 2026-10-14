@@ -167,7 +167,8 @@ docker pull ghcr.io/marcosvrs/bellwatch:alpha-pr-46
 
 Production and alpha tags publish `linux/amd64` and `linux/arm64` images so
 the same reference works on common server and Apple-hosted Docker
-installations. PR validation uploads the two validated image archives; the
+installations. PR validation runs the full fixture/live E2E against amd64 and
+an arm64 healthcheck smoke test before uploading both image archives; the
 existing publisher consumes those artifacts and uses only trusted default-branch
 E2E scripts in its privileged PR path. Production tags receive GitHub
 provenance attestations; alpha tags are signed promotion artifacts and
