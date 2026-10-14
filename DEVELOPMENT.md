@@ -157,12 +157,12 @@ ghcr.io/marcosvrs/bellwatch:latest
 ```
 
 A push to `master` publishes `latest` and a commit-specific SHA tag. A
-successful `Pull request validation` publishes the validated PR head as
-`alpha-pr-<PR_NUMBER>` (for example, `alpha-pr-46`). Each new validated commit
+A successful `Pull request validation` publishes the validated PR head as
+`alpha-<PR_NUMBER>` (for example, `alpha-46`). Each new validated commit
 updates that PR's mutable alpha tag, so Jarvis can test the current PR with:
 
 ```bash
-docker pull ghcr.io/marcosvrs/bellwatch:alpha-pr-46
+docker pull ghcr.io/marcosvrs/bellwatch:alpha-46
 ```
 
 Production and alpha tags publish `linux/amd64` and `linux/arm64` images so
@@ -186,7 +186,7 @@ credentials before `docker pull` or Alchemy deployment.
   mutation testing, and live Daft E2E for every pull request.
 - `push.yml` runs Gitleaks and changed-file validation for `master` pushes.
 - `publish.yml` builds and publishes the multi-architecture production image
-  after successful `master` push validation and publishes `alpha-pr-<number>`
+  after successful `master` push validation and publishes `alpha-<number>`
   after successful pull-request validation.
 - `dependabot-auto-merge.yml` enables squash auto-merge after the required
   validation succeeds. Node base-image updates remain manual; master no longer
