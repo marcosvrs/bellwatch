@@ -103,6 +103,13 @@ jobs:
           platforms: linux/arm64
           tags: bellwatch:pr-${{ github.event.pull_request.head.sha }}-arm64
           provenance: false
+      - name: Load arm64 production image
+        run: docker load --input /tmp/bellwatch-pr-arm64.tar
+      - name: Run arm64 fixture E2E
+        run: npm run e2e
+        env:
+          CONTAINER_CLI: docker
+          E2E_IMAGE: bellwatch:pr-${{ github.event.pull_request.head.sha }}-arm64
       - name: Upload PR images for privileged publication
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -111,4 +118,5 @@ jobs:
             /tmp/bellwatch-pr-amd64.tar
             /tmp/bellwatch-pr-arm64.tar
           if-no-files-found: error
+          overwrite: true
           retention-days: 7
