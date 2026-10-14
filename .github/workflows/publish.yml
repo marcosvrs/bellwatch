@@ -252,7 +252,7 @@ jobs:
         run: |
           set -euo pipefail
           source_image_prefix="bellwatch:pr-${PR_HEAD_SHA}"
-          target_image="${TARGET_IMAGE}:alpha-pr-${PR_NUMBER}"
+          target_image="${TARGET_IMAGE}:alpha-${PR_NUMBER}"
           for architecture in amd64 arm64; do
             docker tag \
               "${source_image_prefix}-${architecture}" \
