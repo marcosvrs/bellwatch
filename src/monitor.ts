@@ -9,13 +9,12 @@ import {
   type DaftFinding,
 } from "./daft/parser.js";
 import {
-  isQualifyingHouse,
   sourcedFindingKey,
   type ListingSource,
   type SourcedFinding,
 } from "./listings.js";
 import {
-  applyMyHomeFilters,
+  buildMyHomeSearchUrl,
   buildMyHomeUrl,
   enrichMyHomeFinding,
   getMyHomeNationalSearchPath,
@@ -26,6 +25,7 @@ import {
   validateMyHomeFilterSupport,
   type MyHomeFinding,
 } from "./myhome.js";
+import { isMyHomeRobotsDisallowError } from "./myhome-fetch.js";
 import {
   classifyDublinBoundary,
   type DublinBoundaryGeometry,
@@ -348,7 +348,6 @@ const collectDaftFindings = (
         )
       : rawFindings;
     const findings = filterShpsFindings(candidates, config.shps)
-      .filter(isQualifyingHouse)
       .map((finding): SourcedFinding => ({
         source: "daft",
         sourceId: finding.id,
@@ -356,6 +355,13 @@ const collectDaftFindings = (
       }));
     return { findings, pages };
   });
+
+const hasMyHomeQueryFilters = (url: string): boolean => {
+  for (const key of new URL(url).searchParams.keys()) {
+    if (key !== "page") { return true; }
+  }
+  return false;
+};
 
 const collectMyHomeFindings = (
   config: MonitorConfig,
@@ -366,34 +372,41 @@ const collectMyHomeFindings = (
     if (!config.myhome.enabled || fetchMyHomePage === undefined) {
       return { findings: [], pages: 0 };
     }
+    const sort = config.daft.filters.sort;
+    if (
+      config.daft.maxPages !== undefined &&
+      sort !== undefined &&
+      sort !== "bestMatch"
+    ) {
+      yield* Effect.logWarning(
+        `MyHome skipped; cannot preserve ${sort} with DAFT_MAX_PAGES`,
+      );
+      return { findings: [], pages: 0 };
+    }
     const support = validateMyHomeFilterSupport(
       config.daft.sectionPath,
       config.daft.filters,
     );
     if (support.unsupportedFilters.length > 0) {
       yield* Effect.logWarning(
-        `MyHome skipped; unsupported active Daft filters: ${support.unsupportedFilters.join(", ")}`,
+        `MyHome ignoring filters without native equivalents: ${support.unsupportedFilters.join(", ")}`,
       );
-      return { findings: [], pages: 0 };
-    }
-    if (
-      config.daft.maxPages !== undefined &&
-      config.daft.filters.sort !== undefined
-    ) {
-      yield* Effect.logWarning(
-        "MyHome skipped; DAFT_MAX_PAGES cannot preserve the requested sort order",
-      );
-      return { findings: [], pages: 0 };
     }
 
     let searchPath: string;
     if (config.daft.locations.length === 0) {
-      searchPath = getMyHomeNationalSearchPath(config.daft.sectionPath);
+      searchPath = getMyHomeNationalSearchPath(
+        config.daft.sectionPath,
+        config.daft.filters.availability,
+      );
     } else {
       const regionHtml = yield* fetchMyHomePage(
         buildMyHomeUrl(
           config.myhome.baseUrl,
-          getMyHomeNationalSearchPath(config.daft.sectionPath),
+          getMyHomeNationalSearchPath(
+            config.daft.sectionPath,
+            config.daft.filters.availability,
+          ),
         ),
       );
       const regionRoutes = parseMyHomeRegionRoutes(regionHtml);
@@ -412,6 +425,13 @@ const collectMyHomeFindings = (
         return { findings: [], pages: 0 };
       }
       searchPath = locationSupport.searchPath;
+      if (locationSupport.unsupportedLocationFilters.length > 0) {
+        yield* Effect.logWarning(
+          `MyHome ignoring unsupported location filters: ${
+            JSON.stringify(locationSupport.unsupportedLocationFilters)
+          }`,
+        );
+      }
     }
     const byId = new Map<string, MyHomeFinding>();
     let pages = 0;
@@ -420,9 +440,32 @@ const collectMyHomeFindings = (
       config.daft.maxPages === undefined || page <= config.daft.maxPages;
       page += 1
     ) {
-      const url = buildMyHomeUrl(config.myhome.baseUrl, searchPath, page);
-      const html = yield* fetchMyHomePage(url);
-      const parsed = yield* Effect.try(() => parseMyHomeListPage(html, url));
+      const pageUrl = buildMyHomeSearchUrl(
+        config.myhome.baseUrl,
+        searchPath,
+        config.daft.sectionPath,
+        config.daft.filters,
+        page,
+      );
+      const fetched = yield* Effect.match(fetchMyHomePage(pageUrl), {
+        onFailure: (error) => ({ _tag: "failure" as const, error }),
+        onSuccess: (html) => ({ _tag: "success" as const, html }),
+      });
+      if (fetched._tag === "failure") {
+        if (
+          hasMyHomeQueryFilters(pageUrl) &&
+          isMyHomeRobotsDisallowError(fetched.error)
+        ) {
+          yield* Effect.logWarning(
+            "MyHome skipped; robots.txt blocks native query filters",
+          );
+          return { findings: [], pages };
+        }
+        return yield* Effect.fail(fetched.error);
+      }
+      const parsed = yield* Effect.try(() =>
+        parseMyHomeListPage(fetched.html, pageUrl),
+      );
       pages += 1;
       for (const finding of parsed.findings) { byId.set(finding.sourceId, finding); }
       if (parsed.currentPage >= parsed.totalPages) { break; }
@@ -450,25 +493,13 @@ const collectMyHomeFindings = (
       );
       if (enrichedFinding !== undefined) { enriched.push(enrichedFinding); }
     }
-    const filtered = applyMyHomeFilters(
-      enriched,
-      config.daft.sectionPath,
-      config.daft.filters,
-    );
-    if (filtered.unverifiedSourceIds.length > 0) {
-      yield* Effect.logWarning(
-        `MyHome excluded ${filtered.unverifiedSourceIds.length} listing(s) with unverified active-filter evidence`,
-      );
-    }
     const shpsIds = new Set(
       filterShpsFindings(
-        filtered.findings.map((finding) => finding.finding),
+        enriched.map((finding) => finding.finding),
         config.shps,
       ).map((finding) => finding.id),
     );
-    const findings = filtered.findings
-      .filter((finding) => shpsIds.has(finding.finding.id))
-      .filter((finding) => isQualifyingHouse(finding.finding));
+    const findings = enriched.filter((finding) => shpsIds.has(finding.finding.id));
     return { findings, pages };
   });
 

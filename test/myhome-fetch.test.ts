@@ -3,6 +3,7 @@ import test from "node:test";
 import { requestUrl } from "./request-url.js";
 import {
   createMyHomePageFetcher,
+  isMyHomeRobotsDisallowError,
   MyHomeFetchError,
 } from "../src/myhome-fetch.js";
 
@@ -117,6 +118,20 @@ test("refuses robots-disallowed and off-origin pages without requesting them", a
       /configured origin/.test(error.message),
   );
   assert.deepEqual(requested, ["https://homes.example/robots.txt"]);
+});
+
+test("identifies robots-disallow fetch errors", () => {
+  assert.equal(
+    isMyHomeRobotsDisallowError(
+      new MyHomeFetchError("MyHome robots.txt disallows /residential/search?minbeds=3"),
+    ),
+    true,
+  );
+  assert.equal(
+    isMyHomeRobotsDisallowError(new MyHomeFetchError("MyHome page returned HTTP 500")),
+    false,
+  );
+  assert.equal(isMyHomeRobotsDisallowError(new Error("robots")), false);
 });
 
 test("does not retry MyHome rate limits or blocked responses", async () => {

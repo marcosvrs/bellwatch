@@ -1,9 +1,8 @@
 # Bellwatch
 
-Bellwatch is a scheduled Irish property monitor for Daft.ie and MyHome. It reads
-Daft listing payloads and MyHome server-rendered HTML, applies supported
-filters, stores dated listing changes, and sends alerts through Shoutrrr,
-Hermes, or both.
+Bellwatch is a scheduled Irish property monitor for Daft.ie and MyHome. It
+passes configured search constraints to each provider's native search controls,
+stores dated listing changes, and sends alerts through Shoutrrr, Hermes, or both.
 
 It is a background container, not a website. Bellwatch exposes no application
 HTTP port and does not provide a web UI. It needs outbound access to Daft.ie,
@@ -13,13 +12,14 @@ service.
 ## What it does
 
 - Monitors new homes, direct property sales, or property rentals nationwide or
-  within configured Daft search locations.
-- Retains only individual houses with at least three bedrooms; apartments,
-  duplexes, and development-only parent records are excluded. Individual houses
-  within mixed developments remain eligible.
-- Uses MyHome when enabled and when every active filter can be applied safely.
-  Unsupported source-wide filters skip MyHome; listings missing an active
-  filter fact are excluded and counted in a warning.
+  within configured provider search locations.
+- Trusts listings returned by Daft.ie and MyHome.ie, including development and
+  aggregate records. It does not reapply bedroom, property-type, price, or
+  other search predicates after parsing.
+- Applies only the local `SHPS_FILTER` (`off`, `only`, or `exclude`) to returned
+  listings. MyHome uses every filter it can express natively and logs, but does
+  not discard the source when, for example, radius or publication age has no
+  native equivalent.
 - Optionally records SearXNG results as unverified discovery candidates; they
   never enter the listing or notification catalog.
 - Keeps provider-specific IDs, URLs, current facts, and dated change history in
@@ -114,6 +114,11 @@ docker run --detach \
   "$IMAGE"
 ```
 
+For testing a pull request on Jarvis, use the mutable image published after
+validation as `ghcr.io/marcosvrs/bellwatch:alpha-pr-<PR_NUMBER>` (for example,
+`alpha-pr-46`). Alpha tags follow the latest validated commit for that PR and
+must not be used as production release tags.
+
 The first poll runs immediately. Existing results are seeded silently on the
 first run unless `NOTIFY_EXISTING_ON_FIRST_RUN=true`.
 
@@ -164,23 +169,22 @@ search, provider, Baserow, scheduling, browser, and healthcheck overrides from
 1. Bellwatch validates the environment, opens SQLite (or an explicitly
    configured PostgreSQL database), and starts a poll immediately. Later polls
    follow `POLL_CRON` in `TZ`; the default interval is eight hours.
-2. Daft searches all Ireland unless locations are configured. MyHome searches
-   nationwide or uses only regional routes evidenced by its server-rendered
-   links. An active filter that MyHome cannot apply causes that source to be
-   skipped, not broadened.
+2. Daft and MyHome receive the configured filters through their native search
+   controls. MyHome searches nationwide or uses regional routes evidenced by
+   its server-rendered links. A filter without a MyHome equivalent is logged
+   and omitted only from the MyHome query; the remaining native filters still
+   run.
 3. Each source's `robots.txt` is checked. Daft and MyHome listing requests are
    separated by at least `DAFT_REQUEST_DELAY_MS` (default 1,000 ms). Blocked
    and rate-limited requests fail without retries.
 4. Daft listing payloads and MyHome SSR HTML are parsed; MyHome details are
-   fetched as HTML only. Active filters require verifiable facts. Listings
-   missing any fact needed for an active filter are excluded, not assumed to
-   match.
-5. Only individual houses with at least three bedrooms enter the catalog.
-   Apartment, duplex, and parent-only development results are excluded, while
-   qualifying houses from mixed developments remain.
-6. Every qualifying source record is stored separately with its source ID,
-   source URL, current facts, and dated changes. Matching records across
-   providers suppress duplicate alerts, not source history.
+   fetched as HTML only. Parsed fields are evidence for notifications and
+   history, not a second implementation of provider search semantics.
+5. `SHPS_FILTER` is the only local post-fetch listing filter. `off` preserves
+   every provider result; `only` and `exclude` use the SHPS/LAAPS classifier.
+6. Every retained source record is stored separately with its source ID, source
+   URL, current facts, and dated changes. Matching records across providers
+   suppress duplicate alerts, not source history.
 7. Optional SearXNG searches run only when configured. Their results are stored
    as unverified candidates and are never promoted to listings or alerts.
 8. Notifications are sent to every configured backend; a listing is marked
@@ -313,14 +317,31 @@ relevant scheme and local authority.
 | `BASEROW_TABLE_ID` | unset | Listing table ID; required with the other Baserow values. |
 | `BASEROW_CANDIDATE_TABLE_ID` | unset | Separate candidate table ID; required when both Baserow and SearXNG are enabled. |
 
-MyHome is fail-closed: an active filter the source cannot safely apply skips
-MyHome for that poll. If an individual record lacks a fact required by an
-active filter, it is excluded and the warning reports the number of affected
-records; other verifiable records remain eligible. Regional MyHome paths are
-used only when their route is evidenced by the nationwide page's rendered links.
-When `DAFT_MAX_PAGES` and `DAFT_SORT` are both set, MyHome is skipped for
-that poll because sorting a page-limited subset cannot guarantee the requested
-order.
+MyHome uses only its public server-rendered search controls. Price, bedroom,
+minimum-bathroom, size, keyword, supported property-type, and sale-agreed
+(for `property-for-sale`) constraints use native MyHome routes or query
+parameters when permitted by `robots.txt`. A maximum-bathroom constraint has no
+verified MyHome equivalent and is omitted. If a configured Daft filter has no
+verified MyHome equivalent, Bellwatch logs it and omits only that parameter; it
+still runs MyHome with the other native filters. It does not reapply filters to
+parsed detail facts, and missing facts never exclude a provider result.
+
+MyHome's current `robots.txt` blocks query-string variants other than pagination
+(`?page=N`). When a native query is blocked, Bellwatch logs the policy result
+and skips MyHome rather than fetching an unfiltered result set. It never
+bypasses robots.txt or re-applies the omitted filter locally.
+
+MyHome has no verified server-side control for non-default sort order. When
+`DAFT_MAX_PAGES` is set with a non-default `DAFT_SORT`, Bellwatch skips MyHome
+instead of silently collecting only the first pages in the wrong order. Without
+a page cap, it runs MyHome and logs the unsupported sort. This ordering
+exception does not suppress other unsupported filters.
+
+Regional MyHome paths are used only when their route is evidenced by the
+nationwide page's rendered links. An unsupported radius can therefore be
+ignored while the evidenced regional path runs. If no route is evidenced for
+the configured location scope, Bellwatch skips MyHome rather than silently
+broadening the search to all Ireland.
 
 SearXNG is never queried unless `SEARXNG_BASE_URL` is set. Search results do not
 become listings, do not generate listing alerts, and are kept in a separate
