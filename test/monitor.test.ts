@@ -1953,6 +1953,10 @@ test("keeps cross-provider duplicates and notifies independent listings", async 
     ],
   );
   assert.deepEqual(
+    published.map((finding) => finding.id).sort(),
+    ["901", "myhome:902"],
+  );
+  assert.deepEqual(
     records.map((record) => record.bellwatchKey).sort(),
     ["daft:901", "myhome:901", "myhome:902"],
   );
