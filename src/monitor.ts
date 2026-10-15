@@ -42,6 +42,17 @@ import {
 } from "./daft/sold.js";
 import type { StateStore } from "./state.js";
 
+type PollStateStore = Pick<
+  StateStore,
+  | "isInitialized"
+  | "markInitialized"
+  | "isSeen"
+  | "markSeen"
+  | "observeFinding"
+  | "getCurrentListing"
+  | "recordCandidate"
+>;
+
 export class MonitorError extends Error {
   readonly _tag = "MonitorError";
 
@@ -64,7 +75,7 @@ interface MonitorDependencies {
     source: ListingSource,
   ) => Effect.Effect<void, Error>;
   readonly publishError: (error: Error) => Effect.Effect<void, Error>;
-  readonly state: StateStore;
+  readonly state: PollStateStore;
   readonly heartbeat: () => Effect.Effect<void, Error>;
 }
 

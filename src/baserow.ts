@@ -21,12 +21,21 @@ export class BaserowSyncError extends Error {
   }
 }
 
+export type BaserowStateStore = Pick<
+  StateStore,
+  | "listPendingBaserowListings"
+  | "listPendingBaserowCandidates"
+  | "listRegistrationEvents"
+  | "markBaserowListingSynced"
+  | "markBaserowCandidateSynced"
+>;
+
 export interface BaserowSyncOptions {
   readonly baseUrl: string;
   readonly token: string;
   readonly tableId: string;
   readonly candidateTableId?: string;
-  readonly state: StateStore;
+  readonly state: BaserowStateStore;
   readonly fetch: typeof globalThis.fetch;
 }
 

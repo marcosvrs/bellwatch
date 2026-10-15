@@ -80,8 +80,13 @@ export const parseManualRegistrationArguments = (
   return { listingKey, status, consentStatus, evidence };
 };
 
+export type RegistrationStateStore = Pick<
+  StateStore,
+  "getCurrentListing" | "recordRegistrationEvent"
+>;
+
 export const recordManualRegistration = (
-  state: StateStore,
+  state: RegistrationStateStore,
   input: ManualRegistrationAttempt,
 ): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
