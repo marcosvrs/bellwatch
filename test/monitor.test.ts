@@ -9,7 +9,7 @@ import { parseEnvironment } from "../src/config.js";
 import { classifyHelpToBuyEvidence } from "../src/daft/shps.js";
 import { MyHomeFetchError } from "../src/myhome-fetch.js";
 import { MonitorError, runOnce, writeHeartbeat } from "../src/monitor.js";
-import { sourcedFindingKey, type DiscoveryCandidate } from "../src/listings.js";
+import { sourcedListingKey, type DiscoveryCandidate } from "../src/listings.js";
 import type { DaftFinding } from "../src/daft/parser.js";
 import type { CurrentListingRecord, StateStore } from "../src/state.js";
 import type { DublinBoundaryGeometry } from "../src/dublin-boundary.js";
@@ -48,23 +48,23 @@ const makeState = (previouslySeen: readonly string[] = []): StateStore => {
       }),
     isSeen: (id, groupKey) =>
       Effect.succeed(seen.has(id) || (groupKey !== undefined && seenGroups.has(groupKey))),
-    markSeen: (finding, groupKey) =>
+    markSeen: (listingKey, groupKey) =>
       Effect.sync(() => {
-        seen.add(finding.id);
+        seen.add(listingKey);
         if (groupKey !== undefined) { seenGroups.add(groupKey); }
       }),
     observeFinding: (listing) =>
       Effect.sync(() => {
-        const key = sourcedFindingKey(listing);
+        const key = sourcedListingKey(listing);
         const existing = listings.get(key);
         const now = new Date().toISOString();
-        const eircode = listing.finding.eircode
+        const eircode = listing.facts.eircode
           ?.trim()
           .replace(/\s+/g, "")
           .toUpperCase();
         const propertyType =
-          listing.finding.propertyType?.trim().toLowerCase().replace(/[\s,._-]+/g, " ");
-        const { bedrooms } = listing.finding;
+          listing.facts.propertyType?.trim().toLowerCase().replace(/[\s,._-]+/g, " ");
+        const { bedrooms } = listing.facts;
         const canonicalGroupKey =
           eircode !== undefined &&
           propertyType !== undefined &&
@@ -610,9 +610,9 @@ test("handles missing current rows while seeding and notifying", async () => {
     getCurrentListing: () => Effect.succeed(undefined),
     isInitialized: () => Effect.succeed(true),
     isSeen: (key) => Effect.succeed(key === "daft:930"),
-    markSeen: (finding) =>
+    markSeen: (listingKey) =>
       Effect.sync(() => {
-        seenKeys.push(finding.id);
+        seenKeys.push(listingKey);
       }),
   };
   const published: string[] = [];
@@ -642,9 +642,9 @@ test("handles missing current rows while seeding and notifying", async () => {
   const seedingState: StateStore = {
     ...seedingBase,
     getCurrentListing: () => Effect.succeed(undefined),
-    markSeen: (finding) =>
+    markSeen: (listingKey) =>
       Effect.sync(() => {
-        seededKeys.push(finding.id);
+        seededKeys.push(listingKey);
       }),
   };
   const seeded = await Effect.runPromise(
@@ -1155,9 +1155,9 @@ test("records Help to Buy evidence for Baserow when SHPS filtering is off", asyn
   assert.equal(result.findings, 1);
   assert.equal(detailRequests, 1);
   assert.ok(observation);
-  assert.equal(observation.finding.schemeText, description);
+  assert.equal(observation.facts.schemeText, description);
   assert.equal(
-    classifyHelpToBuyEvidence(observation.finding),
+    classifyHelpToBuyEvidence(observation.facts),
     "mentioned",
   );
 });
@@ -1957,15 +1957,15 @@ test("keeps cross-provider duplicates and notifies independent listings", async 
     ["daft:901", "myhome:901", "myhome:902"],
   );
   assert.equal(
-    records.find((record) => record.source === "daft")?.finding.url,
+    records.find((record) => record.source === "daft")?.facts.url,
     daftFinding.url,
   );
   assert.equal(
-    records.find((record) => record.bellwatchKey === "myhome:901")?.finding.url,
+    records.find((record) => record.bellwatchKey === "myhome:901")?.facts.url,
     "https://www.myhome.ie/residential/example-grove/901",
   );
   assert.equal(
-    records.find((record) => record.bellwatchKey === "myhome:902")?.finding.url,
+    records.find((record) => record.bellwatchKey === "myhome:902")?.facts.url,
     "https://www.myhome.ie/residential/other-grove/902",
   );
   assert.equal(

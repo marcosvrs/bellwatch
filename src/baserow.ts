@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import { classifyHelpToBuyEvidence } from "./daft/shps.js";
 import {
-  sourcedFindingKey,
+  sourcedListingKey,
   type DiscoveryCandidate,
 } from "./listings.js";
 import type {
@@ -215,7 +215,7 @@ const listingFields = (
   listing: PendingBaserowListing,
   registrationHistory: readonly RegistrationEvent[],
 ): Record<string, unknown> => {
-  const finding = listing.finding;
+  const finding = listing.facts;
   const dublinBoundary = listing.dublinBoundary ?? {
     status: "unclassified" as const,
     reason:
@@ -226,7 +226,7 @@ const listingFields = (
   const classified = dublinBoundary.status === "classified";
   const latestRegistration = registrationHistory.at(-1);
   return {
-    bellwatch_key: sourcedFindingKey(listing),
+    bellwatch_key: sourcedListingKey(listing),
     source: listing.source,
     source_id: listing.sourceId,
     title: finding.title,
@@ -287,7 +287,7 @@ export const syncBaserow = (
 
     const listingEndpoint = tableUrl(options.baseUrl, options.tableId);
     for (const listing of listings) {
-      const key = sourcedFindingKey(listing);
+      const key = sourcedListingKey(listing);
       const registrationHistory = yield* options.state.listRegistrationEvents(key);
       const rowId = yield* upsertRow(
         options,

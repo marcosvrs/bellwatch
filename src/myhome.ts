@@ -7,8 +7,7 @@ import {
   type DaftPropertyType,
 } from "./daft/filters.js";
 import type { DaftSectionPath } from "./daft/sections.js";
-import type { DaftFinding } from "./daft/parser.js";
-import { sourcedFindingKey, type SourcedFinding } from "./listings.js";
+import type { ListingFacts, SourcedListing, SourcedListingFields } from "./listings.js";
 import {
   attribute,
   descendants,
@@ -177,7 +176,7 @@ export interface MyHomeEvidence {
   readonly searchableText: string;
 }
 
-export interface MyHomeFinding extends SourcedFinding {
+export interface MyHomeFinding extends SourcedListingFields {
   readonly source: "myhome";
   readonly myhomeEvidence: MyHomeEvidence;
 }
@@ -189,7 +188,7 @@ export interface MyHomeListPage {
 }
 
 export interface MyHomeDetail
-  extends Partial<Omit<DaftFinding, "id" | "url" | "priceText">> {
+  extends Partial<Omit<ListingFacts, "url" | "priceText">> {
   readonly sourceId: string;
   readonly url: string;
   readonly priceText?: string;
@@ -544,8 +543,7 @@ export const parseMyHomeListPage = (
       source: "myhome",
       sourceId,
       myhomeEvidence: unverifiedEvidence(title),
-      finding: {
-        id: sourcedFindingKey({ source: "myhome", sourceId }),
+      facts: {
         title,
         developmentTitle: title,
         priceText: "Price unavailable",
@@ -999,16 +997,15 @@ export const parseMyHomeDetailPage = (
 
 /** Replaces aggregate card data with only facts explicitly parsed from that listing's detail page. */
 export const enrichMyHomeFinding = (
-  finding: SourcedFinding,
+  finding: SourcedListing,
   detail: MyHomeDetail,
 ): MyHomeFinding => {
   if (finding.source !== "myhome") { throw new Error("Only MyHome findings can be enriched with MyHome details"); }
   if (finding.sourceId !== detail.sourceId) {
     throw new Error(`MyHome detail ID ${detail.sourceId} does not match source ID ${finding.sourceId}`);
   }
-  const title = detail.title ?? finding.finding.title;
-  const enriched: DaftFinding = {
-    id: sourcedFindingKey(finding),
+  const title = detail.title ?? finding.facts.title;
+  const facts: ListingFacts = {
     title,
     developmentTitle: detail.developmentTitle ?? title,
     priceText: detail.priceText ?? "Price unavailable",
@@ -1025,7 +1022,7 @@ export const enrichMyHomeFinding = (
   return {
     source: "myhome",
     sourceId: finding.sourceId,
-    finding: enriched,
+    facts,
     myhomeEvidence: detail.myhomeEvidence,
     ...(detail.latitude === undefined ? {} : { latitude: detail.latitude }),
     ...(detail.longitude === undefined ? {} : { longitude: detail.longitude }),

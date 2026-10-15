@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DAFT_FACILITIES, type DaftFilters } from "../src/daft/filters.js";
-import type { SourcedFinding } from "../src/listings.js";
+import type { SourcedListing } from "../src/listings.js";
 import { classifyShpsAvailability, filterShpsFindings } from "../src/daft/shps.js";
 import {
   buildMyHomeSearchUrl,
@@ -113,7 +113,7 @@ const findingFrom = (options: DetailOptions = {}): MyHomeFinding => {
     furnishing: "Furnished",
     features: ["Alarm", "Parking"],
     ...options,
-  }), candidate.finding.url);
+  }), candidate.facts.url);
   return enrichMyHomeFinding(candidate, details);
 };
 
@@ -251,11 +251,10 @@ test("parses canonical list cards, keeps raw source IDs, and deduplicates respon
   const finding = checkedFirst(result.findings);
   assert.equal(finding.source, "myhome");
   assert.equal(finding.sourceId, "001234");
-  assert.equal(finding.finding.id, "myhome:001234");
-  assert.equal(finding.finding.url, `${BASE_URL}/residential/harbour-view/001234`);
-  assert.equal(finding.finding.bedrooms, undefined);
-  assert.equal(finding.finding.propertyType, undefined);
-  assert.equal(finding.finding.priceText, "Price unavailable");
+  assert.equal(finding.facts.url, `${BASE_URL}/residential/harbour-view/001234`);
+  assert.equal(finding.facts.bedrooms, undefined);
+  assert.equal(finding.facts.propertyType, undefined);
+  assert.equal(finding.facts.priceText, "Price unavailable");
   assert.equal(finding.myhomeEvidence.typeVerified, false);
   const filteredQueryPage = parseMyHomeListPage("", `${SEARCH_URL}?page=2&minbeds=3`);
   assert.equal(filteredQueryPage.currentPage, 2);
@@ -271,14 +270,14 @@ test("preserves configured base paths when parsing listing-card URLs", () => {
   );
   const candidate = checkedFirst(page.findings);
   assert.equal(
-    candidate.finding.url,
+    candidate.facts.url,
     "https://homes.example/root/residential/harbour-view/12345",
   );
   const detail = parseMyHomeDetailPage(
     detailHtml({ propertyType: "House" }),
-    candidate.finding.url,
+    candidate.facts.url,
   );
-  assert.equal(detail.url, candidate.finding.url);
+  assert.equal(detail.url, candidate.facts.url);
 });
 
 test("parses and enriches rental listings under canonical rentals routes", () => {
@@ -287,7 +286,7 @@ test("parses and enriches rental listings under canonical rentals routes", () =>
     `<main><article><a href="/rentals/brochure/house-on-the-green/90006">House on the Green</a></article></main>`,
     rentalUrl,
   ).findings);
-  assert.equal(candidate.finding.url, `${BASE_URL}/rentals/brochure/house-on-the-green/90006`);
+  assert.equal(candidate.facts.url, `${BASE_URL}/rentals/brochure/house-on-the-green/90006`);
   const detail = parseMyHomeDetailPage(detailHtml({
     propertyType: "Semi-Detached House",
     price: "€2,500",
@@ -297,10 +296,10 @@ test("parses and enriches rental listings under canonical rentals routes", () =>
     leaseLength: "12 months",
     furnishing: "Furnished",
     features: ["Parking"],
-  }), candidate.finding.url);
+  }), candidate.facts.url);
   const rental = enrichMyHomeFinding(candidate, detail);
   assert.equal(rental.sourceId, "90006");
-  assert.equal(rental.finding.propertyType, "Semi-detached house");
+  assert.equal(rental.facts.propertyType, "Semi-detached house");
 });
 
 test("maps rental availability labels from MyHome details", () => {
@@ -318,7 +317,7 @@ test("maps rental availability labels from MyHome details", () => {
     ).findings);
     const rental = enrichMyHomeFinding(candidate, parseMyHomeDetailPage(
       detailHtml({ propertyType: "House", availability: label }),
-      candidate.finding.url,
+      candidate.facts.url,
     ));
     assert.equal(rental.myhomeEvidence.availability, availability);
   }
@@ -469,8 +468,8 @@ test("decodes server-rendered HTML and rejects embedded non-content or paginatio
     SEARCH_URL,
   );
   assert.deepEqual(page.findings.map((finding) => finding.sourceId), ["90001", "90002"]);
-  assert.equal(checkedFirst(page.findings).finding.title, `"Harbour's" € A B &#0;`);
-  assert.equal(page.findings[1]?.finding.title, "MyHome listing 90002");
+  assert.equal(checkedFirst(page.findings).facts.title, `"Harbour's" € A B &#0;`);
+  assert.equal(page.findings[1]?.facts.title, "MyHome listing 90002");
   assert.throws(() => parseMyHomeListPage("", `${SEARCH_URL}#fragment`), /fragments/);
 
   const metaOnly = parseMyHomeDetailPage(
@@ -508,22 +507,21 @@ test("parses and enriches type-level detail facts without losing source identity
     schemeText: "Eligible for Help to Buy",
     latitude: "53.3498",
     longitude: "-6.2603",
-  }), candidate.finding.url);
+  }), candidate.facts.url);
   const enriched = enrichMyHomeFinding(candidate, detail);
   assert.equal(detail.sourceId, "12345678");
   assert.equal(enriched.sourceId, "12345678");
   assert.equal(enriched.source, "myhome");
-  assert.equal(enriched.finding.id, "myhome:12345678");
-  assert.equal(enriched.finding.propertyType, "Semi-detached house");
-  assert.equal(enriched.finding.bedrooms, 3);
-  assert.equal(enriched.finding.bathrooms, 2);
-  assert.equal(enriched.finding.priceText, "€520,000");
+  assert.equal(enriched.facts.propertyType, "Semi-detached house");
+  assert.equal(enriched.facts.bedrooms, 3);
+  assert.equal(enriched.facts.bathrooms, 2);
+  assert.equal(enriched.facts.priceText, "€520,000");
   assert.equal(enriched.myhomeEvidence.priceEur, 520_000);
-  assert.equal(enriched.finding.floorSizeSqm, 99.96);
-  assert.equal(enriched.finding.berRating, "C");
-  assert.equal(enriched.finding.address, "Main Street, Dublin");
-  assert.equal(enriched.finding.eircode, "D01 AB12");
-  assert.match(enriched.finding.schemeText ?? "", /Help to Buy/);
+  assert.equal(enriched.facts.floorSizeSqm, 99.96);
+  assert.equal(enriched.facts.berRating, "C");
+  assert.equal(enriched.facts.address, "Main Street, Dublin");
+  assert.equal(enriched.facts.eircode, "D01 AB12");
+  assert.match(enriched.facts.schemeText ?? "", /Help to Buy/);
   assert.equal(enriched.latitude, 53.3498);
   assert.equal(enriched.longitude, -6.2603);
   assert.equal(enriched.myhomeEvidence.availability, "published");
@@ -533,7 +531,7 @@ test("parses and enriches type-level detail facts without losing source identity
   assert.throws(() => enrichMyHomeFinding({
     source: "daft",
     sourceId: "12345678",
-    finding: candidate.finding,
+    facts: candidate.facts,
   }, detail), /Only MyHome/);
   assert.throws(() => enrichMyHomeFinding({
     ...candidate,
@@ -546,22 +544,22 @@ test("preserves SHPS and LAAPS evidence for SHPS filtering with or without Help 
     id: "24001",
     schemeText: "This development is available under SHPS for eligible buyers.",
   });
-  assert.match(shpsOnly.finding.schemeText ?? "", /\bSHPS\b/);
-  assert.equal(classifyShpsAvailability(shpsOnly.finding), "shps-only");
+  assert.match(shpsOnly.facts.schemeText ?? "", /\bSHPS\b/);
+  assert.equal(classifyShpsAvailability(shpsOnly.facts), "shps-only");
   assert.deepEqual(
-    filterShpsFindings([shpsOnly.finding], { filter: "only" }),
-    [shpsOnly.finding],
+    filterShpsFindings([shpsOnly.facts], { filter: "only" }),
+    [shpsOnly.facts],
   );
 
   const shpsWithHtb = findingFrom({
     id: "24002",
     schemeText: "This development is available under LAAPS. Help to Buy funding may also be available.",
   });
-  assert.match(shpsWithHtb.finding.schemeText ?? "", /\bLAAPS\b/);
-  assert.match(shpsWithHtb.finding.schemeText ?? "", /\bHelp to Buy\b/);
-  assert.equal(classifyShpsAvailability(shpsWithHtb.finding), "shps-and-other");
+  assert.match(shpsWithHtb.facts.schemeText ?? "", /\bLAAPS\b/);
+  assert.match(shpsWithHtb.facts.schemeText ?? "", /\bHelp to Buy\b/);
+  assert.equal(classifyShpsAvailability(shpsWithHtb.facts), "shps-and-other");
   assert.deepEqual(
-    filterShpsFindings([shpsWithHtb.finding], { filter: "only" }),
+    filterShpsFindings([shpsWithHtb.facts], { filter: "only" }),
     [],
   );
 });
@@ -597,11 +595,10 @@ test("does not turn development-wide aggregate values into type-level details", 
   assert.equal(aggregate.propertyType, undefined);
   assert.equal(aggregate.floorSizeSqm, undefined);
 
-  const staleCardFacts: SourcedFinding = {
+  const staleCardFacts: SourcedListing = {
     source: "myhome",
     sourceId: "12345678",
-    finding: {
-      id: "old:12345678",
+    facts: {
       title: "Old aggregate title",
       developmentTitle: "Harbour View",
       priceText: "From €450,000",
@@ -613,15 +610,15 @@ test("does not turn development-wide aggregate values into type-level details", 
     },
   };
   const enriched = enrichMyHomeFinding(staleCardFacts, aggregate);
-  assert.equal(enriched.finding.priceText, "Price unavailable");
-  assert.equal(enriched.finding.bedrooms, undefined);
-  assert.equal(enriched.finding.bathrooms, undefined);
-  assert.equal(enriched.finding.propertyType, undefined);
-  assert.equal(enriched.finding.floorSizeSqm, undefined);
+  assert.equal(enriched.facts.priceText, "Price unavailable");
+  assert.equal(enriched.facts.bedrooms, undefined);
+  assert.equal(enriched.facts.bathrooms, undefined);
+  assert.equal(enriched.facts.propertyType, undefined);
+  assert.equal(enriched.facts.floorSizeSqm, undefined);
 });
 test("parses provider detail facts without applying local filter predicates", () => {
   const poa = findingFrom({ id: "10001", price: "POA" });
-  assert.equal(poa.finding.priceText, "POA");
+  assert.equal(poa.facts.priceText, "POA");
   assert.equal(poa.myhomeEvidence.priceState, "poa");
   assert.equal(poa.myhomeEvidence.priceEur, undefined);
 
@@ -658,9 +655,9 @@ test("parses provider detail facts without applying local filter predicates", ()
     ["33002", "B2", "B"],
     ["33003", "B3", "B"],
   ] as const) {
-    assert.equal(findingFrom({ id, ber: grade }).finding.berRating, band);
+    assert.equal(findingFrom({ id, ber: grade }).facts.berRating, band);
   }
-  assert.equal(findingFrom({ id: "33004", ber: "B4" }).finding.berRating, undefined);
+  assert.equal(findingFrom({ id: "33004", ber: "B4" }).facts.berRating, undefined);
 });
 
 test("reports native MyHome filter support without treating detail evidence as a filter", () => {

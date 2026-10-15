@@ -2,44 +2,25 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import * as Effect from "effect/Effect";
 import type { MonitorConfig } from "./config.js";
-import { buildDaftSearchUrl } from "./daft/url.js";
+import type { DaftFinding } from "./daft/parser.js";
 import {
-  parseDaftListingDetails,
-  parseDaftPage,
-  type DaftFinding,
-} from "./daft/parser.js";
-import {
-  sourcedFindingKey,
+  sourcedListingKey,
   type ListingSource,
-  type SourcedFinding,
+  type SourcedListing,
 } from "./listings.js";
-import {
-  buildMyHomeSearchUrl,
-  buildMyHomeUrl,
-  enrichMyHomeFinding,
-  getMyHomeNationalSearchPath,
-  parseMyHomeDetailPage,
-  parseMyHomeListPage,
-  parseMyHomeRegionRoutes,
-  resolveMyHomeSearchPath,
-  validateMyHomeFilterSupport,
-  type MyHomeFinding,
-} from "./myhome.js";
-import { isMyHomeRobotsDisallowError } from "./myhome-fetch.js";
 import {
   classifyDublinBoundary,
   type DublinBoundaryGeometry,
 } from "./dublin-boundary.js";
-import type { SearxngSearchResult } from "./searxng.js";
-import { filterShpsFindings } from "./daft/shps.js";
 import {
-  buildDaftSoldSearchUrl,
-  hasDaftSoldMatchFields,
-  parseDaftSoldPage,
-  summarizeDaftSoldPrices,
-  type DaftSoldComparable,
-  type DaftSoldComparison,
-} from "./daft/sold.js";
+  collectDaftFindings,
+  enrichWithSoldComparables,
+} from "./monitor/sources/daft.js";
+import { collectMyHomeFindings } from "./monitor/sources/myhome.js";
+import { MonitorError } from "./monitor/error.js";
+export { MonitorError } from "./monitor/error.js";
+import type { SearxngSearchResult } from "./searxng.js";
+import { collectSearxngCandidates } from "./monitor/sources/searxng.js";
 import type { StateStore } from "./state.js";
 
 type PollStateStore = Pick<
@@ -53,14 +34,22 @@ type PollStateStore = Pick<
   | "recordCandidate"
 >;
 
-export class MonitorError extends Error {
-  readonly _tag = "MonitorError";
 
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "MonitorError";
-  }
-}
+const daftFindingFor = (
+  listing: Extract<SourcedListing, { readonly source: "daft" }>,
+): DaftFinding => ({
+  id: listing.sourceId,
+  ...listing.facts,
+  ...listing.daftEvidence,
+});
+
+const findingForNotification = (
+  listing: SourcedListing,
+  enrichedById: ReadonlyMap<string, DaftFinding>,
+): DaftFinding =>
+  listing.source === "daft"
+    ? (enrichedById.get(listing.sourceId) ?? daftFindingFor(listing))
+    : { id: sourcedListingKey(listing), ...listing.facts };
 
 interface MonitorDependencies {
   readonly fetchPage: (url: string) => Effect.Effect<unknown, Error>;
@@ -86,438 +75,12 @@ interface MonitorStats {
   readonly seeded: number;
 }
 
-const hydrateListingFindings = (
-  findings: readonly DaftFinding[],
-  dependencies: MonitorDependencies,
-  bestEffort: boolean,
-): Effect.Effect<readonly DaftFinding[], Error> =>
-  Effect.gen(function* () {
-    const hydrated: DaftFinding[] = [];
-    for (const finding of findings) {
-      const hydratedFinding = yield* Effect.catch(
-        Effect.gen(function* () {
-          const payload = yield* Effect.mapError(
-            dependencies.fetchPage(finding.url),
-            (cause) =>
-              new MonitorError(`Could not fetch Daft listing ${finding.url}`, {
-                cause,
-              }),
-          );
-          const details = yield* Effect.try({
-            try: () => parseDaftListingDetails(payload),
-            catch: (cause) =>
-              new MonitorError(`Could not parse Daft listing ${finding.url}`, {
-                cause,
-              }),
-          });
-          return {
-            ...finding,
-            ...(details.schemeText === undefined
-              ? {}
-              : { schemeText: details.schemeText }),
-            ...(details.floorSizeSqm === undefined
-              ? {}
-              : { floorSizeSqm: details.floorSizeSqm }),
-            ...(details.berRating === undefined
-              ? {}
-              : { berRating: details.berRating }),
-            ...(details.address === undefined
-              ? {}
-              : { address: details.address }),
-            ...(details.eircode === undefined
-              ? {}
-              : { eircode: details.eircode }),
-          };
-        }),
-        (error) =>
-          bestEffort
-            ? Effect.gen(function* () {
-                yield* Effect.logWarning(
-                  `Could not hydrate Daft listing ${finding.id}: ${
-                    error instanceof Error ? error.message : String(error)
-                  }`,
-                );
-                return finding;
-              })
-            : Effect.fail(error),
-      );
-      hydrated.push(hydratedFinding);
-    }
-    return hydrated;
-  });
 
-const needsComparableDetails = (
-  config: MonitorConfig,
-  finding: DaftFinding,
-): boolean => {
-  if (finding.bedrooms === undefined || finding.bathrooms === undefined) {
-    return false;
-  }
-  if (config.daft.sectionPath === "new-homes-for-sale") {
-    return (
-      !hasDaftSoldMatchFields(finding) ||
-      (config.daft.locations.length === 0 &&
-        finding.address === undefined &&
-        finding.eircode === undefined)
-    );
-  }
-  return (
-    config.daft.sectionPath === "property-for-sale" &&
-    config.daft.locations.length === 0 &&
-    finding.address === undefined &&
-    finding.eircode === undefined
-  );
-};
-
-type DaftSoldSearchRequest = Parameters<typeof buildDaftSoldSearchUrl>[0];
-type SoldSearchRequest = {
-  readonly request: DaftSoldSearchRequest;
-  readonly url: string;
-};
-
-const fetchSoldComparables = (
-  searchRequest: SoldSearchRequest,
-  dependencies: MonitorDependencies,
-): Effect.Effect<readonly DaftSoldComparable[], Error> =>
-  Effect.gen(function* () {
-    const comparables: DaftSoldComparable[] = [];
-    for (let page = 1; ; page += 1) {
-      const pageUrl = new URL(searchRequest.url);
-      if (page > 1) {pageUrl.searchParams.set("page", String(page));}
-      const url = pageUrl.toString();
-      const request = searchRequest.request;
-      const payload = yield* Effect.mapError(
-        dependencies.fetchPage(url),
-        (cause) =>
-          new MonitorError(
-            `Could not fetch sold comparables for ${request.finding.propertyType}`,
-            { cause },
-          ),
-      );
-      const parsed = yield* Effect.try({
-        try: () => parseDaftSoldPage(payload),
-        catch: (cause) =>
-          new MonitorError(`Could not parse sold comparables ${url}`, {
-            cause,
-          }),
-      });
-      comparables.push(...parsed.comparables);
-      if (parsed.currentPage >= parsed.totalPages) {break;}
-    }
-    return comparables;
-  });
-
-const fetchSoldComparison = (
-  requests: readonly SoldSearchRequest[],
-  year: number,
-  priceText: string | undefined,
-  dependencies: MonitorDependencies,
-): Effect.Effect<DaftSoldComparison, Error> =>
-  Effect.gen(function* () {
-    const prices: number[] = [];
-    const seenListingIds = new Set<string>();
-    for (const searchRequest of requests) {
-      for (const comparable of yield* fetchSoldComparables(
-        searchRequest,
-        dependencies,
-      )) {
-        if (comparable.id === undefined) {
-          prices.push(comparable.price);
-          continue;
-        }
-        if (seenListingIds.has(comparable.id)) {continue;}
-        seenListingIds.add(comparable.id);
-        prices.push(comparable.price);
-      }
-    }
-    return summarizeDaftSoldPrices(prices, year, priceText);
-  });
-
-
-const enrichWithSoldComparables = (
-  findings: readonly DaftFinding[],
-  config: MonitorConfig,
-  dependencies: MonitorDependencies,
-): Effect.Effect<readonly DaftFinding[]> =>
-  Effect.gen(function* () {
-    const year = new Date().getFullYear();
-    const cached = new Map<string, DaftSoldComparison | undefined>();
-    const enriched: DaftFinding[] = [];
-    for (const finding of findings) {
-      if (!hasDaftSoldMatchFields(finding)) {
-        enriched.push(finding);
-        continue;
-      }
-      const request = {
-        baseUrl: config.daft.baseUrl,
-        locations: config.daft.locations,
-        finding,
-        year,
-      };
-      const requests =
-        config.daft.locations.length === 0
-          ? [request]
-          : config.daft.locations.map((location) => ({
-              ...request,
-              locations: [location],
-            }));
-      const comparableRequests = requests.flatMap((locationRequest) => {
-        const url = buildDaftSoldSearchUrl(locationRequest);
-        return url === undefined ? [] : [{ request: locationRequest, url }];
-      });
-      if (comparableRequests.length === 0) {
-        enriched.push(finding);
-        continue;
-      }
-      const comparableUrls = comparableRequests.map(({ url }) => url);
-      const cacheKey = `${JSON.stringify(comparableUrls)}\u0000${finding.priceText}`;
-      let comparison = cached.get(cacheKey);
-      if (!cached.has(cacheKey)) {
-        comparison = yield* Effect.catch(
-          fetchSoldComparison(
-            comparableRequests,
-            year,
-            finding.priceText,
-            dependencies,
-          ),
-          (error) =>
-            Effect.gen(function* () {
-              yield* Effect.logWarning(
-                `Could not load sold comparables for ${finding.id}: ${
-                  error instanceof Error ? error.message : String(error)
-                }`,
-              );
-              return undefined;
-            }),
-        );
-        cached.set(cacheKey, comparison);
-      }
-      enriched.push(
-        comparison === undefined
-          ? finding
-          : { ...finding, soldComparison: comparison },
-      );
-    }
-    return enriched;
-  });
-
-const collectDaftFindings = (
-  config: MonitorConfig,
-  dependencies: MonitorDependencies,
-): Effect.Effect<{ findings: readonly SourcedFinding[]; pages: number }, Error> =>
-  Effect.gen(function* () {
-    const byId = new Map<string, DaftFinding>();
-    let pages = 0;
-    const locations: readonly (string | undefined)[] =
-      config.daft.locations.length === 0
-        ? [undefined]
-        : config.daft.locations;
-    for (const location of locations) {
-      for (
-        let page = 1;
-        config.daft.maxPages === undefined || page <= config.daft.maxPages;
-        page += 1
-      ) {
-        const url = buildDaftSearchUrl(
-          {
-            baseUrl: config.daft.baseUrl,
-            sectionPath: config.daft.sectionPath,
-            locations: location === undefined ? [] : [location],
-            filters: config.daft.filters,
-          },
-          page,
-        );
-        const payload = yield* dependencies.fetchPage(url);
-        const parsed = yield* Effect.try({
-          try: () =>
-            parseDaftPage(
-              payload,
-              config.daft.baseUrl,
-              config.daft.sectionPath,
-            ),
-          catch: (cause) =>
-            new MonitorError(
-              `Could not parse Daft page ${page} for ${location ?? "Ireland"}`,
-              { cause },
-            ),
-        });
-        pages += 1;
-        for (const finding of parsed.findings) { byId.set(finding.id, finding); }
-        if (parsed.currentPage >= parsed.totalPages) { break; }
-      }
-    }
-    const rawFindings = [...byId.values()];
-    const shouldHydrate =
-      config.shps.filter !== "off" ||
-      config.baserow !== undefined ||
-      rawFindings.some((finding) => needsComparableDetails(config, finding));
-    const candidates = shouldHydrate
-      ? yield* hydrateListingFindings(
-          rawFindings,
-          dependencies,
-          config.shps.filter === "off",
-        )
-      : rawFindings;
-    const findings = filterShpsFindings(candidates, config.shps)
-      .map((finding): SourcedFinding => ({
-        source: "daft",
-        sourceId: finding.id,
-        finding,
-      }));
-    return { findings, pages };
-  });
-
-const hasMyHomeQueryFilters = (url: string): boolean => {
-  for (const key of new URL(url).searchParams.keys()) {
-    if (key !== "page") { return true; }
-  }
-  return false;
-};
-
-const collectMyHomeFindings = (
-  config: MonitorConfig,
-  dependencies: MonitorDependencies,
-): Effect.Effect<{ findings: readonly SourcedFinding[]; pages: number }, Error> =>
-  Effect.gen(function* () {
-    const fetchMyHomePage = dependencies.fetchMyHomePage;
-    if (!config.myhome.enabled || fetchMyHomePage === undefined) {
-      return { findings: [], pages: 0 };
-    }
-    const sort = config.daft.filters.sort;
-    if (
-      config.daft.maxPages !== undefined &&
-      sort !== undefined &&
-      sort !== "bestMatch"
-    ) {
-      yield* Effect.logWarning(
-        `MyHome skipped; cannot preserve ${sort} with DAFT_MAX_PAGES`,
-      );
-      return { findings: [], pages: 0 };
-    }
-    const support = validateMyHomeFilterSupport(
-      config.daft.sectionPath,
-      config.daft.filters,
-    );
-    if (support.unsupportedFilters.length > 0) {
-      yield* Effect.logWarning(
-        `MyHome ignoring filters without native equivalents: ${support.unsupportedFilters.join(", ")}`,
-      );
-    }
-
-    let searchPath: string;
-    if (config.daft.locations.length === 0) {
-      searchPath = getMyHomeNationalSearchPath(
-        config.daft.sectionPath,
-        config.daft.filters.availability,
-      );
-    } else {
-      const regionHtml = yield* fetchMyHomePage(
-        buildMyHomeUrl(
-          config.myhome.baseUrl,
-          getMyHomeNationalSearchPath(
-            config.daft.sectionPath,
-            config.daft.filters.availability,
-          ),
-        ),
-      );
-      const regionRoutes = parseMyHomeRegionRoutes(regionHtml);
-      const locationSupport = resolveMyHomeSearchPath(
-        config.daft.sectionPath,
-        config.daft.locations,
-        config.daft.filters,
-        regionRoutes,
-      );
-      if (locationSupport.searchPath === undefined) {
-        yield* Effect.logWarning(
-          `MyHome skipped; unsupported active Daft location filters: ${
-            JSON.stringify(locationSupport.unsupportedLocationFilters)
-          }`,
-        );
-        return { findings: [], pages: 0 };
-      }
-      searchPath = locationSupport.searchPath;
-      if (locationSupport.unsupportedLocationFilters.length > 0) {
-        yield* Effect.logWarning(
-          `MyHome ignoring unsupported location filters: ${
-            JSON.stringify(locationSupport.unsupportedLocationFilters)
-          }`,
-        );
-      }
-    }
-    const byId = new Map<string, MyHomeFinding>();
-    let pages = 0;
-    for (
-      let page = 1;
-      config.daft.maxPages === undefined || page <= config.daft.maxPages;
-      page += 1
-    ) {
-      const pageUrl = buildMyHomeSearchUrl(
-        config.myhome.baseUrl,
-        searchPath,
-        config.daft.sectionPath,
-        config.daft.filters,
-        page,
-      );
-      const fetched = yield* Effect.match(fetchMyHomePage(pageUrl), {
-        onFailure: (error) => ({ _tag: "failure" as const, error }),
-        onSuccess: (html) => ({ _tag: "success" as const, html }),
-      });
-      if (fetched._tag === "failure") {
-        if (
-          hasMyHomeQueryFilters(pageUrl) &&
-          isMyHomeRobotsDisallowError(fetched.error)
-        ) {
-          yield* Effect.logWarning(
-            "MyHome skipped; robots.txt blocks native query filters",
-          );
-          return { findings: [], pages };
-        }
-        return yield* Effect.fail(fetched.error);
-      }
-      const parsed = yield* Effect.try(() =>
-        parseMyHomeListPage(fetched.html, pageUrl),
-      );
-      pages += 1;
-      for (const finding of parsed.findings) { byId.set(finding.sourceId, finding); }
-      if (parsed.currentPage >= parsed.totalPages) { break; }
-    }
-
-    const enriched: MyHomeFinding[] = [];
-    for (const finding of byId.values()) {
-      const enrichedFinding = yield* Effect.catch(
-        Effect.gen(function* () {
-          const html = yield* fetchMyHomePage(finding.finding.url);
-          const detail = yield* Effect.try(() =>
-            parseMyHomeDetailPage(html, finding.finding.url),
-          );
-          return enrichMyHomeFinding(finding, detail);
-        }),
-        (error) =>
-          Effect.gen(function* () {
-            yield* Effect.logWarning(
-              `Could not hydrate MyHome listing ${finding.sourceId} at ${finding.finding.url}: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            );
-            return undefined;
-          }),
-      );
-      if (enrichedFinding !== undefined) { enriched.push(enrichedFinding); }
-    }
-    const shpsIds = new Set(
-      filterShpsFindings(
-        enriched.map((finding) => finding.finding),
-        config.shps,
-      ).map((finding) => finding.id),
-    );
-    const findings = enriched.filter((finding) => shpsIds.has(finding.finding.id));
-    return { findings, pages };
-  });
 
 const withDublinClassification = (
-  listing: SourcedFinding,
+  listing: SourcedListing,
   geometry: DublinBoundaryGeometry | undefined,
-): SourcedFinding => {
+): SourcedListing => {
   const { latitude, longitude } = listing;
   if (latitude === undefined || longitude === undefined) {
     return {
@@ -543,7 +106,7 @@ const withDublinClassification = (
 const collectFindings = (
   config: MonitorConfig,
   dependencies: MonitorDependencies,
-): Effect.Effect<{ findings: readonly SourcedFinding[]; pages: number }, Error> =>
+): Effect.Effect<{ findings: readonly SourcedListing[]; pages: number }, Error> =>
   Effect.gen(function* () {
     const daft = yield* collectDaftFindings(config, dependencies);
     const myhome = yield* Effect.catch(
@@ -559,29 +122,9 @@ const collectFindings = (
         }),
     );
     let findings = [...daft.findings, ...myhome.findings];
-    if (config.searxng !== undefined && dependencies.searchSearxng !== undefined) {
-      const result = yield* Effect.catch(
-        dependencies.searchSearxng(config.searxng.baseUrl),
-        (error) =>
-          Effect.gen(function* () {
-            yield* Effect.logWarning(
-              `SearXNG search failed: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            );
-            return undefined;
-          }),
-      );
-      if (result !== undefined && !result.ok) {
-        yield* Effect.logWarning(
-          `SearXNG search ${result.error.code}: ${result.error.message}`,
-        );
-      }
-      if (result?.ok) {
-        for (const candidate of result.candidates) {
-          yield* dependencies.state.recordCandidate(candidate);
-        }
-      }
+    const candidates = yield* collectSearxngCandidates(config, dependencies);
+    for (const candidate of candidates) {
+      yield* dependencies.state.recordCandidate(candidate);
     }
 
     const hasValidCoordinates = findings.some(
@@ -621,30 +164,24 @@ const runPoll = (
       initialized || config.polling.notifyExistingOnFirstRun;
     let notified = 0;
     let seeded = 0;
-    const pending: SourcedFinding[] = [];
+    const pending: SourcedListing[] = [];
 
     if (!notifyExisting) {
       for (const listing of collected.findings) {
-        const key = sourcedFindingKey(listing);
+        const key = sourcedListingKey(listing);
         const current = yield* dependencies.state.getCurrentListing(key);
-        yield* dependencies.state.markSeen(
-          { ...listing.finding, id: key },
-          current?.canonicalGroupKey,
-        );
+        yield* dependencies.state.markSeen(key, current?.canonicalGroupKey);
         seeded += 1;
       }
     } else {
       const pendingGroups = new Set<string>();
       for (const listing of collected.findings) {
-        const key = sourcedFindingKey(listing);
+        const key = sourcedListingKey(listing);
         const current = yield* dependencies.state.getCurrentListing(key);
         const groupKey = current?.canonicalGroupKey;
         const alreadySeen = yield* dependencies.state.isSeen(key, groupKey);
         if (alreadySeen) {
-          yield* dependencies.state.markSeen(
-            { ...listing.finding, id: key },
-            groupKey,
-          );
+          yield* dependencies.state.markSeen(key, groupKey);
           continue;
         }
         const pendingKey = groupKey ?? key;
@@ -656,8 +193,11 @@ const runPoll = (
       }
 
       const daftFindings = pending
-        .filter((listing) => listing.source === "daft")
-        .map((listing) => listing.finding);
+        .filter(
+          (listing): listing is Extract<SourcedListing, { source: "daft" }> =>
+            listing.source === "daft",
+        )
+        .map(daftFindingFor);
       const enrichedDaft =
         config.daft.sectionPath === "property-for-sale" ||
         config.daft.sectionPath === "new-homes-for-sale"
@@ -667,15 +207,11 @@ const runPoll = (
         enrichedDaft.map((finding) => [finding.id, finding]),
       );
       for (const listing of pending) {
-        const key = sourcedFindingKey(listing);
-        const finding =
-          enrichedById.get(listing.finding.id) ?? listing.finding;
+        const key = sourcedListingKey(listing);
+        const finding = findingForNotification(listing, enrichedById);
         yield* dependencies.publish(finding, listing.source);
         const current = yield* dependencies.state.getCurrentListing(key);
-        yield* dependencies.state.markSeen(
-          { ...finding, id: key },
-          current?.canonicalGroupKey,
-        );
+        yield* dependencies.state.markSeen(key, current?.canonicalGroupKey);
         notified += 1;
       }
     }

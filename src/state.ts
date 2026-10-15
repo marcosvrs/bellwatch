@@ -6,10 +6,14 @@ import * as Effect from "effect/Effect";
 import postgres from "postgres";
 import type { DaftFinding } from "./daft/parser.js";
 import {
-  sourcedFindingKey,
+  sourcedListingKey,
   type DiscoveryCandidate,
-  type SourcedFinding,
+  type DublinListingBoundary,
+  type ListingFacts,
+  type ListingSource,
+  type SourcedListing,
 } from "./listings.js";
+import type { MyHomeEvidence } from "./myhome.js";
 
 export class StateError extends Error {
   readonly _tag = "StateError";
@@ -20,24 +24,24 @@ export class StateError extends Error {
   }
 }
 
-export interface CurrentListingRecord extends SourcedFinding {
+export type CurrentListingRecord = SourcedListing & {
   readonly bellwatchKey: string;
   readonly firstSeenAt: string;
   readonly lastSeenAt: string;
   readonly canonicalGroupKey?: string;
-}
+};
 
 export interface ListingObservation {
   readonly observationId: string;
   readonly bellwatchKey: string;
   readonly observedAt: string;
-  readonly listing: SourcedFinding;
+  readonly listing: SourcedListing;
 }
 
-export interface PendingBaserowListing extends CurrentListingRecord {
+export type PendingBaserowListing = CurrentListingRecord & {
   readonly rowId: string | null;
   readonly revision: number;
-}
+};
 
 export interface CurrentCandidateRecord {
   readonly candidateKey: string;
@@ -96,11 +100,11 @@ export interface StateStore {
     canonicalGroupKey?: string,
   ) => Effect.Effect<boolean, StateError>;
   readonly markSeen: (
-    finding: DaftFinding,
+    listingKey: string,
     canonicalGroupKey?: string,
   ) => Effect.Effect<void, StateError>;
   readonly observeFinding: (
-    listing: SourcedFinding,
+    listing: SourcedListing,
   ) => Effect.Effect<void, StateError>;
   readonly getCurrentListing: (
     bellwatchKey: string,
@@ -270,17 +274,17 @@ interface ListingGroupingEvidence {
 }
 
 const groupingEvidenceFor = (
-  listing: SourcedFinding,
+  listing: SourcedListing,
 ): ListingGroupingEvidence | undefined => {
-  const { finding } = listing;
-  const eircode = finding.eircode?.trim().replace(/\s+/g, "").toUpperCase();
-  const address = finding.address === undefined
+  const { facts } = listing;
+  const eircode = facts.eircode?.trim().replace(/\s+/g, "").toUpperCase();
+  const address = facts.address === undefined
     ? undefined
-    : normalizeGroupingText(finding.address);
-  const propertyType = finding.propertyType === undefined
+    : normalizeGroupingText(facts.address);
+  const propertyType = facts.propertyType === undefined
     ? undefined
-    : normalizeGroupingText(finding.propertyType);
-  const bedrooms = finding.bedrooms;
+    : normalizeGroupingText(facts.propertyType);
+  const bedrooms = facts.bedrooms;
 
   if (
     propertyType === undefined ||
@@ -553,13 +557,106 @@ const parseStoredJson = <Value>(serialized: string): Value => {
   return value as Value;
 };
 
+/** Persisted wire shape retained so existing SQLite and PostgreSQL rows stay readable. */
+interface StoredSourcedListing {
+  readonly source: ListingSource;
+  readonly sourceId: string;
+  readonly finding: DaftFinding;
+  readonly latitude?: number;
+  readonly longitude?: number;
+  readonly dublinBoundary?: DublinListingBoundary;
+  readonly myhomeEvidence?: MyHomeEvidence;
+}
+
+const storedListingFor = (listing: SourcedListing): StoredSourcedListing => ({
+  source: listing.source,
+  sourceId: listing.sourceId,
+  finding: {
+    id: listing.source === "daft"
+      ? listing.sourceId
+      : sourcedListingKey(listing),
+    ...listing.facts,
+    ...(listing.source === "daft" ? listing.daftEvidence : {}),
+  },
+  ...(listing.latitude === undefined ? {} : { latitude: listing.latitude }),
+  ...(listing.longitude === undefined ? {} : { longitude: listing.longitude }),
+  ...(listing.dublinBoundary === undefined
+    ? {}
+    : { dublinBoundary: listing.dublinBoundary }),
+  ...(listing.source === "myhome" && listing.myhomeEvidence !== undefined
+    ? { myhomeEvidence: listing.myhomeEvidence }
+    : {}),
+});
+
+const parseStoredListing = (serialized: string): SourcedListing => {
+  const stored = parseStoredJson<StoredSourcedListing>(serialized);
+  const { soldComparison, individualUnit } = stored.finding;
+  const facts: ListingFacts = {
+    title: stored.finding.title,
+    developmentTitle: stored.finding.developmentTitle,
+    priceText: stored.finding.priceText,
+    ...(stored.finding.bedrooms === undefined
+      ? {}
+      : { bedrooms: stored.finding.bedrooms }),
+    ...(stored.finding.bathrooms === undefined
+      ? {}
+      : { bathrooms: stored.finding.bathrooms }),
+    ...(stored.finding.propertyType === undefined
+      ? {}
+      : { propertyType: stored.finding.propertyType }),
+    ...(stored.finding.floorSizeSqm === undefined
+      ? {}
+      : { floorSizeSqm: stored.finding.floorSizeSqm }),
+    ...(stored.finding.berRating === undefined
+      ? {}
+      : { berRating: stored.finding.berRating }),
+    ...(stored.finding.address === undefined
+      ? {}
+      : { address: stored.finding.address }),
+    ...(stored.finding.eircode === undefined
+      ? {}
+      : { eircode: stored.finding.eircode }),
+    url: stored.finding.url,
+    ...(stored.finding.schemeText === undefined
+      ? {}
+      : { schemeText: stored.finding.schemeText }),
+  };
+  const common = {
+    sourceId: stored.sourceId,
+    facts,
+    ...(stored.latitude === undefined ? {} : { latitude: stored.latitude }),
+    ...(stored.longitude === undefined ? {} : { longitude: stored.longitude }),
+    ...(stored.dublinBoundary === undefined
+      ? {}
+      : { dublinBoundary: stored.dublinBoundary }),
+  };
+  if (stored.source === "myhome") {
+    return {
+      ...common,
+      source: "myhome",
+      ...(stored.myhomeEvidence === undefined
+        ? {}
+        : { myhomeEvidence: stored.myhomeEvidence }),
+    };
+  }
+  const daftEvidence = {
+    ...(soldComparison === undefined ? {} : { soldComparison }),
+    ...(individualUnit === undefined ? {} : { individualUnit }),
+  };
+  return {
+    ...common,
+    source: "daft",
+    ...(Object.keys(daftEvidence).length === 0 ? {} : { daftEvidence }),
+  };
+};
+
 const allSqliteRows = <Row>(
   statement: StatementSync,
   ...parameters: string[]
 ): Row[] => queryRows<Row>(statement.all(...parameters));
 
 const listingFromRow = (row: ListingDbRow): CurrentListingRecord => {
-  const stored = parseStoredJson<SourcedFinding>(row.finding_json);
+  const stored = parseStoredListing(row.finding_json);
   return {
     ...stored,
     ...(row.latitude === null ? {} : { latitude: row.latitude }),
@@ -585,7 +682,7 @@ const observationFromRow = (row: ObservationDbRow): ListingObservation => ({
   observationId: row.observation_id,
   bellwatchKey: row.bellwatch_key,
   observedAt: row.observed_at,
-  listing: parseStoredJson<SourcedFinding>(row.finding_json),
+  listing: parseStoredListing(row.finding_json),
 });
 
 const candidateFromRow = (row: CandidateDbRow): CurrentCandidateRecord => ({
@@ -670,7 +767,7 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
     for (const row of currentRows) {
       setGroupingIndexEntry(groupingIndex, row.bellwatch_key, {
         evidence: groupingEvidenceFor(
-          parseStoredJson<SourcedFinding>(row.finding_json),
+          parseStoredListing(row.finding_json),
         ),
         canonicalGroupKey: row.canonical_group_key,
       });
@@ -691,13 +788,13 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
   );
 
   const observeFinding = (
-    listing: SourcedFinding,
+    listing: SourcedListing,
     evidence: ListingGroupingEvidence | undefined,
   ): GroupingPlan => {
-    const key = sourcedFindingKey(listing);
+    const key = sourcedListingKey(listing);
     const groupingPlan = groupingPlanFor(groupingIndex, key, evidence);
     const now = new Date().toISOString();
-    const findingJson = canonicalJson(listing);
+    const findingJson = canonicalJson(storedListingFor(listing));
     const canonicalGroupKey = groupingPlan.canonicalGroupKey ?? null;
     const latitude = listing.latitude ?? null;
     const longitude = listing.longitude ?? null;
@@ -883,7 +980,7 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
             .prepare("SELECT 1 AS present FROM seen_listing_groups WHERE group_key = ? LIMIT 1")
             .get(canonicalGroupKey) !== undefined;
       }),
-    markSeen: (finding, canonicalGroupKey) =>
+    markSeen: (listingKey, canonicalGroupKey) =>
       withStateError("markSeen", () => {
         runSqliteTransaction(database, () => {
           const now = new Date().toISOString();
@@ -893,7 +990,7 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
                VALUES (?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
             )
-            .run(finding.id, now, now);
+            .run(listingKey, now, now);
           if (canonicalGroupKey !== undefined) {
             database
               .prepare(
@@ -906,7 +1003,7 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
       }),
     observeFinding: (listing) =>
       withStateError("observeFinding", () => {
-        const key = sourcedFindingKey(listing);
+        const key = sourcedListingKey(listing);
         const evidence = groupingEvidenceFor(listing);
         const plan = runSqliteTransaction(
           database,
@@ -1112,7 +1209,7 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
       }>(value);
       setGroupingIndexEntry(groupingIndex, row.bellwatch_key, {
         evidence: groupingEvidenceFor(
-          parseStoredJson<SourcedFinding>(row.finding_json),
+          parseStoredListing(row.finding_json),
         ),
         canonicalGroupKey: row.canonical_group_key,
       });
@@ -1123,12 +1220,12 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
   }
 
   const observeFinding = async (
-    listing: SourcedFinding,
+    listing: SourcedListing,
   ): Promise<void> => {
-    const key = sourcedFindingKey(listing);
+    const key = sourcedListingKey(listing);
     const evidence = groupingEvidenceFor(listing);
     const now = new Date().toISOString();
-    const findingJson = canonicalJson(listing);
+    const findingJson = canonicalJson(storedListingFor(listing));
     const latitude = listing.latitude ?? null;
     const longitude = listing.longitude ?? null;
 
@@ -1297,14 +1394,14 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
         },
         catch: (cause) => new StateError("State isSeen failed", { cause }),
       }),
-    markSeen: (finding, canonicalGroupKey) =>
+    markSeen: (listingKey, canonicalGroupKey) =>
       Effect.tryPromise({
         try: async () => {
           const now = new Date().toISOString();
           await sql.begin(async (transaction) => {
             await transaction`
               INSERT INTO seen_listings (id, first_seen_at, last_seen_at)
-              VALUES (${finding.id}, ${now}, ${now})
+              VALUES (${listingKey}, ${now}, ${now})
               ON CONFLICT (id) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
             `;
             if (canonicalGroupKey !== undefined) {

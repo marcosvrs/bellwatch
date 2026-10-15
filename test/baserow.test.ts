@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import * as Effect from "effect/Effect";
 import { BaserowSyncError, syncBaserow } from "../src/baserow.js";
-import type { DiscoveryCandidate, SourcedFinding } from "../src/listings.js";
+import type { DiscoveryCandidate, SourcedListing } from "../src/listings.js";
 import { createStateStore } from "../src/state.js";
 import { requestUrl } from "./request-url.js";
 
@@ -51,7 +51,7 @@ test("Baserow retries after a lost create response and updates its stable row", 
   const directory = await mkdtemp(join(tmpdir(), "bellwatch-baserow-"));
   const file = join(directory, "state.sqlite");
   let state = await Effect.runPromise(createStateStore({ file }));
-  const listing: SourcedFinding = {
+  const listing: SourcedListing = {
     source: "myhome",
     sourceId: "unit-72",
     latitude: 53.35,
@@ -62,8 +62,7 @@ test("Baserow retries after a lost create response and updates its stable row", 
       nearestBoundaryDistanceKm: 1.2,
       withinDublin20Km: true,
     },
-    finding: {
-      id: "unit-72",
+    facts: {
       title: "Three-bedroom house",
       developmentTitle: "Example Grove",
       priceText: "€340,000",
@@ -152,7 +151,7 @@ test("Baserow retries after a lost create response and updates its stable row", 
     );
     assert.equal(callAt(calls, 0).authorization, `Token ${token}`);
     assert.equal(bodyAt(calls, 1)["bellwatch_key"], "myhome:unit-72");
-    assert.equal(bodyAt(calls, 1)["source_url"], listing.finding.url);
+    assert.equal(bodyAt(calls, 1)["source_url"], listing.facts.url);
     assert.equal(bodyAt(calls, 1)["price_text"], "€340,000");
     assert.equal(bodyAt(calls, 1)["latitude"], 53.35);
     assert.equal(callAt(calls, 1).url.pathname, "/api/database/rows/table/listings-table/");
@@ -197,7 +196,7 @@ test("Baserow retries after a lost create response and updates its stable row", 
     await Effect.runPromise(
       state.observeFinding({
         ...listing,
-        finding: { ...listing.finding, priceText: "€355,000" },
+        facts: { ...listing.facts, priceText: "€355,000" },
       }),
     );
     await Effect.runPromise(syncBaserow({ ...options, state }));
@@ -220,11 +219,10 @@ test("Baserow recovers from deleted and reused persisted row IDs safely", async 
   const directory = await mkdtemp(join(tmpdir(), "bellwatch-baserow-stale-id-"));
   const file = join(directory, "state.sqlite");
   const state = await Effect.runPromise(createStateStore({ file }));
-  const listing: SourcedFinding = {
+  const listing: SourcedListing = {
     source: "myhome",
     sourceId: "unit-72",
-    finding: {
-      id: "unit-72",
+    facts: {
       title: "Three-bedroom house",
       developmentTitle: "Example Grove",
       priceText: "€340,000",
@@ -304,7 +302,7 @@ test("Baserow recovers from deleted and reused persisted row IDs safely", async 
     await Effect.runPromise(
       state.observeFinding({
         ...listing,
-        finding: { ...listing.finding, priceText: "€345,000" },
+        facts: { ...listing.facts, priceText: "€345,000" },
       }),
     );
     await Effect.runPromise(syncBaserow(options));
@@ -333,7 +331,7 @@ test("Baserow recovers from deleted and reused persisted row IDs safely", async 
     await Effect.runPromise(
       state.observeFinding({
         ...listing,
-        finding: { ...listing.finding, priceText: "€350,000" },
+        facts: { ...listing.facts, priceText: "€350,000" },
       }),
     );
     await Effect.runPromise(syncBaserow(options));

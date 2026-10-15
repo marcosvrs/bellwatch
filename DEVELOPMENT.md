@@ -32,6 +32,15 @@ dependency is the TypeScript 6 API compatibility alias required by
 `typescript-eslint`; `@typescript/native` supplies the TypeScript 7 compiler.
 Changed-file validation enforces the configured 99% mutation threshold for
 changed mutation ranges.
+
+## State-store contract tests
+
+`test/state-contract.ts` runs the same persistence contract against SQLite and,
+when configured, PostgreSQL. PostgreSQL tests create and drop an isolated
+database, so the configured test role must be allowed to create and drop
+databases. Set `BELLWATCH_TEST_POSTGRES_URL` to a PostgreSQL administrative
+connection URL to enable the PostgreSQL run locally; pull-request and push
+validation workflows provide a PostgreSQL 17 test instance automatically.
 The local hooks also run staged Gitleaks scanning before commits and
 full-history Gitleaks scanning before pushes.
 The checked-in `.npmrc` pins npm to `registry.npmjs.org` and disables

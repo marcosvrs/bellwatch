@@ -10,7 +10,7 @@ import {
   runManualRegistrationCommand,
 } from "../src/registration.js";
 import { createStateStore } from "../src/state.js";
-import type { SourcedFinding } from "../src/listings.js";
+import type { SourcedListing } from "../src/listings.js";
 
 const validArguments = [
   "--listing=daft:101",
@@ -19,11 +19,10 @@ const validArguments = [
   "--evidence=Provider page confirmed receipt",
 ];
 
-const sampleListing: SourcedFinding = {
+const sampleListing: SourcedListing = {
   source: "daft",
   sourceId: "101",
-  finding: {
-    id: "101",
+  facts: {
     title: "Example house",
     developmentTitle: "Example house",
     priceText: "POA",

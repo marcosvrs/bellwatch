@@ -18,6 +18,22 @@ jobs:
     name: Validation and changed-file mutation testing
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      BELLWATCH_TEST_POSTGRES_URL: postgresql://bellwatch:bellwatch@localhost:5432/bellwatch_test
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: bellwatch
+          POSTGRES_PASSWORD: bellwatch
+          POSTGRES_DB: bellwatch_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bellwatch -d bellwatch_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
