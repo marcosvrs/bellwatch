@@ -1,4 +1,4 @@
-import type { DaftFinding } from "./parser.js";
+import type { ListingFacts } from "../listings.js";
 
 export const SHPS_FILTER_MODES = ["off", "only", "exclude"] as const;
 export type ShpsFilterMode = (typeof SHPS_FILTER_MODES)[number];
@@ -95,8 +95,10 @@ const hasUnrecognisedSchemeAvailability = (value: string): boolean =>
     ([phrase]) => !isKnownSchemePhrase(phrase),
   );
 
+type ShpsFacts = Pick<ListingFacts, "title" | "developmentTitle" | "schemeText">;
+
 export const classifyShpsAvailability = (
-  finding: DaftFinding,
+  finding: ShpsFacts,
 ): ShpsAvailability => {
   const text = [finding.title, finding.developmentTitle, finding.schemeText].join(
     "\n",
@@ -114,7 +116,7 @@ export type HelpToBuyEvidenceStatus =
   | "unknown";
 
 export const classifyHelpToBuyEvidence = (
-  finding: DaftFinding,
+  finding: ShpsFacts,
 ): HelpToBuyEvidenceStatus => {
   const text = [
     finding.title,
@@ -125,13 +127,14 @@ export const classifyHelpToBuyEvidence = (
   return finding.schemeText?.trim() ? "not-mentioned" : "unknown";
 };
 
-export const isShpsOnlyFinding = (finding: DaftFinding): boolean =>
-  classifyShpsAvailability(finding) === "shps-only";
+export const isShpsOnlyFinding = (
+  finding: ShpsFacts,
+): boolean => classifyShpsAvailability(finding) === "shps-only";
 
-export const filterShpsFindings = (
-  findings: readonly DaftFinding[],
+export const filterShpsFindings = <Finding extends ShpsFacts>(
+  findings: readonly Finding[],
   config: ShpsConfig,
-): readonly DaftFinding[] => {
+): readonly Finding[] => {
   switch (config.filter) {
     case "off":
       return findings;

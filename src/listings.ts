@@ -1,15 +1,45 @@
-import type { DaftFinding } from "./daft/parser.js";
+import type { DaftSoldComparison } from "./daft/sold.js";
+import type { MyHomeEvidence } from "./myhome/listings.js";
 
 export type ListingSource = "daft" | "myhome";
 
-export interface SourcedFinding {
-  readonly source: ListingSource;
+export interface ListingFacts {
+  readonly title: string;
+  readonly developmentTitle: string;
+  readonly priceText: string;
+  readonly bedrooms?: number;
+  readonly bathrooms?: number;
+  readonly propertyType?: string;
+  readonly floorSizeSqm?: number;
+  readonly berRating?: string;
+  readonly address?: string;
+  readonly eircode?: string;
+  readonly url: string;
+  readonly schemeText?: string;
+}
+
+export interface DaftListingEvidence {
+  readonly soldComparison?: DaftSoldComparison;
+  readonly individualUnit?: boolean;
+}
+
+export interface SourcedListingFields {
   readonly sourceId: string;
-  readonly finding: DaftFinding;
+  readonly facts: ListingFacts;
   readonly latitude?: number;
   readonly longitude?: number;
   readonly dublinBoundary?: DublinListingBoundary;
 }
+
+export type SourcedListing =
+  | (SourcedListingFields & {
+      readonly source: "daft";
+      readonly daftEvidence?: DaftListingEvidence;
+    })
+  | (SourcedListingFields & {
+      readonly source: "myhome";
+      readonly myhomeEvidence?: MyHomeEvidence;
+    });
 
 export type DublinListingBoundary =
   | {
@@ -34,6 +64,6 @@ export interface DiscoveryCandidate {
   readonly discoveredAt: string;
 }
 
-export const sourcedFindingKey = (
-  listing: Pick<SourcedFinding, "source" | "sourceId">,
+export const sourcedListingKey = (
+  listing: Pick<SourcedListing, "source" | "sourceId">,
 ): string => `${listing.source}:${listing.sourceId}`;

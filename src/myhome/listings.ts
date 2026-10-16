@@ -2,105 +2,26 @@ import {
   DAFT_FACILITIES,
   type DaftBerRating,
   type DaftFacility,
-  type DaftFilters,
   type DaftFurnishing,
   type DaftPropertyType,
-} from "./daft/filters.js";
-import type { DaftSectionPath } from "./daft/sections.js";
-import type { DaftFinding } from "./daft/parser.js";
-import { sourcedFindingKey, type SourcedFinding } from "./listings.js";
+} from "../daft/filters.js";
+import type { ListingFacts, SourcedListing, SourcedListingFields } from "../listings.js";
+import {
+  attribute,
+  descendants,
+  elementText,
+  firstElementText,
+  normalize,
+  parseHtml,
+  type HtmlElement,
+} from "./html.js";
+import {
+  buildMyHomeUrl,
+  myHomePathParts,
+  sourceIdFromUrl,
+} from "./urls.js";
 
-interface HtmlElement {
-  readonly tag: string;
-  readonly attributes: Readonly<Record<string, string>>;
-  readonly children: (HtmlElement | string)[];
-  readonly parent?: HtmlElement;
-}
 
-const VOID_TAGS: Readonly<Record<string, true>> = {
-  area: true,
-  base: true,
-  br: true,
-  col: true,
-  embed: true,
-  hr: true,
-  img: true,
-  input: true,
-  link: true,
-  meta: true,
-  param: true,
-  source: true,
-  track: true,
-  wbr: true,
-};
-type MyHomeSearchRoutes = {
-  readonly nationalPath: string;
-  readonly locationRoot: "residential" | "rentals";
-  readonly genericSuffix: string;
-  readonly houseSuffix: string;
-};
-type MyHomeSectionRoutes = {
-  readonly published: MyHomeSearchRoutes;
-  readonly saleAgreed?: MyHomeSearchRoutes;
-};
-const SECTION_SEARCH_ROUTES: Readonly<Record<
-  DaftSectionPath,
-  MyHomeSectionRoutes
->> = {
-  "new-homes-for-sale": {
-    published: {
-      nationalPath: "/residential/ireland/new-homes/property-for-sale",
-      locationRoot: "residential",
-      genericSuffix: "/new-homes/property-for-sale",
-      houseSuffix: "/new-homes/house-for-sale",
-    },
-  },
-  "property-for-sale": {
-    published: {
-      nationalPath: "/residential/ireland/property-for-sale",
-      locationRoot: "residential",
-      genericSuffix: "/property-for-sale",
-      houseSuffix: "/house-for-sale",
-    },
-    saleAgreed: {
-      nationalPath: "/residential/ireland/sale-agreed-property",
-      locationRoot: "residential",
-      genericSuffix: "/sale-agreed-property",
-      houseSuffix: "/sale-agreed-house",
-    },
-  },
-  "property-for-rent": {
-    published: {
-      nationalPath: "/rentals/ireland/property-to-rent",
-      locationRoot: "rentals",
-      genericSuffix: "/property-to-rent",
-      houseSuffix: "/house-to-rent",
-    },
-  },
-};
-const searchRoutesFor = (
-  sectionPath: DaftSectionPath,
-  availability: DaftFilters["availability"],
-): MyHomeSearchRoutes => {
-  const sectionRoutes = SECTION_SEARCH_ROUTES[sectionPath];
-  return availability === "sale-agreed" && sectionRoutes.saleAgreed !== undefined
-    ? sectionRoutes.saleAgreed
-    : sectionRoutes.published;
-};
-export const getMyHomeNationalSearchPath = (
-  sectionPath: DaftSectionPath,
-  availability: DaftFilters["availability"] = "published",
-): string => searchRoutesFor(sectionPath, availability).nationalPath;
-
-const HOUSE_PROPERTY_TYPES: Readonly<Record<string, true>> = {
-  houses: true,
-  "detached-houses": true,
-  "semi-detached-houses": true,
-  "terraced-houses": true,
-  "end-of-terrace-houses": true,
-  townhouses: true,
-  bungalows: true,
-};
 const BER_RATINGS: readonly DaftBerRating[] = [
   "exempt",
   "G",
@@ -156,20 +77,6 @@ const SCHEME_EVIDENCE_MARKERS = [
 ] as const;
 
 
-export type MyHomeFilterName = keyof DaftFilters;
-export type MyHomeFilterSource = "native" | "unsupported";
-
-export interface MyHomeFilterSupport {
-  readonly supportedFilters: readonly MyHomeFilterName[];
-  readonly unsupportedFilters: readonly MyHomeFilterName[];
-  readonly filterSources: Readonly<Partial<Record<MyHomeFilterName, MyHomeFilterSource>>>;
-}
-export type MyHomeLocationFilter = "locations" | "radiusKm";
-
-export interface MyHomeLocationSupport {
-  readonly searchPath?: string;
-  readonly unsupportedLocationFilters: readonly MyHomeLocationFilter[];
-}
 
 export interface MyHomeEvidence {
   readonly typeVerified: boolean;
@@ -191,7 +98,7 @@ export interface MyHomeEvidence {
   readonly searchableText: string;
 }
 
-export interface MyHomeFinding extends SourcedFinding {
+export interface MyHomeFinding extends SourcedListingFields {
   readonly source: "myhome";
   readonly myhomeEvidence: MyHomeEvidence;
 }
@@ -203,7 +110,7 @@ export interface MyHomeListPage {
 }
 
 export interface MyHomeDetail
-  extends Partial<Omit<DaftFinding, "id" | "url" | "priceText">> {
+  extends Partial<Omit<ListingFacts, "url" | "priceText">> {
   readonly sourceId: string;
   readonly url: string;
   readonly priceText?: string;
@@ -213,303 +120,8 @@ export interface MyHomeDetail
 }
 
 
-const decodeHtml = (value: string): string =>
-  value.replace(
-    /&(?:#(?:x[\da-f]+|\d+)|nbsp|amp|lt|gt|quot|apos|euro);/gi,
-    (entity) => {
-      const normalized = entity.toLowerCase();
-      if (normalized === "&nbsp;") { return " "; }
-      if (normalized === "&amp;") { return "&"; }
-      if (normalized === "&lt;") { return "<"; }
-      if (normalized === "&gt;") { return ">"; }
-      if (normalized === "&quot;") { return '"'; }
-      if (normalized === "&apos;") { return "'"; }
-      if (normalized === "&euro;") { return "€"; }
-      const digits = normalized.startsWith("&#x")
-        ? Number.parseInt(normalized.slice(3, -1), 16)
-        : Number.parseInt(normalized.slice(2, -1), 10);
-      return Number.isInteger(digits) && digits > 0 && digits <= 0x10ffff
-        ? String.fromCodePoint(digits)
-        : entity;
-    },
-  );
 
-const parseAttributes = (source: string): Record<string, string> => {
-  const attributes: Record<string, string> = {};
-  const pattern = /([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
-  for (const match of source.matchAll(pattern)) {
-    const name = match[1]?.toLowerCase();
-    if (name === undefined || Object.hasOwn(attributes, name)) { continue; }
-    attributes[name] = decodeHtml(match[2] ?? match[3] ?? match[4] ?? "");
-  }
-  return attributes;
-};
 
-const parseHtml = (html: string): HtmlElement => {
-  const root: HtmlElement = { tag: "#root", attributes: {}, children: [] };
-  const stack: HtmlElement[] = [root];
-  let rawTag: string | undefined;
-  const tokens = html.matchAll(/<!--[\s\S]*?-->|<![^>]*>|<\/?[a-zA-Z][^>]*>|[^<]+|</g);
-  for (const match of tokens) {
-    const token = match[0];
-    if (rawTag !== undefined) {
-      if (token.toLowerCase().startsWith(`</${rawTag}`)) { rawTag = undefined; }
-      continue;
-    }
-    if (!token.startsWith("<") || token.startsWith("<!--") || token.startsWith("<!")) {
-      stack.at(-1)?.children.push(decodeHtml(token));
-      continue;
-    }
-    if (token.startsWith("</")) {
-      const name = /^<\/\s*([a-zA-Z][\w:-]*)/.exec(token)?.[1]?.toLowerCase();
-      if (name === undefined) { continue; }
-      const index = stack.findLastIndex((element) => element.tag === name);
-      if (index > 0) { stack.length = index; }
-      continue;
-    }
-    const matchTag = /^<\s*([a-zA-Z][\w:-]*)\b([\s\S]*?)\/?\s*>$/.exec(token);
-    const name = matchTag?.[1]?.toLowerCase();
-    if (name === undefined) { continue; }
-    const parent = stack.at(-1);
-    const element: HtmlElement = {
-      tag: name,
-      attributes: parseAttributes(matchTag?.[2] ?? ""),
-      children: [],
-      ...(parent === undefined ? {} : { parent }),
-    };
-    parent?.children.push(element);
-    if (name === "script" || name === "style") {
-      rawTag = name;
-    } else if (VOID_TAGS[name] !== true && !/\/\s*>$/.test(token)) {
-      stack.push(element);
-    }
-  }
-  return root;
-};
-
-function* descendants(element: HtmlElement): Generator<HtmlElement> {
-  for (const child of element.children) {
-    if (typeof child !== "string") {
-      yield child;
-      yield* descendants(child);
-    }
-  }
-}
-
-const elementText = (element: HtmlElement): string => {
-  let text = "";
-  for (const child of element.children) {
-    text += typeof child === "string" ? child : elementText(child);
-    text += " ";
-  }
-  return text.replace(/\s+/g, " ").trim();
-};
-
-const attribute = (element: HtmlElement, name: string): string | undefined => {
-  const value = element.attributes[name];
-  return value === undefined || value.trim() === "" ? undefined : value.trim();
-};
-
-const normalize = (value: string): string =>
-  value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[’‘]/g, "'")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim()
-    .toLowerCase();
-
-const firstElementText = (
-  root: HtmlElement,
-  predicate: (element: HtmlElement) => boolean,
-): string | undefined => {
-  for (const element of descendants(root)) {
-    if (predicate(element)) {
-      const value = attribute(element, "content") ?? elementText(element);
-      if (value !== "") { return value; }
-    }
-  }
-  return undefined;
-};
-
-const canonicalMyHomePath = (path: string): string | undefined => {
-  if (
-    !path.startsWith("/") ||
-    path.startsWith("//") ||
-    path.includes("?") ||
-    path.includes("#")
-  ) {
-    return undefined;
-  }
-  const canonical = path.replace(/\/+$/, "");
-  if (
-    !(canonical.startsWith("/residential/") || canonical.startsWith("/rentals/")) ||
-    canonical.split("/").some((segment) => segment === "." || segment === "..")
-  ) {
-    return undefined;
-  }
-  return canonical;
-};
-
-interface MyHomePathParts {
-  readonly basePath: string;
-  readonly canonicalPath: string;
-}
-
-const myHomePathParts = (pathname: string): MyHomePathParts | undefined => {
-  let parts: MyHomePathParts | undefined;
-  for (const match of pathname.matchAll(/\/(?:residential|rentals)\//g)) {
-    const canonicalPath = canonicalMyHomePath(pathname.slice(match.index));
-    if (canonicalPath !== undefined) {
-      parts = {
-        basePath: pathname.slice(0, match.index).replace(/\/+$/, ""),
-        canonicalPath,
-      };
-    }
-  }
-  return parts;
-};
-
-const sourceIdFromUrl = (url: URL): string => {
-  const path = myHomePathParts(url.pathname)?.canonicalPath;
-  const segments = path?.split("/").filter(Boolean);
-  const sourceId = segments?.at(-1);
-  const nonListingRoute = segments?.slice(1, -1).some((segment) =>
-    /^(?:agent|agents|estate-agent|estate-agents)$/i.test(segment),
-  ) === true;
-  if (
-    path === undefined ||
-    segments === undefined ||
-    segments.length < 3 ||
-    sourceId === undefined ||
-    !/^\d+$/.test(sourceId) ||
-    nonListingRoute
-  ) {
-    throw new Error(`MyHome detail URL must identify a listing: ${url.pathname}`);
-  }
-  return sourceId;
-};
-
-/** Builds canonical residential or rental URLs with optional query parameters and pagination. */
-export const buildMyHomeUrl = (
-  baseUrl: string,
-  canonicalPath: string,
-  page = 1,
-  searchParams?: URLSearchParams,
-): string => {
-  if (!Number.isInteger(page) || page < 1) {
-    throw new Error(`MyHome page must be a positive integer: ${page}`);
-  }
-  const base = new URL(baseUrl);
-  if (base.username !== "" || base.password !== "") {
-    throw new Error("MyHome base URL must not contain credentials");
-  }
-  const url = new URL(canonicalPath, base.origin);
-  if (url.origin !== base.origin) {
-    throw new Error("MyHome URLs must remain on the configured origin");
-  }
-  const normalizedPath = canonicalMyHomePath(url.pathname);
-  if (normalizedPath === undefined || url.search !== "" || url.hash !== "") {
-    throw new Error("MyHome URLs must be canonical /residential or /rentals paths without a query or fragment");
-  }
-  url.pathname = `${base.pathname.replace(/\/+$/, "")}${normalizedPath}`;
-  const query = new URLSearchParams(searchParams);
-  if (page > 1) {
-    query.set("page", String(page));
-  } else {
-    query.delete("page");
-  }
-  url.search = query.toString();
-  return url.toString();
-};
-
-const collectRegionRoutes = (value: unknown, routes: Record<string, true>): void => {
-  if (Array.isArray(value)) {
-    for (const child of value) { collectRegionRoutes(child, routes); }
-    return;
-  }
-  if (typeof value !== "object" || value === null) { return; }
-  for (const key of Object.getOwnPropertyNames(value)) {
-    const child: unknown = Reflect.get(value, key) as unknown;
-    if (
-      key === "RegionUrls" &&
-      typeof child === "object" &&
-      child !== null &&
-      !Array.isArray(child)
-    ) {
-      for (const name of Object.getOwnPropertyNames(child)) {
-        const route: unknown = Reflect.get(child, name) as unknown;
-        if (typeof route !== "string") { continue; }
-        const canonical = canonicalMyHomePath(route);
-        if (canonical !== undefined) { routes[canonical] = true; }
-      }
-    } else {
-      collectRegionRoutes(child, routes);
-    }
-  }
-};
-
-/** Extracts only canonical route paths exposed by MyHome's server-rendered RegionUrls state. */
-export const parseMyHomeRegionRoutes = (html: string): readonly string[] => {
-  const stateScript = /<script\b(?=[^>]*\bid\s*=\s*["']ng-state["'])[^>]*>([\s\S]*?)<\/script\s*>/i.exec(html);
-  const stateJson = stateScript?.[1];
-  if (stateJson === undefined) { return []; }
-  let state: unknown;
-  try {
-    state = JSON.parse(stateJson);
-  } catch {
-    return [];
-  }
-  const routes: Record<string, true> = {};
-  collectRegionRoutes(state, routes);
-  return Object.keys(routes);
-};
-
-/** Resolves only routes confirmed by the page's RegionUrls state; unsupported scope has no path. */
-export const resolveMyHomeSearchPath = (
-  sectionPath: DaftSectionPath,
-  locations: readonly string[],
-  filters: DaftFilters,
-  confirmedRegionRoutes: readonly string[],
-): MyHomeLocationSupport => {
-  const unsupportedLocationFilters: MyHomeLocationFilter[] = [];
-  if (filters.radiusKm !== undefined && filters.radiusKm > 0) {
-    unsupportedLocationFilters.push("radiusKm");
-  }
-  if (locations.length > 1) {
-    return {
-      unsupportedLocationFilters: [...unsupportedLocationFilters, "locations"],
-    };
-  }
-  if (locations.length === 0) {
-    return {
-      searchPath: searchRoutesFor(sectionPath, filters.availability).nationalPath,
-      unsupportedLocationFilters,
-    };
-  }
-  const location = locations[0];
-  if (location === undefined || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(location)) {
-    return { unsupportedLocationFilters: ["locations"] };
-  }
-  const routes = searchRoutesFor(sectionPath, filters.availability);
-  const locationPrefix = `/${routes.locationRoot}/${location}`;
-  const genericPath = `${locationPrefix}${routes.genericSuffix}`;
-  const housePath = `${locationPrefix}${routes.houseSuffix}`;
-  const evidencedRoutes: Record<string, true> = {};
-  for (const route of confirmedRegionRoutes) {
-    const canonical = canonicalMyHomePath(route);
-    if (canonical !== undefined) { evidencedRoutes[canonical] = true; }
-  }
-  const houseOnly = filters.propertyTypes.length > 0 &&
-    filters.propertyTypes.every((type) => HOUSE_PROPERTY_TYPES[type] === true);
-  if (houseOnly && evidencedRoutes[housePath] === true) {
-    return { searchPath: housePath, unsupportedLocationFilters };
-  }
-  if (evidencedRoutes[genericPath] === true) {
-    return { searchPath: genericPath, unsupportedLocationFilters };
-  }
-  return { unsupportedLocationFilters: ["locations"] };
-};
 
 const pageNumberFromUrl = (url: URL): number => {
   if (url.hash !== "") { throw new Error("MyHome page URLs must not contain fragments"); }
@@ -676,8 +288,7 @@ export const parseMyHomeListPage = (
       source: "myhome",
       sourceId,
       myhomeEvidence: unverifiedEvidence(title),
-      finding: {
-        id: sourcedFindingKey({ source: "myhome", sourceId }),
+      facts: {
         title,
         developmentTitle: title,
         priceText: "Price unavailable",
@@ -1131,16 +742,15 @@ export const parseMyHomeDetailPage = (
 
 /** Replaces aggregate card data with only facts explicitly parsed from that listing's detail page. */
 export const enrichMyHomeFinding = (
-  finding: SourcedFinding,
+  finding: SourcedListing,
   detail: MyHomeDetail,
 ): MyHomeFinding => {
   if (finding.source !== "myhome") { throw new Error("Only MyHome findings can be enriched with MyHome details"); }
   if (finding.sourceId !== detail.sourceId) {
     throw new Error(`MyHome detail ID ${detail.sourceId} does not match source ID ${finding.sourceId}`);
   }
-  const title = detail.title ?? finding.finding.title;
-  const enriched: DaftFinding = {
-    id: sourcedFindingKey(finding),
+  const title = detail.title ?? finding.facts.title;
+  const facts: ListingFacts = {
     title,
     developmentTitle: detail.developmentTitle ?? title,
     priceText: detail.priceText ?? "Price unavailable",
@@ -1157,178 +767,9 @@ export const enrichMyHomeFinding = (
   return {
     source: "myhome",
     sourceId: finding.sourceId,
-    finding: enriched,
+    facts,
     myhomeEvidence: detail.myhomeEvidence,
     ...(detail.latitude === undefined ? {} : { latitude: detail.latitude }),
     ...(detail.longitude === undefined ? {} : { longitude: detail.longitude }),
   };
-};
-
-const MYHOME_PROPERTY_TYPE_IDS: Readonly<Record<
-  DaftSectionPath,
-  Readonly<Partial<Record<DaftPropertyType, number>>>
->> = {
-  "new-homes-for-sale": {
-    apartments: 1,
-    houses: 2,
-    sites: 3,
-  },
-  "property-for-sale": {
-    apartments: 36,
-    houses: 97,
-    "terraced-houses": 37,
-    "semi-detached-houses": 38,
-    "detached-houses": 39,
-    bungalows: 40,
-    "end-of-terrace-houses": 45,
-    duplexes: 47,
-    townhouses: 48,
-    "studio-apartments": 50,
-    sites: 44,
-  },
-  "property-for-rent": {
-    apartments: 55,
-    houses: 98,
-    "terraced-houses": 56,
-    "semi-detached-houses": 57,
-    "detached-houses": 58,
-    bungalows: 59,
-    "end-of-terrace-houses": 64,
-    duplexes: 66,
-    townhouses: 67,
-    "studio-apartments": 69,
-    sites: 63,
-  },
-};
-
-const activeFilterNames = (
-  sectionPath: DaftSectionPath,
-  filters: DaftFilters,
-): MyHomeFilterName[] => {
-  const facilities = filters.facilities ?? [];
-  const active: MyHomeFilterName[] = [];
-  if (filters.radiusKm !== undefined && filters.radiusKm > 0) { active.push("radiusKm"); }
-  if (filters.priceMinEur !== undefined) { active.push("priceMinEur"); }
-  if (filters.priceMaxEur !== undefined) { active.push("priceMaxEur"); }
-  if (filters.bedsMin !== undefined) { active.push("bedsMin"); }
-  if (filters.bedsMax !== undefined) { active.push("bedsMax"); }
-  if (filters.propertyTypes.length > 0) { active.push("propertyTypes"); }
-  if (filters.bathsMin !== undefined) { active.push("bathsMin"); }
-  if (filters.bathsMax !== undefined) { active.push("bathsMax"); }
-  if (filters.mediaTypes.length > 0) { active.push("mediaTypes"); }
-  if (filters.keyword !== undefined && filters.keyword.trim() !== "") { active.push("keyword"); }
-  active.push("availability");
-  if (filters.addedInLastDays !== undefined && filters.addedInLastDays > 0) { active.push("addedInLastDays"); }
-  if (filters.sort !== undefined) { active.push("sort"); }
-  if (sectionPath === "new-homes-for-sale" && filters.openViewingsFrom !== undefined) {
-    active.push("openViewingsFrom");
-  }
-  if (sectionPath === "new-homes-for-sale" && facilities.length > 0) {
-    active.push("facilities");
-  }
-  if (sectionPath === "property-for-sale") {
-    if (filters.floorSizeMinSqm !== undefined) { active.push("floorSizeMinSqm"); }
-    if (filters.floorSizeMaxSqm !== undefined) { active.push("floorSizeMaxSqm"); }
-    if (filters.berMin !== undefined) { active.push("berMin"); }
-    if (filters.berMax !== undefined) { active.push("berMax"); }
-    if (filters.saleType !== undefined) { active.push("saleType"); }
-    if (filters.onlineOffers !== undefined) { active.push("onlineOffers"); }
-    if (facilities.length > 0) { active.push("facilities"); }
-  }
-  if (sectionPath === "property-for-rent") {
-    if (filters.leaseLengthMinMonths !== undefined) { active.push("leaseLengthMinMonths"); }
-    if (filters.leaseLengthMaxMonths !== undefined) { active.push("leaseLengthMaxMonths"); }
-    if (filters.furnishing !== undefined) { active.push("furnishing"); }
-    if (facilities.length > 0) { active.push("facilities"); }
-  }
-  return active;
-};
-
-const nativePropertyTypeIds = (
-  sectionPath: DaftSectionPath,
-  propertyTypes: readonly DaftPropertyType[],
-): readonly number[] | undefined => {
-  const ids: number[] = [];
-  for (const propertyType of propertyTypes) {
-    const id = MYHOME_PROPERTY_TYPE_IDS[sectionPath][propertyType];
-    if (id === undefined) { return undefined; }
-    ids.push(id);
-  }
-  return ids;
-};
-
-const isNativeFilter = (
-  sectionPath: DaftSectionPath,
-  name: MyHomeFilterName,
-  filters: DaftFilters,
-): boolean => {
-  if (name === "availability") {
-    if (filters.availability === "published") { return true; }
-    return sectionPath === "property-for-sale";
-  }
-  if (
-    name === "priceMinEur" ||
-    name === "priceMaxEur" ||
-    name === "bedsMin" ||
-    name === "bedsMax" ||
-    name === "bathsMin" ||
-    name === "keyword"
-  ) {
-    return true;
-  }
-  if (name === "propertyTypes") {
-    return nativePropertyTypeIds(sectionPath, filters.propertyTypes) !== undefined;
-  }
-  return sectionPath === "property-for-sale" &&
-    (name === "floorSizeMinSqm" || name === "floorSizeMaxSqm");
-};
-
-/** Reports which configured filters MyHome can enforce through its own search. */
-export const validateMyHomeFilterSupport = (
-  sectionPath: DaftSectionPath,
-  filters: DaftFilters,
-): MyHomeFilterSupport => {
-  const supportedFilters: MyHomeFilterName[] = [];
-  const unsupportedFilters: MyHomeFilterName[] = [];
-  const filterSources: Partial<Record<MyHomeFilterName, MyHomeFilterSource>> = {};
-  for (const name of activeFilterNames(sectionPath, filters)) {
-    if (isNativeFilter(sectionPath, name, filters)) {
-      supportedFilters.push(name);
-      filterSources[name] = "native";
-    } else {
-      unsupportedFilters.push(name);
-      filterSources[name] = "unsupported";
-    }
-  }
-  return { supportedFilters, unsupportedFilters, filterSources };
-};
-
-/** Builds a MyHome search URL using every available provider-native query parameter. */
-export const buildMyHomeSearchUrl = (
-  baseUrl: string,
-  canonicalPath: string,
-  sectionPath: DaftSectionPath,
-  filters: DaftFilters,
-  page = 1,
-): string => {
-  const query = new URLSearchParams();
-  const numericFilters = [
-    ["minprice", filters.priceMinEur],
-    ["maxprice", filters.priceMaxEur],
-    ["minbeds", filters.bedsMin],
-    ["maxbeds", filters.bedsMax],
-    ["minbathrooms", filters.bathsMin],
-    ["minsize", filters.floorSizeMinSqm],
-    ["maxsize", filters.floorSizeMaxSqm],
-  ] as const;
-  for (const [name, value] of numericFilters) {
-    if (value !== undefined) { query.set(name, String(value)); }
-  }
-  const propertyTypeIds = nativePropertyTypeIds(sectionPath, filters.propertyTypes);
-  for (const id of propertyTypeIds ?? []) {
-    query.append("propertytypeids", String(id));
-  }
-  const keyword = filters.keyword?.trim();
-  if (keyword !== undefined && keyword !== "") { query.set("query", keyword); }
-  return buildMyHomeUrl(baseUrl, canonicalPath, page, query);
 };

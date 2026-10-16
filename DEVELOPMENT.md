@@ -32,8 +32,20 @@ dependency is the TypeScript 6 API compatibility alias required by
 `typescript-eslint`; `@typescript/native` supplies the TypeScript 7 compiler.
 Changed-file validation enforces the configured 99% mutation threshold for
 changed mutation ranges.
+
+## State-store contract tests
+
+`test/state-contract.ts` runs the same persistence contract against SQLite and,
+when configured, PostgreSQL. The contract covers source-neutral Listing groups
+and seen-state transfer when one Listing contributes stronger identity evidence.
+PostgreSQL tests create and drop an isolated database, so the configured test
+role must be allowed to create and drop databases. Set
+`BELLWATCH_TEST_POSTGRES_URL` to a PostgreSQL administrative connection URL to
+enable the PostgreSQL run locally; pull-request and push validation workflows
+provide a PostgreSQL 17 test instance automatically.
 The local hooks also run staged Gitleaks scanning before commits and
 full-history Gitleaks scanning before pushes.
+
 The checked-in `.npmrc` pins npm to `registry.npmjs.org` and disables
 dependency lifecycle scripts. Keep `--ignore-scripts` on installs, including
 installs of tools from an untrusted or newly changed dependency graph. Run
@@ -43,6 +55,19 @@ the tracked Git hooks and does not execute dependency lifecycle scripts.
 Do not use `npx <package>` in a repository unless the package is already in the
 lockfile and installed. Prefer `npm exec --offline -- <local-command>` so npm
 cannot silently download a missing executable.
+
+## Source and notification modules
+
+`src/myhome/urls.ts` owns MyHome path canonicalization. Search routes and native
+filter translation live in `src/myhome/search.ts`; list/detail parsing and
+source-specific Listing evidence live in `src/myhome/listings.ts`, using the
+HTML tree helpers in `src/myhome/html.ts`. The MyHome source collector owns
+pagination, detail hydration, and SHPS filtering order.
+
+`src/state/listing-groups.ts` owns cross-source Listing grouping and seen-group
+transitions shared by the SQLite and PostgreSQL state adapters.
+`src/notifications.ts` owns configured backend selection, ordered fan-out, and
+poll-error formatting. `src/main.ts` wires its Shoutrrr and Hermes adapters.
 
 Useful focused commands:
 

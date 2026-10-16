@@ -1,23 +1,74 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import postgres from "postgres";
 import * as Effect from "effect/Effect";
 import { createStateStore } from "../src/state.js";
 import type {
   DiscoveryCandidate,
-  SourcedFinding,
+  SourcedListing,
 } from "../src/listings.js";
+import {
+  registerStateStoreContract,
+  type StateStoreHarness,
+} from "./state-contract.js";
 
 const finding = {
-  id: "101",
   title: "Example",
   developmentTitle: "Example",
   priceText: "€315,000",
   url: "https://www.daft.ie/new-home-for-sale/example/101",
 };
+const sqliteContractHarness = async (): Promise<StateStoreHarness> => {
+  const directory = await mkdtemp(join(tmpdir(), "bellwatch-state-contract-"));
+  const file = join(directory, "state.sqlite");
+  return {
+    open: () => Effect.runPromise(createStateStore({ file })),
+    close: async () => rm(directory, { recursive: true, force: true }),
+  };
+};
+
+const postgresContractHarness = async (): Promise<StateStoreHarness> => {
+  const baseUrl = process.env["BELLWATCH_TEST_POSTGRES_URL"];
+  if (baseUrl === undefined) {
+    throw new Error("BELLWATCH_TEST_POSTGRES_URL is required for PostgreSQL tests");
+  }
+  const databaseName = `bellwatch_contract_${randomUUID().replaceAll("-", "")}`;
+  const admin = postgres(baseUrl, { max: 1 });
+  await admin.unsafe(`CREATE DATABASE "${databaseName}"`);
+  await admin.end({ timeout: 5 });
+  const databaseUrl = new URL(baseUrl);
+  databaseUrl.pathname = `/${databaseName}`;
+  const open = () =>
+    Effect.runPromise(
+      createStateStore({ file: "unused.sqlite", databaseUrl: databaseUrl.toString() }),
+    );
+  return {
+    open,
+    close: async () => {
+      const cleanup = postgres(baseUrl, { max: 1 });
+      try {
+        await cleanup.unsafe(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+      } finally {
+        await cleanup.end({ timeout: 5 });
+      }
+    },
+  };
+};
+
+registerStateStoreContract("SQLite", sqliteContractHarness);
+registerStateStoreContract(
+  "PostgreSQL",
+  postgresContractHarness,
+  process.env["BELLWATCH_TEST_POSTGRES_URL"] === undefined
+    ? "BELLWATCH_TEST_POSTGRES_URL is not configured"
+    : undefined,
+);
+
 
 test("SQLite state survives reopening and persists initialization separately", async () => {
   const directory = await mkdtemp(join(tmpdir(), "bellwatch-"));
@@ -25,10 +76,8 @@ test("SQLite state survives reopening and persists initialization separately", a
   try {
     const first = await Effect.runPromise(createStateStore({ file }));
     assert.equal(await Effect.runPromise(first.isInitialized()), false);
-    await Effect.runPromise(first.markSeen(finding));
-    await Effect.runPromise(
-      first.markSeen({ ...finding, id: "daft:101" }, "eircode:D01AB12"),
-    );
+    await Effect.runPromise(first.markSeen("101"));
+    await Effect.runPromise(first.markSeen("daft:101", "eircode:D01AB12"));
     assert.equal(
       await Effect.runPromise(first.isSeen("myhome:101", "eircode:D01AB12")),
       true,
@@ -57,12 +106,12 @@ test("SQLite state survives reopening and persists initialization separately", a
 test("stores source-keyed current listings and only meaningful dated changes", async () => {
   const directory = await mkdtemp(join(tmpdir(), "bellwatch-inventory-"));
   const file = join(directory, "state.sqlite");
-  const daftListing: SourcedFinding = {
+  const daftListing: SourcedListing = {
     source: "daft",
     sourceId: "101",
     latitude: 53.35,
     longitude: -6.26,
-    finding: {
+    facts: {
       ...finding,
       bedrooms: 3,
       propertyType: "Semi-Detached House",
@@ -70,10 +119,10 @@ test("stores source-keyed current listings and only meaningful dated changes", a
       eircode: "D01 AB12",
     },
   };
-  const myhomeListing: SourcedFinding = {
+  const myhomeListing: SourcedListing = {
     source: "myhome",
     sourceId: "101",
-    finding: {
+    facts: {
       ...finding,
       url: "https://www.myhome.ie/residential/example/101",
       bedrooms: 3,
@@ -81,12 +130,11 @@ test("stores source-keyed current listings and only meaningful dated changes", a
       eircode: "D01 AB12",
     },
   };
-  const unlinkedListing: SourcedFinding = {
+  const unlinkedListing: SourcedListing = {
     source: "daft",
     sourceId: "unlinked-102",
-    finding: {
+    facts: {
       ...finding,
-      id: "unlinked-102",
       title: "Unverified house details",
       url: "https://www.daft.ie/new-home-for-sale/example/102",
     },
@@ -110,7 +158,7 @@ test("stores source-keyed current listings and only meaningful dated changes", a
     await Effect.runPromise(
       first.observeFinding({
         ...daftListing,
-        finding: { ...daftListing.finding, priceText: "POA" },
+        facts: { ...daftListing.facts, priceText: "POA" },
       }),
     );
     await Effect.runPromise(first.recordCandidate(candidate));
@@ -161,8 +209,8 @@ test("stores source-keyed current listings and only meaningful dated changes", a
     );
     const firstListing = listings.at(0);
     assert.ok(firstListing);
-    assert.equal(currentDaft.finding.priceText, "POA");
-    assert.equal(currentDaft.finding.url, finding.url);
+    assert.equal(currentDaft.facts.priceText, "POA");
+    assert.equal(currentDaft.facts.url, finding.url);
     assert.equal(currentDaft.latitude, 53.35);
     assert.equal(currentDaft.firstSeenAt, firstListing.firstSeenAt);
     assert.ok(Date.parse(currentDaft.lastSeenAt) >= Date.parse(currentDaft.firstSeenAt));
@@ -187,7 +235,7 @@ test("stores source-keyed current listings and only meaningful dated changes", a
     assert.ok(firstObservation);
     assert.ok(Number.isFinite(Date.parse(firstObservation.observedAt)));
     assert.deepEqual(
-      observations.map((observation) => observation.listing.finding.priceText),
+      observations.map((observation) => observation.listing.facts.priceText),
       ["€315,000", "POA"],
     );
     const currentCandidates = await Effect.runPromise(
@@ -224,7 +272,7 @@ test("stores source-keyed current listings and only meaningful dated changes", a
 
     const second = await Effect.runPromise(createStateStore({ file }));
     const reopened = await Effect.runPromise(second.getCurrentListing(daftKey));
-    assert.equal(reopened?.finding.priceText, "POA");
+    assert.equal(reopened?.facts.priceText, "POA");
     assert.equal(reopened.firstSeenAt, currentDaft.firstSeenAt);
     assert.equal(
       (await Effect.runPromise(second.listListingObservations(daftKey))).length,
@@ -251,20 +299,20 @@ test("groups richer and poorer cross-provider identity evidence safely", async (
   const directory = await mkdtemp(join(tmpdir(), "bellwatch-identity-groups-"));
   const file = join(directory, "state.sqlite");
   const state = await Effect.runPromise(createStateStore({ file }));
-  const initialPoor: SourcedFinding = {
+  const initialPoor: SourcedListing = {
     source: "daft",
     sourceId: "property-1",
-    finding: {
+    facts: {
       ...finding,
       bedrooms: 3,
       propertyType: "Semi-Detached House",
       address: "1 Example Grove",
     },
   };
-  const richer: SourcedFinding = {
+  const richer: SourcedListing = {
     source: "daft",
     sourceId: "property-1",
-    finding: {
+    facts: {
       ...finding,
       bedrooms: 3,
       propertyType: "Semi-Detached House",
@@ -272,36 +320,33 @@ test("groups richer and poorer cross-provider identity evidence safely", async (
       eircode: "D01 AB12",
     },
   };
-  const poorer: SourcedFinding = {
+  const poorer: SourcedListing = {
     source: "myhome",
     sourceId: "property-2",
-    finding: {
+    facts: {
       ...finding,
-      id: "property-2",
       url: "https://www.myhome.ie/residential/example/property-2",
       bedrooms: 3,
       propertyType: "Semi detached house",
       address: "1 Example Grove",
     },
   };
-  const unrelated: SourcedFinding = {
+  const unrelated: SourcedListing = {
     source: "myhome",
     sourceId: "property-3",
-    finding: {
+    facts: {
       ...finding,
-      id: "property-3",
       url: "https://www.myhome.ie/residential/example/property-3",
       bedrooms: 2,
       propertyType: "Apartment",
       address: "1 Example Grove",
     },
   };
-  const conflictingRicher: SourcedFinding = {
+  const conflictingRicher: SourcedListing = {
     ...richer,
     sourceId: "property-4",
-    finding: {
-      ...richer.finding,
-      id: "property-4",
+    facts: {
+      ...richer.facts,
       eircode: "D02 XY34",
     },
   };
@@ -313,10 +358,7 @@ test("groups richer and poorer cross-provider identity evidence safely", async (
     ))?.canonicalGroupKey;
     assert.ok(initialGroupKey);
     await Effect.runPromise(
-      state.markSeen(
-        { ...initialPoor.finding, id: "daft:property-1" },
-        initialGroupKey,
-      ),
+      state.markSeen("daft:property-1", initialGroupKey),
     );
     await Effect.runPromise(state.observeFinding(richer));
     await Effect.runPromise(state.observeFinding(poorer));
@@ -447,10 +489,10 @@ test("migrates legacy seen IDs while preserving their cross-provider group", asy
   try {
     assert.equal(await Effect.runPromise(state.isSeen("daft:101")), true);
     assert.equal(await Effect.runPromise(state.isSeen("101")), true);
-    const listing: SourcedFinding = {
+    const listing: SourcedListing = {
       source: "daft",
       sourceId: "101",
-      finding: {
+      facts: {
         ...finding,
         bedrooms: 3,
         propertyType: "Semi-Detached House",
@@ -461,9 +503,7 @@ test("migrates legacy seen IDs while preserving their cross-provider group", asy
     const current = await Effect.runPromise(state.getCurrentListing("daft:101"));
     const canonicalGroupKey = current?.canonicalGroupKey;
     assert.ok(canonicalGroupKey);
-    await Effect.runPromise(
-      state.markSeen({ ...listing.finding, id: "daft:101" }, canonicalGroupKey),
-    );
+    await Effect.runPromise(state.markSeen("daft:101", canonicalGroupKey));
     assert.equal(
       await Effect.runPromise(state.isSeen("myhome:101", canonicalGroupKey)),
       true,

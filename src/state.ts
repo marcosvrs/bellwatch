@@ -6,10 +6,15 @@ import * as Effect from "effect/Effect";
 import postgres from "postgres";
 import type { DaftFinding } from "./daft/parser.js";
 import {
-  sourcedFindingKey,
+  sourcedListingKey,
   type DiscoveryCandidate,
-  type SourcedFinding,
+  type DublinListingBoundary,
+  type ListingFacts,
+  type ListingSource,
+  type SourcedListing,
 } from "./listings.js";
+import type { MyHomeEvidence } from "./myhome/listings.js";
+import { createListingGrouping, type ListingGroupingPlan } from "./state/listing-groups.js";
 
 export class StateError extends Error {
   readonly _tag = "StateError";
@@ -20,24 +25,24 @@ export class StateError extends Error {
   }
 }
 
-export interface CurrentListingRecord extends SourcedFinding {
+export type CurrentListingRecord = SourcedListing & {
   readonly bellwatchKey: string;
   readonly firstSeenAt: string;
   readonly lastSeenAt: string;
   readonly canonicalGroupKey?: string;
-}
+};
 
 export interface ListingObservation {
   readonly observationId: string;
   readonly bellwatchKey: string;
   readonly observedAt: string;
-  readonly listing: SourcedFinding;
+  readonly listing: SourcedListing;
 }
 
-export interface PendingBaserowListing extends CurrentListingRecord {
+export type PendingBaserowListing = CurrentListingRecord & {
   readonly rowId: string | null;
   readonly revision: number;
-}
+};
 
 export interface CurrentCandidateRecord {
   readonly candidateKey: string;
@@ -96,11 +101,11 @@ export interface StateStore {
     canonicalGroupKey?: string,
   ) => Effect.Effect<boolean, StateError>;
   readonly markSeen: (
-    finding: DaftFinding,
+    listingKey: string,
     canonicalGroupKey?: string,
   ) => Effect.Effect<void, StateError>;
   readonly observeFinding: (
-    listing: SourcedFinding,
+    listing: SourcedListing,
   ) => Effect.Effect<void, StateError>;
   readonly getCurrentListing: (
     bellwatchKey: string,
@@ -258,226 +263,6 @@ const nextObservationAt = (
   return new Date(Date.parse(previous) + 1).toISOString();
 };
 
-const normalizeGroupingText = (value: string): string =>
-  value.trim().toLowerCase().replace(/[\s,._-]+/g, " ");
-
-interface ListingGroupingEvidence {
-  readonly addressGroupKey?: string;
-  readonly bedrooms: number;
-  readonly eircode?: string;
-  readonly eircodeGroupKey?: string;
-  readonly propertyType: string;
-}
-
-const groupingEvidenceFor = (
-  listing: SourcedFinding,
-): ListingGroupingEvidence | undefined => {
-  const { finding } = listing;
-  const eircode = finding.eircode?.trim().replace(/\s+/g, "").toUpperCase();
-  const address = finding.address === undefined
-    ? undefined
-    : normalizeGroupingText(finding.address);
-  const propertyType = finding.propertyType === undefined
-    ? undefined
-    : normalizeGroupingText(finding.propertyType);
-  const bedrooms = finding.bedrooms;
-
-  if (
-    propertyType === undefined ||
-    propertyType.length === 0 ||
-    bedrooms === undefined ||
-    !Number.isFinite(bedrooms) ||
-    bedrooms <= 0
-  ) {
-    return undefined;
-  }
-
-  const normalizedEircode = eircode === "" ? undefined : eircode;
-  const addressGroupKey = address
-    ? canonicalJson([`address:${address}`, propertyType, bedrooms])
-    : undefined;
-  if (addressGroupKey === undefined && normalizedEircode === undefined) {
-    return undefined;
-  }
-  return {
-    ...(addressGroupKey === undefined ? {} : { addressGroupKey }),
-    bedrooms,
-    ...(normalizedEircode === undefined ? {} : { eircode: normalizedEircode }),
-    ...(normalizedEircode === undefined
-      ? {}
-      : {
-          eircodeGroupKey: canonicalJson([
-            `eircode:${normalizedEircode}`,
-            propertyType,
-            bedrooms,
-          ]),
-        }),
-    propertyType,
-  };
-};
-
-interface GroupingIndexEntry {
-  readonly canonicalGroupKey: string | null;
-  readonly evidence: ListingGroupingEvidence | undefined;
-}
-
-interface ListingGroupingIndex {
-  readonly byAddressGroup: Map<string, Set<string>>;
-  readonly byListingKey: Map<string, GroupingIndexEntry>;
-}
-
-interface GroupingReassignment {
-  readonly bellwatchKey: string;
-  readonly canonicalGroupKey: string | undefined;
-}
-
-interface GroupingPlan {
-  readonly canonicalGroupKey: string | undefined;
-  readonly relatedReassignments: readonly GroupingReassignment[];
-  readonly seenGroupTransfers: readonly {
-    readonly from: string;
-    readonly to: string;
-  }[];
-}
-
-
-const setGroupingIndexEntry = (
-  index: ListingGroupingIndex,
-  bellwatchKey: string,
-  entry: GroupingIndexEntry,
-): void => {
-  const previous = index.byListingKey.get(bellwatchKey);
-  const previousAddressGroup = previous?.evidence?.addressGroupKey;
-  if (previousAddressGroup !== undefined) {
-    const previousKeys = index.byAddressGroup.get(previousAddressGroup);
-    previousKeys?.delete(bellwatchKey);
-    if (previousKeys?.size === 0) {
-      index.byAddressGroup.delete(previousAddressGroup);
-    }
-  }
-
-  index.byListingKey.set(bellwatchKey, entry);
-  const addressGroup = entry.evidence?.addressGroupKey;
-  if (addressGroup !== undefined) {
-    let keys = index.byAddressGroup.get(addressGroup);
-    if (keys === undefined) {
-      keys = new Set();
-      index.byAddressGroup.set(addressGroup, keys);
-    }
-    keys.add(bellwatchKey);
-  }
-};
-
-const groupingPlanFor = (
-  index: ListingGroupingIndex,
-  bellwatchKey: string,
-  evidence: ListingGroupingEvidence | undefined,
-): GroupingPlan => {
-  if (evidence === undefined) {
-    return {
-      canonicalGroupKey: undefined,
-      relatedReassignments: [],
-      seenGroupTransfers: [],
-    };
-  }
-
-  const previous = index.byListingKey.get(bellwatchKey);
-  const relatedKeys = evidence.addressGroupKey === undefined
-    ? undefined
-    : index.byAddressGroup.get(evidence.addressGroupKey);
-  const eircodes = new Set<string>();
-  for (const relatedKey of relatedKeys ?? []) {
-    if (relatedKey === bellwatchKey) {
-      continue;
-    }
-    const related = index.byListingKey.get(relatedKey)?.evidence;
-    if (related?.eircode !== undefined) {
-      eircodes.add(related.eircode);
-    }
-  }
-  if (evidence.eircode !== undefined) {
-    eircodes.add(evidence.eircode);
-  }
-
-  let fallbackGroupKey = evidence.addressGroupKey;
-  if (eircodes.size === 1) {
-    const [eircode] = eircodes;
-    if (eircode !== undefined) {
-      fallbackGroupKey = canonicalJson([
-        `eircode:${eircode}`,
-        evidence.propertyType,
-        evidence.bedrooms,
-      ]);
-    }
-  } else if (eircodes.size > 1) {
-    fallbackGroupKey = undefined;
-  }
-  const canonicalGroupKey = evidence.eircodeGroupKey ?? fallbackGroupKey;
-  const relatedReassignments: GroupingReassignment[] = [];
-  const seenGroupTransfers: { from: string; to: string }[] = [];
-  for (const relatedKey of relatedKeys ?? []) {
-    if (relatedKey === bellwatchKey) {
-      continue;
-    }
-    const entry = index.byListingKey.get(relatedKey);
-    if (entry?.evidence?.eircode !== undefined) {
-      continue;
-    }
-    const targetGroupKey = fallbackGroupKey ?? undefined;
-    if (entry === undefined || entry.canonicalGroupKey === (targetGroupKey ?? null)) {
-      continue;
-    }
-    relatedReassignments.push({
-      bellwatchKey: relatedKey,
-      canonicalGroupKey: targetGroupKey,
-    });
-    if (
-      targetGroupKey !== undefined &&
-      entry.canonicalGroupKey !== null
-    ) {
-      seenGroupTransfers.push({ from: entry.canonicalGroupKey, to: targetGroupKey });
-    }
-  }
-  if (
-    previous?.evidence?.addressGroupKey !== undefined &&
-    previous.evidence.eircode === undefined &&
-    previous.canonicalGroupKey !== null &&
-    previous.canonicalGroupKey !== canonicalGroupKey &&
-    canonicalGroupKey !== undefined &&
-    fallbackGroupKey !== undefined
-  ) {
-    seenGroupTransfers.push({
-      from: previous.canonicalGroupKey,
-      to: canonicalGroupKey,
-    });
-  }
-  return {
-    canonicalGroupKey,
-    relatedReassignments,
-    seenGroupTransfers,
-  };
-};
-
-const applyGroupingPlan = (
-  index: ListingGroupingIndex,
-  bellwatchKey: string,
-  evidence: ListingGroupingEvidence | undefined,
-  plan: GroupingPlan,
-): void => {
-  for (const reassign of plan.relatedReassignments) {
-    const previous = index.byListingKey.get(reassign.bellwatchKey);
-    if (previous !== undefined) {
-      setGroupingIndexEntry(index, reassign.bellwatchKey, {
-        evidence: previous.evidence,
-        canonicalGroupKey: reassign.canonicalGroupKey ?? null,
-      });
-    }
-  }
-  setGroupingIndexEntry(index, bellwatchKey, {
-    evidence,
-    canonicalGroupKey: plan.canonicalGroupKey ?? null,
-  });
-};
 
 const candidateKeyFor = (candidate: DiscoveryCandidate): string => {
   const url = new URL(candidate.url);
@@ -553,13 +338,106 @@ const parseStoredJson = <Value>(serialized: string): Value => {
   return value as Value;
 };
 
+/** Persisted wire shape retained so existing SQLite and PostgreSQL rows stay readable. */
+interface StoredSourcedListing {
+  readonly source: ListingSource;
+  readonly sourceId: string;
+  readonly finding: DaftFinding;
+  readonly latitude?: number;
+  readonly longitude?: number;
+  readonly dublinBoundary?: DublinListingBoundary;
+  readonly myhomeEvidence?: MyHomeEvidence;
+}
+
+const storedListingFor = (listing: SourcedListing): StoredSourcedListing => ({
+  source: listing.source,
+  sourceId: listing.sourceId,
+  finding: {
+    id: listing.source === "daft"
+      ? listing.sourceId
+      : sourcedListingKey(listing),
+    ...listing.facts,
+    ...(listing.source === "daft" ? listing.daftEvidence : {}),
+  },
+  ...(listing.latitude === undefined ? {} : { latitude: listing.latitude }),
+  ...(listing.longitude === undefined ? {} : { longitude: listing.longitude }),
+  ...(listing.dublinBoundary === undefined
+    ? {}
+    : { dublinBoundary: listing.dublinBoundary }),
+  ...(listing.source === "myhome" && listing.myhomeEvidence !== undefined
+    ? { myhomeEvidence: listing.myhomeEvidence }
+    : {}),
+});
+
+const parseStoredListing = (serialized: string): SourcedListing => {
+  const stored = parseStoredJson<StoredSourcedListing>(serialized);
+  const { soldComparison, individualUnit } = stored.finding;
+  const facts: ListingFacts = {
+    title: stored.finding.title,
+    developmentTitle: stored.finding.developmentTitle,
+    priceText: stored.finding.priceText,
+    ...(stored.finding.bedrooms === undefined
+      ? {}
+      : { bedrooms: stored.finding.bedrooms }),
+    ...(stored.finding.bathrooms === undefined
+      ? {}
+      : { bathrooms: stored.finding.bathrooms }),
+    ...(stored.finding.propertyType === undefined
+      ? {}
+      : { propertyType: stored.finding.propertyType }),
+    ...(stored.finding.floorSizeSqm === undefined
+      ? {}
+      : { floorSizeSqm: stored.finding.floorSizeSqm }),
+    ...(stored.finding.berRating === undefined
+      ? {}
+      : { berRating: stored.finding.berRating }),
+    ...(stored.finding.address === undefined
+      ? {}
+      : { address: stored.finding.address }),
+    ...(stored.finding.eircode === undefined
+      ? {}
+      : { eircode: stored.finding.eircode }),
+    url: stored.finding.url,
+    ...(stored.finding.schemeText === undefined
+      ? {}
+      : { schemeText: stored.finding.schemeText }),
+  };
+  const common = {
+    sourceId: stored.sourceId,
+    facts,
+    ...(stored.latitude === undefined ? {} : { latitude: stored.latitude }),
+    ...(stored.longitude === undefined ? {} : { longitude: stored.longitude }),
+    ...(stored.dublinBoundary === undefined
+      ? {}
+      : { dublinBoundary: stored.dublinBoundary }),
+  };
+  if (stored.source === "myhome") {
+    return {
+      ...common,
+      source: "myhome",
+      ...(stored.myhomeEvidence === undefined
+        ? {}
+        : { myhomeEvidence: stored.myhomeEvidence }),
+    };
+  }
+  const daftEvidence = {
+    ...(soldComparison === undefined ? {} : { soldComparison }),
+    ...(individualUnit === undefined ? {} : { individualUnit }),
+  };
+  return {
+    ...common,
+    source: "daft",
+    ...(Object.keys(daftEvidence).length === 0 ? {} : { daftEvidence }),
+  };
+};
+
 const allSqliteRows = <Row>(
   statement: StatementSync,
   ...parameters: string[]
 ): Row[] => queryRows<Row>(statement.all(...parameters));
 
 const listingFromRow = (row: ListingDbRow): CurrentListingRecord => {
-  const stored = parseStoredJson<SourcedFinding>(row.finding_json);
+  const stored = parseStoredListing(row.finding_json);
   return {
     ...stored,
     ...(row.latitude === null ? {} : { latitude: row.latitude }),
@@ -585,7 +463,7 @@ const observationFromRow = (row: ObservationDbRow): ListingObservation => ({
   observationId: row.observation_id,
   bellwatchKey: row.bellwatch_key,
   observedAt: row.observed_at,
-  listing: parseStoredJson<SourcedFinding>(row.finding_json),
+  listing: parseStoredListing(row.finding_json),
 });
 
 const candidateFromRow = (row: CandidateDbRow): CurrentCandidateRecord => ({
@@ -637,10 +515,7 @@ const registrationFromRow = (row: RegistrationDbRow): RegistrationEvent => ({
 const createSqliteStore = async (file: string): Promise<StateStore> => {
   await mkdir(dirname(file), { recursive: true });
   const database = new DatabaseSync(file);
-  const groupingIndex: ListingGroupingIndex = {
-    byAddressGroup: new Map(),
-    byListingKey: new Map(),
-  };
+  const listingGrouping = createListingGrouping();
   try {
     database.exec(SCHEMA);
     const registrationColumns = queryRows<{ readonly name: string }>(
@@ -668,12 +543,11 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
       ),
     );
     for (const row of currentRows) {
-      setGroupingIndexEntry(groupingIndex, row.bellwatch_key, {
-        evidence: groupingEvidenceFor(
-          parseStoredJson<SourcedFinding>(row.finding_json),
-        ),
-        canonicalGroupKey: row.canonical_group_key,
-      });
+      listingGrouping.restore(
+        row.bellwatch_key,
+        parseStoredListing(row.finding_json),
+        row.canonical_group_key,
+      );
     }
   } catch (error) {
     database.close();
@@ -691,13 +565,12 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
   );
 
   const observeFinding = (
-    listing: SourcedFinding,
-    evidence: ListingGroupingEvidence | undefined,
-  ): GroupingPlan => {
-    const key = sourcedFindingKey(listing);
-    const groupingPlan = groupingPlanFor(groupingIndex, key, evidence);
+    listing: SourcedListing,
+  ): ListingGroupingPlan => {
+    const groupingPlan = listingGrouping.planFor(listing);
+    const key = groupingPlan.bellwatchKey;
     const now = new Date().toISOString();
-    const findingJson = canonicalJson(listing);
+    const findingJson = canonicalJson(storedListingFor(listing));
     const canonicalGroupKey = groupingPlan.canonicalGroupKey ?? null;
     const latitude = listing.latitude ?? null;
     const longitude = listing.longitude ?? null;
@@ -883,7 +756,7 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
             .prepare("SELECT 1 AS present FROM seen_listing_groups WHERE group_key = ? LIMIT 1")
             .get(canonicalGroupKey) !== undefined;
       }),
-    markSeen: (finding, canonicalGroupKey) =>
+    markSeen: (listingKey, canonicalGroupKey) =>
       withStateError("markSeen", () => {
         runSqliteTransaction(database, () => {
           const now = new Date().toISOString();
@@ -893,7 +766,7 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
                VALUES (?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
             )
-            .run(finding.id, now, now);
+            .run(listingKey, now, now);
           if (canonicalGroupKey !== undefined) {
             database
               .prepare(
@@ -906,13 +779,11 @@ const createSqliteStore = async (file: string): Promise<StateStore> => {
       }),
     observeFinding: (listing) =>
       withStateError("observeFinding", () => {
-        const key = sourcedFindingKey(listing);
-        const evidence = groupingEvidenceFor(listing);
         const plan = runSqliteTransaction(
           database,
-          () => observeFinding(listing, evidence),
+          () => observeFinding(listing),
         );
-        applyGroupingPlan(groupingIndex, key, evidence, plan);
+        listingGrouping.apply(plan);
       }),
     getCurrentListing: (bellwatchKey) =>
       withStateError("getCurrentListing", () => {
@@ -1084,10 +955,7 @@ const runSqliteTransaction = <A>(
 const createPostgresStore = async (url: string): Promise<StateStore> => {
   const sql = postgres(url, { max: 1, connect_timeout: 10 });
 
-  const groupingIndex: ListingGroupingIndex = {
-    byAddressGroup: new Map(),
-    byListingKey: new Map(),
-  };
+  const listingGrouping = createListingGrouping();
   try {
     await sql.unsafe(SCHEMA);
     await sql.unsafe(
@@ -1110,12 +978,11 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
         readonly finding_json: string;
         readonly canonical_group_key: string | null;
       }>(value);
-      setGroupingIndexEntry(groupingIndex, row.bellwatch_key, {
-        evidence: groupingEvidenceFor(
-          parseStoredJson<SourcedFinding>(row.finding_json),
-        ),
-        canonicalGroupKey: row.canonical_group_key,
-      });
+      listingGrouping.restore(
+        row.bellwatch_key,
+        parseStoredListing(row.finding_json),
+        row.canonical_group_key,
+      );
     }
   } catch (error) {
     await sql.end({ timeout: 5 });
@@ -1123,17 +990,16 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
   }
 
   const observeFinding = async (
-    listing: SourcedFinding,
+    listing: SourcedListing,
   ): Promise<void> => {
-    const key = sourcedFindingKey(listing);
-    const evidence = groupingEvidenceFor(listing);
     const now = new Date().toISOString();
-    const findingJson = canonicalJson(listing);
+    const findingJson = canonicalJson(storedListingFor(listing));
     const latitude = listing.latitude ?? null;
     const longitude = listing.longitude ?? null;
 
     const groupingPlan = await sql.begin(async (transaction) => {
-      const plan = groupingPlanFor(groupingIndex, key, evidence);
+      const plan = listingGrouping.planFor(listing);
+      const key = plan.bellwatchKey;
       const canonicalGroupKey = plan.canonicalGroupKey ?? null;
       const rows = await transaction`
         SELECT finding_json, latitude, longitude
@@ -1205,7 +1071,7 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
       `;
       return plan;
     });
-    applyGroupingPlan(groupingIndex, key, evidence, groupingPlan);
+    listingGrouping.apply(groupingPlan);
   };
 
   const recordCandidate = async (
@@ -1297,14 +1163,14 @@ const createPostgresStore = async (url: string): Promise<StateStore> => {
         },
         catch: (cause) => new StateError("State isSeen failed", { cause }),
       }),
-    markSeen: (finding, canonicalGroupKey) =>
+    markSeen: (listingKey, canonicalGroupKey) =>
       Effect.tryPromise({
         try: async () => {
           const now = new Date().toISOString();
           await sql.begin(async (transaction) => {
             await transaction`
               INSERT INTO seen_listings (id, first_seen_at, last_seen_at)
-              VALUES (${finding.id}, ${now}, ${now})
+              VALUES (${listingKey}, ${now}, ${now})
               ON CONFLICT (id) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
             `;
             if (canonicalGroupKey !== undefined) {
