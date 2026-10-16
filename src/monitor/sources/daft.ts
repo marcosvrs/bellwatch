@@ -21,6 +21,14 @@ import { MonitorError } from "../error.js";
 type DaftCollectionDependencies = {
   readonly fetchPage: (url: string) => Effect.Effect<unknown, Error>;
 };
+
+const errorMessageWithCause = (error: Error): string => {
+  const cause = error.cause;
+  return cause instanceof Error
+    ? `${error.message} (cause: ${cause.message})`
+    : error.message;
+};
+
 const hydrateListingFindings = (
   findings: readonly DaftFinding[],
   dependencies: DaftCollectionDependencies,
@@ -179,10 +187,7 @@ export const enrichWithSoldComparables = (
     const cached = new Map<string, DaftSoldComparison | undefined>();
     const enriched: DaftFinding[] = [];
     for (const finding of findings) {
-      if (!hasDaftSoldMatchFields(finding)) {
-        enriched.push(finding);
-        continue;
-      }
+      if (!hasDaftSoldMatchFields(finding)) {continue;}
       const request = {
         baseUrl: config.daft.baseUrl,
         locations: config.daft.locations,
@@ -200,10 +205,7 @@ export const enrichWithSoldComparables = (
         const url = buildDaftSoldSearchUrl(locationRequest);
         return url === undefined ? [] : [{ request: locationRequest, url }];
       });
-      if (comparableRequests.length === 0) {
-        enriched.push(finding);
-        continue;
-      }
+      if (comparableRequests.length === 0) {continue;}
       const comparableUrls = comparableRequests.map(({ url }) => url);
       const cacheKey = `${JSON.stringify(comparableUrls)}\u0000${finding.priceText}`;
       let comparison = cached.get(cacheKey);
@@ -219,7 +221,7 @@ export const enrichWithSoldComparables = (
             Effect.gen(function* () {
               yield* Effect.logWarning(
                 `Could not load sold comparables for ${finding.id}: ${
-                  error instanceof Error ? error.message : String(error)
+                  errorMessageWithCause(error)
                 }`,
               );
               return undefined;
@@ -295,19 +297,14 @@ export const collectDaftFindings = (
       : rawFindings;
     const findings = filterShpsFindings(candidates, config.shps)
       .map((finding): SourcedListing => {
-        const { id, soldComparison, individualUnit, ...facts } = finding;
+        const { id, individualUnit, ...facts } = finding;
         return {
           source: "daft",
           sourceId: id,
           facts,
-          ...(soldComparison === undefined && individualUnit === undefined
+          ...(individualUnit === undefined
             ? {}
-            : {
-                daftEvidence: {
-                  ...(soldComparison === undefined ? {} : { soldComparison }),
-                  ...(individualUnit === undefined ? {} : { individualUnit }),
-                },
-              }),
+            : { daftEvidence: { individualUnit } }),
         };
       });
     return { findings, pages };

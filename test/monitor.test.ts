@@ -765,6 +765,7 @@ test("exposes a tagged monitor error", () => {
 test("collects multiple Daft pages and deduplicates findings", async () => {
   const state = makeState();
   const sent: string[] = [];
+  const published: DaftFinding[] = [];
   const firstPage = payload([makeFinding("401")]);
   firstPage.props.pageProps.paging = {
     currentPage: 1,
@@ -779,13 +780,15 @@ test("collects multiple Daft pages and deduplicates findings", async () => {
   const dependencies = {
     fetchPage: (url: string) => {
       urls.push(url);
-      return Effect.succeed(
-        new URL(url).searchParams.get("page") === "2" ? secondPage : firstPage,
-      );
+      const page = new URL(url).searchParams.get("page");
+      if (page === null && urls.length === 1) { return Effect.succeed(firstPage); }
+      if (page === "2") { return Effect.succeed(secondPage); }
+      return Effect.fail(new Error(`Unexpected Daft page ${page}`));
     },
     publish: (finding: DaftFinding) =>
       Effect.sync(() => {
         sent.push(finding.id);
+        published.push(finding);
       }),
     state,
     publishError: () => Effect.void,
@@ -803,6 +806,11 @@ test("collects multiple Daft pages and deduplicates findings", async () => {
   assert.deepEqual(sent, ["401", "402"]);
   assert.equal(urls.length, 2);
   assert.equal(new URL(defined(urls[1])).searchParams.get("page"), "2");
+  assert.equal(new URL(defined(urls[0])).pathname, "/new-homes-for-sale/ireland");
+  assert.deepEqual(
+    published.map(({ individualUnit }) => individualUnit),
+    [true, true],
+  );
 });
 
 
@@ -817,7 +825,9 @@ test("honors an explicit maximum page limit", async () => {
   const dependencies = {
     fetchPage: (url: string) => {
       urls.push(url);
-      return Effect.succeed(firstPage);
+      return urls.length === 1
+        ? Effect.succeed(firstPage)
+        : Effect.fail(new Error(`Unexpected capped page ${url}`));
     },
     publish: () => Effect.void,
     state,
@@ -1360,14 +1370,23 @@ test("fetches paginated sold comparables and preserves their range", async () =>
 
   const result = await Effect.runPromise(
     runOnce(saleConfig, {
-      fetchPage: (url) =>
-        Effect.sync(() => {
-          requested.push(url);
-          if (!url.includes("/sold-properties/")) {return searchPayload;}
-          return new URL(url).searchParams.get("page") === null
-            ? soldPayload(["€400,000"], 1)
-            : soldPayload(["€450,000"], 2);
-        }),
+      fetchPage: (url) => {
+        requested.push(url);
+        if (!url.includes("/sold-properties/")) {
+          return Effect.succeed(searchPayload);
+        }
+        const page = new URL(url).searchParams.get("page");
+        const soldPageCount = requested.filter((requestUrl) =>
+          requestUrl.includes("/sold-properties/"),
+        ).length;
+        if (page === null && soldPageCount === 1) {
+          return Effect.succeed(soldPayload(["€400,000"], 1));
+        }
+        if (page === "2" && soldPageCount === 2) {
+          return Effect.succeed(soldPayload(["€450,000"], 2));
+        }
+        return Effect.fail(new Error(`Unexpected sold page ${page}`));
+      },
       publish: (finding) =>
         Effect.sync(() => {
           published.push(finding);
@@ -1451,9 +1470,75 @@ test("caches sold lookup failures for duplicate comparable requests", async () =
   assert.equal(Object.hasOwn(defined(published[1]), "soldComparison"), false);
   assert.equal(Object.hasOwn(defined(published[2]), "soldComparison"), false);
   assert.deepEqual(logs, [
-    "Could not load sold comparables for 731: Could not fetch sold comparables for Semi-D",
-    "Could not load sold comparables for 733: Could not fetch sold comparables for Semi-D",
+    "Could not load sold comparables for 731: Could not fetch sold comparables for Semi-D (cause: sold service unavailable)",
+    "Could not load sold comparables for 733: Could not fetch sold comparables for Semi-D (cause: sold service unavailable)",
   ]);
+});
+test("retains sold-page parse context while continuing to notify the Listing", async () => {
+  const saleConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_LOCATION: "dublin",
+    DAFT_MAX_PAGES: "1",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const cause = new Error("sold payload parser failure");
+  const invalidSoldPayload = new Proxy({}, {
+    get: (_target, property) => {
+      if (property === "props") { throw cause; }
+      return undefined;
+    },
+  });
+  const salePayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 786,
+              title: "Sale with malformed comparables",
+              price: "€500,000",
+              numBedrooms: "3 Bed",
+              numBathrooms: "2 Bath",
+              propertyType: "Semi-D",
+              floorArea: { value: 105 },
+              ber: { rating: "B2" },
+              addressDetails: { postalCode: "A12B345" },
+              seoFriendlyPath: "/for-sale/malformed-comparables/786",
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const published: DaftFinding[] = [];
+  const logs: string[] = [];
+  const logger = Logger.make(({ message }) => {
+    logs.push(String(message));
+  });
+  const result = await Effect.runPromise(
+    runOnce(saleConfig, {
+      fetchPage: (url) =>
+        url.includes("/sold-properties/")
+          ? Effect.succeed(invalidSoldPayload)
+          : Effect.succeed(salePayload),
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }).pipe(Effect.provide(Logger.layer([logger]))),
+  );
+
+  assert.equal(result.notified, 1);
+  assert.equal(published[0]?.id, "786");
+  assert.equal(Object.hasOwn(defined(published[0]), "soldComparison"), false);
+  assert.equal(logs.length, 1);
+  assert.match(defined(logs[0]), /Could not parse sold comparables/);
+  assert.match(defined(logs[0]), /sold payload parser failure/);
 });
 
 test("skips sold requests when hydrated finding lacks spatial evidence", async () => {
@@ -1807,6 +1892,154 @@ test("hydrates spatially incomplete property-sale findings", async () => {
     false,
   );
 });
+test("uses existing address or Eircode evidence without hydrating property sales", async () => {
+  const saleConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-sale",
+    DAFT_MAX_PAGES: "1",
+    SHPS_FILTER: "off",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const published: DaftFinding[] = [];
+  const salePayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 782,
+              title: "Address-backed sale",
+              price: "€400,000",
+              numBedrooms: "3 Bed",
+              numBathrooms: "2 Bath",
+              propertyType: "Semi-D",
+              floorArea: { value: 100 },
+              ber: { rating: "B2" },
+              addressDetails: { streetAddress: "1 Main Road" },
+              seoFriendlyPath: "/for-sale/address-backed/782",
+            },
+          },
+          {
+            listing: {
+              id: 783,
+              title: "Eircode-backed sale",
+              price: "€400,000",
+              numBedrooms: "3 Bed",
+              numBathrooms: "2 Bath",
+              propertyType: "Semi-D",
+              floorArea: { value: 100 },
+              ber: { rating: "B2" },
+              addressDetails: { postalCode: "A12B345" },
+              seoFriendlyPath: "/for-sale/eircode-backed/783",
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const soldPayload = {
+    props: {
+      pageProps: {
+        listings: [{ listing: { soldPrice: "€350,000" } }],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const result = await Effect.runPromise(
+    runOnce(saleConfig, {
+      fetchPage: (url) => {
+        requested.push(url);
+        const path = new URL(url).pathname;
+        if (path.startsWith("/sold-properties/")) {
+          return Effect.succeed(soldPayload);
+        }
+        if (path === "/property-for-sale/ireland") {
+          return Effect.succeed(salePayload);
+        }
+        if (path.startsWith("/for-sale/")) {
+          return Effect.succeed(emptyDetailPayload());
+        }
+        return Effect.fail(new Error(`Unexpected Daft path ${path}`));
+      },
+      publish: (finding) =>
+        Effect.sync(() => {
+          published.push(finding);
+        }),
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(result.findings, 2);
+  assert.equal(published[0]?.address, "1 Main Road");
+  assert.equal(published[1]?.eircode, "A12B345");
+  assert.equal(Object.hasOwn(defined(published[0]), "individualUnit"), false);
+  assert.equal(
+    requested.some((url) => {
+      const path = new URL(url).pathname;
+      return path === "/for-sale/address-backed/782" ||
+        path === "/for-sale/eircode-backed/783";
+    }),
+    false,
+  );
+});
+
+test("does not hydrate rental findings for sale-only comparable matching", async () => {
+  const rentalConfig = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_SECTION_PATH: "property-for-rent",
+    DAFT_MAX_PAGES: "1",
+    SHPS_FILTER: "off",
+    NOTIFY_EXISTING_ON_FIRST_RUN: "true",
+  });
+  const requested: string[] = [];
+  const rentalPayload = {
+    props: {
+      pageProps: {
+        listings: [
+          {
+            listing: {
+              id: 784,
+              title: "Rental home",
+              prs: {
+                subUnits: [
+                  {
+                    id: 785,
+                    price: "€2,300 per month",
+                    numBedrooms: "3 Bed",
+                    numBathrooms: "2 Bath",
+                    propertyType: "Semi-Detached House",
+                    seoFriendlyPath: "/rentals/rental-home/785",
+                  },
+                ],
+              },
+            },
+          },
+        ],
+        paging: { currentPage: 1, totalPages: 1 },
+      },
+    },
+  };
+  const result = await Effect.runPromise(
+    runOnce(rentalConfig, {
+      fetchPage: (url) => {
+        requested.push(url);
+        return Effect.succeed(rentalPayload);
+      },
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: makeState(),
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(result.findings, 1);
+  assert.equal(requested.length, 1);
+  assert.equal(new URL(defined(requested[0])).pathname, "/property-for-rent/ireland");
+});
 test("does not hydrate complete new-home findings when a location supplies spatial evidence", async () => {
   const newHomeConfig = parseEnvironment({
     SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
@@ -2046,6 +2279,39 @@ test("skips configured SearXNG when its search adapter is unavailable", async ()
     }),
   );
   assert.equal(result.findings, 0);
+});
+test("does not persist discovery candidates from a failed SearXNG response", async () => {
+  const config = parseEnvironment({
+    SHOUTRRR_URL: "ntfy://ntfy.sh/daft",
+    DAFT_MAX_PAGES: "1",
+    SEARXNG_BASE_URL: "http://searxng.test",
+  });
+  const stored: DiscoveryCandidate[] = [];
+  const state = makeState();
+  const stateWithCandidates: StateStore = {
+    ...state,
+    recordCandidate: (candidate) =>
+      Effect.sync(() => {
+        stored.push(candidate);
+      }),
+  };
+  const result = await Effect.runPromise(
+    runOnce(config, {
+      fetchPage: () => Effect.succeed(payload([])),
+      searchSearxng: () =>
+        Effect.succeed({
+          ok: false as const,
+          error: { code: "http-error" as const, message: "HTTP 503" },
+        }),
+      publish: () => Effect.void,
+      publishError: () => Effect.void,
+      state: stateWithCandidates,
+      heartbeat: () => Effect.void,
+    }),
+  );
+
+  assert.equal(result.findings, 0);
+  assert.deepEqual(stored, []);
 });
 test("backfills cross-provider identity from an existing namespaced seen ID", async () => {
   const state = makeState(["daft:999"]);

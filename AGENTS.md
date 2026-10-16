@@ -116,7 +116,7 @@ npm exec --offline -- alchemy deploy
 
 - `npm test` bundles every `test/*.test.ts` with esbuild into `.cache/test-bundle/` and executes Node’s built-in `node:test` runner with `node:assert/strict`.
 - `.c8rc.json` enforces **100% statements** and **100% functions** for included `src/**/*.ts`. It intentionally excludes `browser.ts`, `healthcheck.ts`, `main.ts`, `runtime-metrics.ts`, and `state.ts`; do not describe that as whole-repository coverage.
-- `stryker.config.mjs` targets `src/config.ts`, `src/daft/**/*.ts`, `src/monitor.ts`, and `src/shoutrrr.ts` with `high`, `low`, and `break` thresholds of **99%**.
+- `stryker.config.mjs` targets `src/config.ts`, `src/daft/**/*.ts`, `src/monitor.ts`, `src/monitor/sources/**/*.ts`, and `src/shoutrrr.ts` with `high`, `low`, and `break` thresholds of **99%**.
 - CI’s `npm run check:changed` computes changed mutable line ranges and runs Stryker only for those ranges; it skips mutation when no mutable lines changed. The full `npm run mutation` command remains available but is not the same as the fast changed-file CI gate.
 - Add tests for observable behavior, boundaries, state transitions, parser/filter semantics, notification failure handling, and real error paths. Prefer deterministic fixtures and injected transports over implementation assertions.
 - Before handing off a non-trivial change, run the narrow relevant check, then `npm run check` when production code or tests changed. For image/runtime changes, run the appropriate fixture or live E2E; for deployment changes, verify container health and the running image revision.
