@@ -1,5 +1,5 @@
 import type { DaftSoldComparison } from "./daft/sold.js";
-import type { MyHomeEvidence } from "./myhome.js";
+import type { MyHomeEvidence } from "./myhome/listings.js";
 
 export type ListingSource = "daft" | "myhome";
 

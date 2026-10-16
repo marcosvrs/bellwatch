@@ -7,6 +7,9 @@ Bellwatch discovers property listings from multiple sources, enriches their fact
 **Listing**:
 A property offering identified within a listing source. Listings from different sources may refer to the same property, but retain their own source identity.
 
+**Listing group**:
+A set of Listings treated as observations of the same underlying property. Each Listing retains its source identity; a Listing may remain ungrouped when evidence is insufficient or conflicting.
+
 **Listing source**:
 A provider that publishes property offerings, such as Daft or MyHome.
 

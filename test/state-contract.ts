@@ -16,7 +16,7 @@ export const registerStateStoreContract = (
   createHarness: StateStoreHarnessFactory,
   skip?: string,
 ): void => {
-  test(`${name} state store contract persists listing, candidate, and registration state`, {
+  test(`${name} state store contract persists Listing groups, candidates, and registration state`, {
     ...(skip === undefined ? {} : { skip }),
   }, async () => {
     const harness = await createHarness();
@@ -31,6 +31,9 @@ export const registerStateStoreContract = (
           title: "Contract home",
           developmentTitle: "Contract homes",
           priceText: "€315,000",
+          bedrooms: 3,
+          propertyType: "Semi-detached house",
+          address: "1 Contract Grove",
           url: "https://www.daft.ie/new-home-for-sale/contract/contract-101",
         },
       };
@@ -42,6 +45,9 @@ export const registerStateStoreContract = (
           developmentTitle: "Contract homes",
           priceText: "€315,000",
           bedrooms: 3,
+          propertyType: "Semi detached house",
+          address: "1 Contract Grove",
+          eircode: "D01 AB12",
           url: "https://www.myhome.ie/residential/contract/202",
         },
         myhomeEvidence: {
@@ -59,8 +65,29 @@ export const registerStateStoreContract = (
         },
       };
       await Effect.runPromise(store.observeFinding(listing));
-      await Effect.runPromise(store.markSeen("daft:contract-101"));
+      const initialDaft = await Effect.runPromise(
+        store.getCurrentListing("daft:contract-101"),
+      );
+      assert.ok(initialDaft?.canonicalGroupKey);
+      await Effect.runPromise(
+        store.markSeen("daft:contract-101", initialDaft.canonicalGroupKey),
+      );
       await Effect.runPromise(store.observeFinding(myhomeListing));
+      const groupedDaft = await Effect.runPromise(
+        store.getCurrentListing("daft:contract-101"),
+      );
+      const groupedMyHome = await Effect.runPromise(
+        store.getCurrentListing("myhome:contract-202"),
+      );
+      assert.ok(groupedDaft?.canonicalGroupKey);
+      assert.ok(groupedMyHome?.canonicalGroupKey);
+      assert.equal(groupedMyHome.canonicalGroupKey, groupedDaft.canonicalGroupKey);
+      assert.equal(
+        await Effect.runPromise(
+          store.isSeen("myhome:contract-202", groupedMyHome.canonicalGroupKey),
+        ),
+        true,
+      );
       const candidate: DiscoveryCandidate = {
         source: "searxng",
         verified: false,
@@ -93,6 +120,17 @@ export const registerStateStoreContract = (
         store.getCurrentListing("myhome:contract-202"),
       );
       assert.ok(reopenedMyHome?.source === "myhome");
+      assert.equal(
+        reopenedMyHome.canonicalGroupKey,
+        (await Effect.runPromise(store.getCurrentListing("daft:contract-101")))
+          ?.canonicalGroupKey,
+      );
+      assert.equal(
+        await Effect.runPromise(
+          store.isSeen("myhome:contract-202", reopenedMyHome.canonicalGroupKey),
+        ),
+        true,
+      );
       assert.equal(reopenedMyHome.myhomeEvidence?.typeVerified, true);
       assert.equal(
         (await Effect.runPromise(store.listListingObservations("daft:contract-101")))

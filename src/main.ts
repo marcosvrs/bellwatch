@@ -19,12 +19,9 @@ import {
   type RuntimeMetrics,
 } from "./runtime-metrics.js";
 import {
-  formatPollError,
-  publishToAll,
-  type NotificationPublisher,
+  createNotificationDelivery,
+  type NotificationDeliveryAdapters,
 } from "./notifications.js";
-import type { DaftFinding } from "./daft/parser.js";
-import type { ListingSource } from "./listings.js";
 
 const formatRuntimeMetrics = (
   metrics: RuntimeMetrics,
@@ -88,6 +85,31 @@ const program = Effect.gen(function* () {
     });
     return dublinBoundaryPromise;
   };
+  const requireHermesConfig = () => {
+    const hermes = config.hermes;
+    if (hermes === undefined) {
+      throw new Error("Hermes backend configuration is missing");
+    }
+    return hermes;
+  };
+  const notificationAdapters: NotificationDeliveryAdapters = {
+    shoutrrr: {
+      finding: (finding, source) =>
+        publishFinding(config.shoutrrr, finding, source),
+      message: (title, message) =>
+        publishMessage(config.shoutrrr, title, message),
+    },
+    hermes: {
+      finding: (finding, source) =>
+        publishHermesFinding(requireHermesConfig(), finding, source),
+      message: (message) =>
+        publishHermesMessage(requireHermesConfig(), message),
+    },
+  };
+  const notificationDelivery = createNotificationDelivery(
+    config.notificationBackends,
+    notificationAdapters,
+  );
   const dependencies = {
     fetchPage: (url: string) => fetchDaftPayload(config, url),
     fetchMyHomePage: (url: string) =>
@@ -121,41 +143,8 @@ const program = Effect.gen(function* () {
             ? cause
             : new Error("SearXNG request failed", { cause }),
       }),
-    publish: (finding: DaftFinding, source: ListingSource) => {
-      const publishers: NotificationPublisher[] = [];
-      if (config.notificationBackends.includes("shoutrrr")) {
-        publishers.push(() =>
-          publishFinding(config.shoutrrr, finding, source),
-        );
-      }
-      if (config.notificationBackends.includes("hermes")) {
-        const hermes = config.hermes;
-        if (hermes === undefined) {
-          throw new Error("Hermes backend configuration is missing");
-        }
-        publishers.push(() =>
-          publishHermesFinding(hermes, finding, source),
-        );
-      }
-      return publishToAll(publishers);
-    },
-    publishError: (error: Error) => {
-      const message = formatPollError(error);
-      const publishers: NotificationPublisher[] = [];
-      if (config.notificationBackends.includes("shoutrrr")) {
-        publishers.push(() =>
-          publishMessage(config.shoutrrr, "Bellwatch error", message),
-        );
-      }
-      if (config.notificationBackends.includes("hermes")) {
-        const hermes = config.hermes;
-        if (hermes === undefined) {
-          throw new Error("Hermes backend configuration is missing");
-        }
-        publishers.push(() => publishHermesMessage(hermes, message));
-      }
-      return publishToAll(publishers);
-    },
+    publish: notificationDelivery.publish,
+    publishError: notificationDelivery.publishError,
     state,
     heartbeat: () => writeHeartbeat(config.state.heartbeatFile),
   };
