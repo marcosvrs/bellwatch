@@ -104,7 +104,7 @@ npm exec --offline -- alchemy deploy
 
 ## Runtime/Tooling Preferences
 
-- Use Node.js **24.21.0** (`.node-version`) with npm and the committed `package-lock.json`. `package.json` requires Node `>=24`.
+- Use Node.js **24.22.1** (`.node-version`) with npm and the committed `package-lock.json`. `package.json` requires Node `>=24`.
 - TypeScript 7 is supplied by `@typescript/native`; the `typescript` dependency is a TypeScript 6 compatibility alias for tooling. Do not casually replace either alias.
 - `.npmrc` pins the npm registry, disables funding prompts, audits dependencies, and ignores lifecycle scripts. Use `npm ci --ignore-scripts`; use `npm exec --offline -- ...` instead of `npx`.
 - On macOS use Apple’s native `container` CLI. Linux CI and Jarvis use Docker. Override E2E selection with `CONTAINER_CLI` when necessary.
