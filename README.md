@@ -532,7 +532,7 @@ resource-name overrides.
 
 ## Development and validation
 
-Maintainers should use Node.js **24.21.0** from [`.node-version`](.node-version).
+Maintainers should use Node.js **24.22.1** from [`.node-version`](.node-version).
 The repository uses npm, strict TypeScript, Effect, and Node's built-in test
 runner; tests are bundled with esbuild, so no TypeScript runtime loader is
 needed.
